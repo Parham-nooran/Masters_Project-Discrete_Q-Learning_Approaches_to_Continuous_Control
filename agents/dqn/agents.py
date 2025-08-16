@@ -38,3 +38,39 @@ def make_epsilon_greedy_policy(q_values, epsilon, decouple=False):
         else:
             return q_max.argmax(dim=1)
 
+
+class ActionDiscretizer:
+    """Handles continuous to discrete action conversion."""
+
+    def __init__(self, action_spec, num_bins, decouple=False):
+        self.num_bins = num_bins
+        self.decouple = decouple
+        self.action_min = action_spec.low if hasattr(action_spec, 'low') else action_spec['low']
+        self.action_max = action_spec.high if hasattr(action_spec, 'high') else action_spec['high']
+        self.action_dim = len(self.action_min)
+
+        if decouple:
+            # Per-dimension discretization
+            self.action_bins = np.linspace(self.action_min, self.action_max, num_bins).T
+        else:
+            # Joint discretization - create all combinations
+            bins_per_dim = [np.linspace(self.action_min[i], self.action_max[i], num_bins)
+                            for i in range(self.action_dim)]
+            self.action_bins = list(itertools.product(*bins_per_dim))
+
+    def discrete_to_continuous(self, discrete_actions):
+        """Convert discrete actions to continuous."""
+        if self.decouple:
+            # discrete_actions shape: [batch_size, action_dim]
+            continuous_actions = []
+            for b in range(discrete_actions.shape[0]):
+                action = []
+                for dim in range(discrete_actions.shape[1]):
+                    bin_idx = discrete_actions[b, dim].item()
+                    action.append(self.action_bins[dim][bin_idx])
+                continuous_actions.append(action)
+            return np.array(continuous_actions)
+        else:
+            # discrete_actions shape: [batch_size]
+            return np.array([self.action_bins[a.item()] for a in discrete_actions])
+
