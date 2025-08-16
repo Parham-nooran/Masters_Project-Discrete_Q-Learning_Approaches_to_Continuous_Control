@@ -84,7 +84,49 @@ class PrioritizedReplayBuffer:
 
         # Convert to tensors
         obs = torch.stack([torch.FloatTensor(t.obs) for t in batch])
-        actions = torch.LongTensor([t.action for t in batch])
+
+        # Handle actions - ensure consistent shape handling
+        actions_list = []
+        for t in batch:
+            if isinstance(t.action, np.ndarray):
+                action = t.action
+            else:
+                action = np.array(t.action)
+
+            # Ensure action has the right shape
+            if action.ndim == 0:  # scalar
+                action = np.array([action])
+            elif action.ndim == 1 and len(action) == 1:
+                # If it's a 1D array with single element, might need to expand for decoupled case
+                # This will be handled when we know the expected shape
+                pass
+
+            actions_list.append(action)
+
+        # Convert actions to tensor with proper shape handling
+        # First, check if all actions have the same shape
+        action_shapes = [a.shape for a in actions_list]
+        if len(set(action_shapes)) == 1:
+            # All actions have same shape - simple case
+            actions = torch.LongTensor(np.array(actions_list))
+        else:
+            # Different shapes - need to handle carefully
+            max_dims = max(len(shape) for shape in action_shapes)
+            if max_dims == 1:
+                # All are 1D but different lengths - pad or truncate as needed
+                max_len = max(shape[0] for shape in action_shapes)
+                padded_actions = []
+                for action in actions_list:
+                    if len(action) < max_len:
+                        padded = np.pad(action, (0, max_len - len(action)), mode='constant')
+                        padded_actions.append(padded)
+                    else:
+                        padded_actions.append(action[:max_len])
+                actions = torch.LongTensor(np.array(padded_actions))
+            else:
+                # Mixed dimensions - convert all to same format
+                actions = torch.LongTensor(np.array(actions_list, dtype=object).tolist())
+
         rewards = torch.FloatTensor([t.n_step_return for t in batch])
         next_obs = torch.stack([torch.FloatTensor(t.next_obs) for t in batch])
         dones = torch.BoolTensor([t.done for t in batch])

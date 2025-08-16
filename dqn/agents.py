@@ -45,8 +45,21 @@ class ActionDiscretizer:
     def __init__(self, action_spec, num_bins, decouple=False):
         self.num_bins = num_bins
         self.decouple = decouple
-        self.action_min = action_spec.low if hasattr(action_spec, 'low') else action_spec['low']
-        self.action_max = action_spec.high if hasattr(action_spec, 'high') else action_spec['high']
+
+        # Handle different action_spec formats
+        if isinstance(action_spec, dict):
+            if 'low' in action_spec and 'high' in action_spec:
+                self.action_min = np.array(action_spec['low'])
+                self.action_max = np.array(action_spec['high'])
+            else:
+                raise ValueError(f"Invalid action_spec format: {action_spec}")
+        elif hasattr(action_spec, 'low') and hasattr(action_spec, 'high'):
+            # Handle gym-style Box spaces
+            self.action_min = action_spec.low
+            self.action_max = action_spec.high
+        else:
+            raise ValueError(f"Unsupported action_spec format: {type(action_spec)}")
+
         self.action_dim = len(self.action_min)
 
         if decouple:
@@ -60,19 +73,22 @@ class ActionDiscretizer:
 
     def discrete_to_continuous(self, discrete_actions):
         """Convert discrete actions to continuous."""
+        if isinstance(discrete_actions, torch.Tensor):
+            discrete_actions = discrete_actions.cpu().numpy()
+
         if self.decouple:
             # discrete_actions shape: [batch_size, action_dim]
             continuous_actions = []
             for b in range(discrete_actions.shape[0]):
                 action = []
                 for dim in range(discrete_actions.shape[1]):
-                    bin_idx = discrete_actions[b, dim].item()
+                    bin_idx = discrete_actions[b][dim]  # Use direct indexing
                     action.append(self.action_bins[dim][bin_idx])
                 continuous_actions.append(action)
             return np.array(continuous_actions)
         else:
             # discrete_actions shape: [batch_size]
-            return np.array([self.action_bins[a.item()] for a in discrete_actions])
+            return np.array([self.action_bins[a] for a in discrete_actions.flatten()])
 
 
 class DecQNAgent:
@@ -184,6 +200,38 @@ class DecQNAgent:
         # Convert discrete action back if needed
         self.replay_buffer.add(obs, action, reward, next_obs, done)
 
+    def save_checkpoint(self, path, episode):
+        """Save agent checkpoint."""
+        checkpoint = {
+            'episode': episode,
+            'q_network_state_dict': self.q_network.state_dict(),
+            'target_q_network_state_dict': self.target_q_network.state_dict(),
+            'q_optimizer_state_dict': self.q_optimizer.state_dict(),
+            'config': self.config,
+            'training_step': self.training_step
+        }
+
+        if self.encoder:
+            checkpoint['encoder_state_dict'] = self.encoder.state_dict()
+            checkpoint['encoder_optimizer_state_dict'] = self.encoder_optimizer.state_dict()
+
+        torch.save(checkpoint, path)
+
+    def load_checkpoint(self, path):
+        """Load agent checkpoint."""
+        checkpoint = torch.load(path, map_location=self.device)
+
+        self.q_network.load_state_dict(checkpoint['q_network_state_dict'])
+        self.target_q_network.load_state_dict(checkpoint['target_q_network_state_dict'])
+        self.q_optimizer.load_state_dict(checkpoint['q_optimizer_state_dict'])
+        self.training_step = checkpoint.get('training_step', 0)
+
+        if self.encoder and 'encoder_state_dict' in checkpoint:
+            self.encoder.load_state_dict(checkpoint['encoder_state_dict'])
+            self.encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer_state_dict'])
+
+        return checkpoint['episode']
+
     def update(self):
         """Update the agent."""
         if len(self.replay_buffer) < self.config.min_replay_size:
@@ -197,6 +245,7 @@ class DecQNAgent:
         obs, actions, rewards, next_obs, dones, discounts, weights, indices = batch
         obs, actions, rewards, next_obs, dones, discounts, weights = (
             x.to(self.device) for x in [obs, actions, rewards, next_obs, dones, discounts, weights])
+
 
         # Encode observations
         if self.encoder:
@@ -222,19 +271,18 @@ class DecQNAgent:
                 q_next_target = 0.5 * (q1_next_target + q2_next_target)  # Average Q-values
 
                 # Select values for each action dimension
-                q_target_values = []
-                for b in range(q_next_target.shape[0]):
-                    target_val = []
-                    for dim in range(next_actions.shape[1]):
-                        target_val.append(q_next_target[b, dim, next_actions[b, dim]].item())
-                    q_target_values.append(target_val)
-                q_target_values = torch.FloatTensor(q_target_values).to(self.device)
+                batch_indices = torch.arange(q_next_target.shape[0], device=self.device)
+                action_indices = torch.arange(next_actions.shape[1], device=self.device)
+
+                # Use advanced indexing to select Q-values for each action dimension
+                q_target_values = q_next_target[batch_indices.unsqueeze(1), action_indices.unsqueeze(0), next_actions]
 
                 # Expand rewards and discounts for decoupled case
-                rewards = rewards.unsqueeze(-1).expand(-1, actions.shape[1])
-                discounts = discounts.unsqueeze(-1).expand(-1, actions.shape[1])
+                rewards_expanded = rewards.unsqueeze(-1).expand(-1, actions.shape[1])
+                discounts_expanded = discounts.unsqueeze(-1).expand(-1, actions.shape[1])
+                dones_expanded = dones.unsqueeze(-1).expand(-1, actions.shape[1])
 
-                targets = rewards + discounts * q_target_values * ~dones.unsqueeze(-1)
+                targets = rewards_expanded + discounts_expanded * q_target_values * ~dones_expanded
             else:
                 # Standard case
                 next_actions = make_epsilon_greedy_policy((q1_next_online, q2_next_online), 0.0, False)
@@ -244,8 +292,22 @@ class DecQNAgent:
 
         # Current Q-values for selected actions
         if self.config.decouple:
-            q1_selected = q1_current.gather(2, actions.unsqueeze(2)).squeeze(2)
-            q2_selected = q2_current.gather(2, actions.unsqueeze(2)).squeeze(2)
+            # Ensure actions has the right shape for decoupled case
+            expected_action_dims = self.action_discretizer.action_dim
+
+            if actions.shape[1] != expected_action_dims:
+                # If actions is smaller than expected, expand it
+                if actions.shape[1] < expected_action_dims:
+                    # Repeat the action for missing dimensions
+                    actions_expanded = actions.repeat(1, expected_action_dims)[:, :expected_action_dims]
+                    actions = actions_expanded
+
+            batch_indices = torch.arange(q1_current.shape[0], device=self.device)
+            action_indices = torch.arange(actions.shape[1], device=self.device)
+
+            # Use advanced indexing to select Q-values for each action dimension
+            q1_selected = q1_current[batch_indices.unsqueeze(1), action_indices.unsqueeze(0), actions]
+            q2_selected = q2_current[batch_indices.unsqueeze(1), action_indices.unsqueeze(0), actions]
         else:
             q1_selected = q1_current.gather(1, actions.unsqueeze(1)).squeeze(1)
             q2_selected = q2_current.gather(1, actions.unsqueeze(1)).squeeze(1)

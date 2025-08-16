@@ -92,10 +92,10 @@ class CustomDiscreteFeedForwardActor:
                     else:
                         action_per_dim.append(q_max[b, dim].argmax().item())
                 actions.append(action_per_dim)
-            return torch.LongTensor(actions).to(self.device)
+            return torch.LongTensor(actions)  # Remove .to(self.device) here
         else:
             # Standard epsilon-greedy
             if random.random() < self.epsilon:
-                return torch.randint(0, q_max.shape[1], (batch_size,)).to(self.device)
+                return torch.randint(0, q_max.shape[1], (batch_size,))
             else:
                 return q_max.argmax(dim=1)

@@ -1,6 +1,7 @@
 import torch.nn as nn
 from networks import LayerNormAndResidualMLP, LayerNormMLP
 
+
 class CriticDQN(nn.Module):
     """Double Q-network critic for DecQN."""
 
@@ -10,15 +11,28 @@ class CriticDQN(nn.Module):
         self.decouple = config.decouple
         self.num_bins = config.num_bins
 
+        # Extract action dimensions from action_spec
+        if isinstance(action_spec, dict):
+            # Handle dict format like {'low': array, 'high': array}
+            if 'low' in action_spec and 'high' in action_spec:
+                self.action_dims = len(action_spec['low'])
+            else:
+                raise ValueError(f"Invalid action_spec format: {action_spec}")
+        elif hasattr(action_spec, 'shape'):
+            # Handle numpy array or similar with shape attribute
+            self.action_dims = action_spec.shape[0] if len(action_spec.shape) > 0 else 1
+        elif hasattr(action_spec, '__len__'):
+            # Handle list/tuple
+            self.action_dims = len(action_spec)
+        else:
+            # Handle scalar
+            self.action_dims = 1
+
         # Calculate output dimensions
         if config.decouple:
-            self.output_dim = config.num_bins * len(action_spec.shape) if hasattr(action_spec,
-                                                                                  'shape') else (config.num_bins *
-                                                                                                 action_spec)
-            self.action_dims = len(action_spec.shape) if hasattr(action_spec, 'shape') else action_spec
+            self.output_dim = config.num_bins * self.action_dims
         else:
-            self.output_dim = config.num_bins ** (
-                len(action_spec.shape) if hasattr(action_spec, 'shape') else action_spec)
+            self.output_dim = config.num_bins ** self.action_dims
 
         # Build networks
         if config.use_residual and not config.use_pixels:
