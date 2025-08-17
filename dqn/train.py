@@ -5,6 +5,7 @@ from config import Config
 from agents import DecQNAgent
 
 
+
 def train_decqn():
     """training function."""
     config = Config()
@@ -15,6 +16,12 @@ def train_decqn():
     # Device selection
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
+
+    # GPU optimizations
+    if device == 'cuda':
+        torch.cuda.empty_cache()
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
 
     # Mock environment setup - replace with actual environment
     obs_shape = (3, 84, 84) if config.use_pixels else (17,)  # Walker state dim
@@ -33,15 +40,26 @@ def train_decqn():
         # Mock episode - replace with actual environment interaction
         episode_reward = 0
 
-        # Mock observations - replace with actual environment
-        obs = np.random.random(obs_shape).astype(np.float32)
+        # Generate mock observations as tensors directly on device
+        if config.use_pixels:
+            # Mock RGB image data [0, 255]
+            obs = torch.randint(0, 256, obs_shape, device=device, dtype=torch.float32)
+        else:
+            # Mock state data
+            obs = torch.randn(obs_shape, device=device, dtype=torch.float32)
+
         agent.observe_first(obs)
 
         for step in range(100):  # Mock episode length
             action = agent.select_action(obs)
 
-            next_obs = np.random.random(obs_shape).astype(np.float32)
-            reward = np.random.random() - 0.5  # Mock reward
+            # Generate next observation
+            if config.use_pixels:
+                next_obs = torch.randint(0, 256, obs_shape, device=device, dtype=torch.float32)
+            else:
+                next_obs = torch.randn(obs_shape, device=device, dtype=torch.float32)
+
+            reward = torch.rand(1, device=device).item() - 0.5  # Mock reward
             done = step == 99
 
             agent.observe(action, reward, next_obs, done)
@@ -57,6 +75,10 @@ def train_decqn():
         if episode % 5 == 0:
             print(f"Episode {episode}, Reward: {episode_reward:.2f}")
 
+        # Clear GPU cache periodically
+        if episode % 10 == 0 and device == 'cuda':
+            torch.cuda.empty_cache()
+
         # Save checkpoint
         if episode % 100 == 0:
             checkpoint_path = f'./checkpoints/decqn_episode_{episode}.pth'
@@ -70,7 +92,6 @@ def train_decqn():
 
     print("Training completed!")
     return agent
-
 
 def save_checkpoint(agent, episode, path):
     """Save agent checkpoint."""

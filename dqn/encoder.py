@@ -29,6 +29,11 @@ class VisionEncoder(nn.Module):
         self.mlp = LayerNormMLP([conv_output_size, config.layer_size_bottleneck], activate_final=True)
 
     def forward(self, x):
-        x = x / 255.0 - 0.5  # Normalize to [-0.5, 0.5]
+        # Handle both normalized [0,1] and pixel [0,255] inputs
+        if x.max() > 1.0:
+            x = x / 255.0 - 0.5  # Normalize to [-0.5, 0.5] for [0,255] inputs
+        else:
+            x = x - 0.5  # Assume already normalized to [0,1], shift to [-0.5, 0.5]
+
         x = self.conv(x)
         return self.mlp(x)

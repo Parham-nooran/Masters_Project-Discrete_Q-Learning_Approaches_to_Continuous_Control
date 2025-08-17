@@ -46,7 +46,12 @@ class CustomDiscreteFeedForwardActor:
             Continuous action for the environment
         """
         if isinstance(observation, np.ndarray):
-            observation = torch.FloatTensor(observation).unsqueeze(0).to(self.device)
+            observation = torch.from_numpy(observation).float().unsqueeze(0).to(self.device)
+        elif isinstance(observation, torch.Tensor):
+            if observation.device != self.device:
+                observation = observation.to(self.device)
+            if len(observation.shape) < 2 or (self.encoder and len(observation.shape) == 3):
+                observation = observation.unsqueeze(0)
 
         with torch.no_grad():
             # Encode observation if using vision
@@ -64,11 +69,10 @@ class CustomDiscreteFeedForwardActor:
             # Convert to continuous action
             if self.action_discretizer:
                 continuous_action = self.action_discretizer.discrete_to_continuous(
-                    discrete_action.unsqueeze(0)
-                )[0]  # Remove batch dimension
-                return continuous_action
+                    discrete_action)[0]  # Remove batch dimension
+                return continuous_action.detach()
             else:
-                return discrete_action.cpu().numpy()[0]
+                return discrete_action[0]
 
     def _epsilon_greedy_action(self, q_values):
         """Apply epsilon-greedy policy to Q-values."""
@@ -92,10 +96,10 @@ class CustomDiscreteFeedForwardActor:
                     else:
                         action_per_dim.append(q_max[b, dim].argmax().item())
                 actions.append(action_per_dim)
-            return torch.LongTensor(actions)  # Remove .to(self.device) here
+            return torch.tensor(actions, device=self.device, dtype=torch.long)
         else:
             # Standard epsilon-greedy
             if random.random() < self.epsilon:
-                return torch.randint(0, q_max.shape[1], (batch_size,))
+                return torch.randint(0, q_max.shape[1], (batch_size,), device=self.device)
             else:
                 return q_max.argmax(dim=1)

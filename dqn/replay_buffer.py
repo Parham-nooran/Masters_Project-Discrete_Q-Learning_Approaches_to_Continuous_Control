@@ -27,6 +27,24 @@ class PrioritizedReplayBuffer:
 
     def add(self, obs, action, reward, next_obs, done):
         """Add transition with n-step returns."""
+        # Convert to CPU tensors for storage efficiency
+        if isinstance(obs, torch.Tensor):
+            obs = obs.cpu()
+        else:
+            obs = torch.tensor(obs, dtype=torch.float32)
+
+        if isinstance(next_obs, torch.Tensor):
+            next_obs = next_obs.cpu()
+        else:
+            next_obs = torch.tensor(next_obs, dtype=torch.float32)
+
+        if isinstance(action, torch.Tensor):
+            action = action.cpu()
+        elif isinstance(action, np.ndarray):
+            action = torch.from_numpy(action)
+        else:
+            action = torch.tensor(action)
+
         self.n_step_buffer.append((obs, action, reward, next_obs, done))
 
         if len(self.n_step_buffer) < self.n_step:
@@ -66,7 +84,7 @@ class PrioritizedReplayBuffer:
         if len(self.buffer) < batch_size:
             return None
 
-        # Calculate probabilities
+        # Calculate probabilities (keep numpy for efficiency)
         priorities = self.priorities[:len(self.buffer)]
         probs = priorities ** self.alpha
         probs = probs / probs.sum()
@@ -82,58 +100,52 @@ class PrioritizedReplayBuffer:
         # Get transitions
         batch = [self.buffer[idx] for idx in indices]
 
-        # Convert to tensors
-        obs = torch.stack([torch.FloatTensor(t.obs) for t in batch])
-
-        # Handle actions - ensure consistent shape handling
+        # Convert directly to tensors
+        obs_list = []
         actions_list = []
+        rewards_list = []
+        next_obs_list = []
+        dones_list = []
+        discounts_list = []
+
         for t in batch:
-            if isinstance(t.action, np.ndarray):
-                action = t.action
-            else:
-                action = np.array(t.action)
+            obs_list.append(t.obs)
+            actions_list.append(t.action)
+            rewards_list.append(t.n_step_return)
+            next_obs_list.append(t.next_obs)
+            dones_list.append(t.done)
+            discounts_list.append(t.n_step_discount)
 
-            # Ensure action has the right shape
-            if action.ndim == 0:  # scalar
-                action = np.array([action])
-            elif action.ndim == 1 and len(action) == 1:
-                # If it's a 1D array with single element, might need to expand for decoupled case
-                # This will be handled when we know the expected shape
-                pass
+        # Stack tensors
+        obs = torch.stack(obs_list)
+        next_obs = torch.stack(next_obs_list)
 
-            actions_list.append(action)
-
-        # Convert actions to tensor with proper shape handling
-        # First, check if all actions have the same shape
-        action_shapes = [a.shape for a in actions_list]
-        if len(set(action_shapes)) == 1:
-            # All actions have same shape - simple case
-            actions = torch.LongTensor(np.array(actions_list))
+        # Handle actions with proper shape
+        if all(a.shape == actions_list[0].shape for a in actions_list):
+            actions = torch.stack(actions_list)
         else:
-            # Different shapes - need to handle carefully
-            max_dims = max(len(shape) for shape in action_shapes)
-            if max_dims == 1:
-                # All are 1D but different lengths - pad or truncate as needed
-                max_len = max(shape[0] for shape in action_shapes)
-                padded_actions = []
-                for action in actions_list:
-                    if len(action) < max_len:
-                        padded = np.pad(action, (0, max_len - len(action)), mode='constant')
-                        padded_actions.append(padded)
-                    else:
-                        padded_actions.append(action[:max_len])
-                actions = torch.LongTensor(np.array(padded_actions))
-            else:
-                # Mixed dimensions - convert all to same format
-                actions = torch.LongTensor(np.array(actions_list, dtype=object).tolist())
+            # Handle different action shapes by padding to max dimensions
+            max_shape = max(a.shape for a in actions_list)
+            padded_actions = []
+            for action in actions_list:
+                if action.shape != max_shape:
+                    # Pad or expand to match max shape
+                    if len(action.shape) == 0:  # scalar
+                        action = action.unsqueeze(0)
+                    if action.shape[0] < max_shape[0]:
+                        padding = [0] * (len(action.shape) * 2)
+                        padding[-1] = max_shape[0] - action.shape[0]
+                        action = torch.nn.functional.pad(action, padding)
+                padded_actions.append(action)
+            actions = torch.stack(padded_actions)
 
-        rewards = torch.FloatTensor([t.n_step_return for t in batch])
-        next_obs = torch.stack([torch.FloatTensor(t.next_obs) for t in batch])
-        dones = torch.BoolTensor([t.done for t in batch])
-        discounts = torch.FloatTensor([t.n_step_discount for t in batch])
-        weights = torch.FloatTensor(weights)
+        rewards = torch.tensor(rewards_list, dtype=torch.float32)
+        dones = torch.tensor(dones_list, dtype=torch.bool)
+        discounts = torch.tensor(discounts_list, dtype=torch.float32)
+        weights = torch.tensor(weights, dtype=torch.float32)
 
         return obs, actions, rewards, next_obs, dones, discounts, weights, indices
+
 
     def update_priorities(self, indices, priorities):
         """Update priorities based on TD errors."""
