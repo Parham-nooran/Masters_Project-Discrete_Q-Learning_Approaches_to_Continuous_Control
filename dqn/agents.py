@@ -1,14 +1,26 @@
-import itertools
 import random
-
-import torch.nn.functional as F
 import torch.optim as optim
-
 from actors import CustomDiscreteFeedForwardActor
 from critic import *
 from encoder import *
 from replay_buffer import *
 
+
+def huber_loss(td_error, huber_loss_parameter=1.0):
+    """
+    Huber loss implementation matching TensorFlow's acme.tf.losses.huber
+
+    Args:
+        td_error: Temporal difference error tensor
+        huber_loss_parameter: Threshold for switching from quadratic to linear loss
+
+    Returns:
+        Huber loss tensor
+    """
+    abs_error = torch.abs(td_error)
+    quadratic = torch.minimum(abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device))
+    linear = abs_error - quadratic
+    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
 
 class ActionDiscretizer:
     """Handles continuous to discrete action conversion."""
@@ -176,7 +188,7 @@ class DecQNAgent:
                 bins = self.action_discretizer.action_bins[dim].cpu().numpy()
                 closest_idx = np.argmin(np.abs(bins - continuous_action[dim]))
                 discrete_action.append(closest_idx)
-            return np.array(discrete_action)
+            return np.array(discrete_action, dtype=np.int64)
         else:
             # Find closest action in joint space
             action_bins_cpu = self.action_discretizer.action_bins.cpu().numpy()
@@ -292,12 +304,12 @@ class DecQNAgent:
                 next_actions = self.make_epsilon_greedy_policy((q1_next_online, q2_next_online), 0.0, True)
                 q_next_target = 0.5 * (q1_next_target + q2_next_target)  # Average Q-values
 
-                # Select values for each action dimension
-                batch_indices = torch.arange(q_next_target.shape[0], device=self.device)
-                action_indices = torch.arange(next_actions.shape[1], device=self.device)
+                # For decoupled actions, each dimension is selected independently
+                batch_size, action_dim = next_actions.shape
+                q_target_values = torch.zeros(batch_size, action_dim, device=self.device)
+                for dim in range(action_dim):
+                    q_target_values[:, dim] = q_next_target[:, dim, next_actions[:, dim]]
 
-                # Use advanced indexing to select Q-values for each action dimension
-                q_target_values = q_next_target[batch_indices.unsqueeze(1), action_indices.unsqueeze(0), next_actions]
 
                 # Expand rewards and discounts for decoupled case
                 rewards_expanded = rewards.unsqueeze(-1).expand(-1, actions.shape[1])
@@ -343,16 +355,13 @@ class DecQNAgent:
             td_error2 = td_error2.mean(dim=1)
 
         # Huber loss
-        loss1 = F.smooth_l1_loss(q1_selected, targets, reduction='none')
-        loss2 = F.smooth_l1_loss(q2_selected, targets, reduction='none')
+        loss1 = huber_loss(td_error1, self.config.get('huber_loss_parameter', 1.0))
+        loss2 = huber_loss(td_error2, self.config.get('huber_loss_parameter', 1.0)) if self.config.use_double_q else torch.zeros_like(loss1)
 
-        if self.config.decouple:
-            loss1 = loss1.mean(dim=1)
-            loss2 = loss2.mean(dim=1)
 
         # Apply importance sampling weights
         loss1 = (loss1 * weights).mean()
-        loss2 = (loss2 * weights).mean() if self.config.use_double_q else 0
+        loss2 = (loss2 * weights).mean()
 
         total_loss = loss1 + loss2
 

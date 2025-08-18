@@ -13,7 +13,7 @@ class CustomDiscreteFeedForwardActor:
     """
 
     def __init__(self, policy_network, encoder=None, action_discretizer=None, epsilon=0.1, decouple=False,
-                 device='cpu'):
+                 device='cuda' if torch.cuda.is_available() else 'cpu'):
         """
         Args:
             policy_network: The Q-network that outputs Q-values
@@ -77,29 +77,21 @@ class CustomDiscreteFeedForwardActor:
     def _epsilon_greedy_action(self, q_values):
         """Apply epsilon-greedy policy to Q-values."""
         q1, q2 = q_values
-
-        if isinstance(q_values, tuple):  # Double Q
-            q_max = torch.max(q1, q2)
-        else:
-            q_max = q1
-
-        batch_size = q_max.shape[0]
+        q_combined = torch.max(q1, q2)
+        batch_size = q_combined.shape[0]
 
         if self.decouple:
-            # For decoupled actions, sample each dimension independently
-            actions = []
-            for b in range(batch_size):
-                action_per_dim = []
-                for dim in range(q_max.shape[1]):
-                    if random.random() < self.epsilon:
-                        action_per_dim.append(random.randint(0, q_max.shape[2] - 1))
-                    else:
-                        action_per_dim.append(q_max[b, dim].argmax().item())
-                actions.append(action_per_dim)
-            return torch.tensor(actions, device=self.device, dtype=torch.long)
+            # For decoupled actions, each dimension is selected independently
+            actions = torch.zeros(batch_size, q_combined.shape[1], dtype=torch.long, device=self.device)
+            for dim in range(q_combined.shape[1]):
+                if random.random() < self.epsilon:
+                    actions[:, dim] = torch.randint(0, q_combined.shape[2], (batch_size,), device=self.device)
+                else:
+                    actions[:, dim] = q_combined[:, dim].argmax(dim=1)
+            return actions
         else:
             # Standard epsilon-greedy
             if random.random() < self.epsilon:
-                return torch.randint(0, q_max.shape[1], (batch_size,), device=self.device)
+                return torch.randint(0, q_combined.shape[1], (batch_size,), device=self.device)
             else:
-                return q_max.argmax(dim=1)
+                return q_combined.argmax(dim=1)

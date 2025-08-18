@@ -50,34 +50,74 @@ class PrioritizedReplayBuffer:
         if len(self.n_step_buffer) < self.n_step:
             return
 
-        # Calculate n-step return
-        n_step_return = 0.0
-        n_step_discount = 1.0
+        if done:
+            # Process remaining transitions properly when episode ends
+            while len(self.n_step_buffer) > 0:
+                current_len = len(self.n_step_buffer)
 
-        for i, (_, _, r, _, d) in enumerate(self.n_step_buffer):
-            n_step_return += n_step_discount * r
-            n_step_discount *= self.discount
-            if d:
-                break
+                # Calculate n-step return for current transition
+                n_step_return = 0.0
+                n_step_discount = 1.0
 
-        # Get transition to store
-        obs_0, action_0, _, _, _ = self.n_step_buffer[0]
-        _, _, _, next_obs_n, done_n = self.n_step_buffer[-1]
+                for i in range(min(current_len, self.n_step)):
+                    _, _, r, _, d = self.n_step_buffer[i]
+                    n_step_return += n_step_discount * r
+                    n_step_discount *= self.discount
+                    if d:
+                        break
 
-        transition = Transition(obs_0, action_0, reward, next_obs_n, done_n, n_step_return, n_step_discount)
+                # Get the correct transition components
+                obs_0, action_0, reward_0, _, _ = self.n_step_buffer[0]
 
-        # Store in buffer
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(transition)
-        else:
-            self.buffer[self.position] = transition
+                # For next_obs, use the observation from the appropriate step
+                if current_len < self.n_step:
+                    _, _, _, next_obs_n, done_n = self.n_step_buffer[current_len - 1]
+                else:
+                    _, _, _, next_obs_n, done_n = self.n_step_buffer[self.n_step - 1]
 
-        # Set priority
-        self.priorities[self.position] = self.max_priority
-        self.position = (self.position + 1) % self.capacity
+                transition = Transition(obs_0, action_0, reward_0, next_obs_n, done_n, n_step_return, n_step_discount)
 
-        # Remove processed transition
-        self.n_step_buffer.pop(0)
+                # Store and update position
+                if len(self.buffer) < self.capacity:
+                    self.buffer.append(transition)
+                else:
+                    self.buffer[self.position] = transition
+
+                self.priorities[self.position] = self.max_priority
+                self.position = (self.position + 1) % self.capacity
+
+                # Remove the processed transition
+                self.n_step_buffer.pop(0)
+        # Regular n-step processing when buffer is full
+        elif len(self.n_step_buffer) == self.n_step:
+            # Calculate n-step return
+            n_step_return = 0.0
+            n_step_discount = 1.0
+
+            for i in range(self.n_step):
+                _, _, r, _, d = self.n_step_buffer[i]
+                n_step_return += n_step_discount * r
+                n_step_discount *= self.discount
+                if d:
+                    break
+
+            # Get transition components
+            obs_0, action_0, reward_0, _, _ = self.n_step_buffer[0]
+            _, _, _, next_obs_n, done_n = self.n_step_buffer[-1]
+
+            transition = Transition(obs_0, action_0, reward_0, next_obs_n, done_n, n_step_return, n_step_discount)
+
+            # Store transition
+            if len(self.buffer) < self.capacity:
+                self.buffer.append(transition)
+            else:
+                self.buffer[self.position] = transition
+
+            self.priorities[self.position] = self.max_priority
+            self.position = (self.position + 1) % self.capacity
+
+            # Remove the oldest transition from n_step_buffer
+            self.n_step_buffer.pop(0)
 
     def sample(self, batch_size):
         """Sample batch with prioritized sampling."""
