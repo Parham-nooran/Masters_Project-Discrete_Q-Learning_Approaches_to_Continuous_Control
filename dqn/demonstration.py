@@ -2,11 +2,10 @@ import numpy as np
 import torch
 import argparse
 import os
-from config import Config
 from agents import DecQNAgent
 
 
-def load_checkpoint(checkpoint_path, device='cpu'):
+def load_checkpoint(checkpoint_path, device='cuda' if torch.cuda.is_available() else 'cpu'):
     """Load agent from checkpoint."""
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -35,7 +34,7 @@ def load_checkpoint(checkpoint_path, device='cpu'):
     return agent
 
 
-def demonstrate(checkpoint_path, num_episodes=5, device='cpu'):
+def demonstrate(checkpoint_path, num_episodes=5, device='cuda' if torch.cuda.is_available() else 'cpu'):
     """Run demonstration episodes."""
     print(f"Loading checkpoint: {checkpoint_path}")
     print(f"Using device: {device}")
