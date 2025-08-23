@@ -25,22 +25,22 @@ def huber_loss(td_error, huber_loss_parameter=1.0):
 class ActionDiscretizer:
     """Handles continuous to discrete action conversion."""
 
-    def __init__(self, action_spec, num_bins, decouple=False, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, action_spec, num_bins, decouple=False):
         self.num_bins = num_bins
         self.decouple = decouple
-        self.device = device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Handle different action_spec formats
         if isinstance(action_spec, dict):
             if 'low' in action_spec and 'high' in action_spec:
-                self.action_min = torch.tensor(action_spec['low'], dtype=torch.float32, device=device)
-                self.action_max = torch.tensor(action_spec['high'], dtype=torch.float32, device=device)
+                self.action_min = torch.tensor(action_spec['low'], dtype=torch.float32, device=self.device)
+                self.action_max = torch.tensor(action_spec['high'], dtype=torch.float32, device=self.device)
             else:
                 raise ValueError(f"Invalid action_spec format: {action_spec}")
         elif hasattr(action_spec, 'low') and hasattr(action_spec, 'high'):
             # Handle gym-style Box spaces
-            self.action_min = torch.tensor(action_spec.low, dtype=torch.float32, device=device)
-            self.action_max = torch.tensor(action_spec.high, dtype=torch.float32, device=device)
+            self.action_min = torch.tensor(action_spec.low, dtype=torch.float32, device=self.device)
+            self.action_max = torch.tensor(action_spec.high, dtype=torch.float32, device=self.device)
         else:
             raise ValueError(f"Unsupported action_spec format: {type(action_spec)}")
 
@@ -50,14 +50,13 @@ class ActionDiscretizer:
             # Per-dimension discretization - create bins for each dimension separately
             self.action_bins = []
             for dim in range(self.action_dim):
-                bins = torch.linspace(self.action_min[dim], self.action_max[dim], num_bins, device=device)
+                bins = torch.linspace(self.action_min[dim], self.action_max[dim], num_bins, device=self.device)
                 self.action_bins.append(bins)
             self.action_bins = torch.stack(self.action_bins)  # Shape: [action_dim, num_bins]
         else:
-            # Joint discretization - create all combinations
-            bins_per_dim = [torch.linspace(self.action_min[i], self.action_max[i], num_bins, device=device)
-                            for i in range(self.action_dim)]
-            # Create cartesian product
+            bins_per_dim = torch.stack([torch.linspace(self.action_min[i], self.action_max[i], num_bins, device=self.device)
+                                        for i in range(self.action_dim)])
+            # Create cartesian product more efficiently
             mesh = torch.meshgrid(*bins_per_dim, indexing='ij')
             self.action_bins = torch.stack([m.flatten() for m in mesh], dim=1)
 
@@ -91,33 +90,23 @@ class ActionDiscretizer:
 class DecQNAgent:
     """DecQN Agent with PyTorch implementation."""
 
-    def __init__(self, config, obs_shape, action_spec, device='cpu'):
+    def __init__(self, config, obs_shape, action_spec):
         self.config = config
-        self.device = device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.obs_shape = obs_shape
         self.action_spec = action_spec
-
-        # Action discretization
-        self.action_discretizer = ActionDiscretizer(action_spec, config.num_bins, config.decouple, device=device)
-
-        # Networks
+        self.action_discretizer = ActionDiscretizer(action_spec, config.num_bins, config.decouple)
         if config.use_pixels:
-            self.encoder = VisionEncoder(config, config.num_pixels).to(device)
+            self.encoder = VisionEncoder(config, config.num_pixels).to(self.device)
             encoder_output_size = config.layer_size_bottleneck
             self.encoder_optimizer = optim.Adam(self.encoder.parameters(), lr=config.learning_rate)
         else:
             self.encoder = None
             encoder_output_size = np.prod(obs_shape)
-
-        # Q-networks
-        self.q_network = CriticDQN(config, encoder_output_size, action_spec).to(device)
-        self.target_q_network = CriticDQN(config, encoder_output_size, action_spec).to(device)
+        self.q_network = CriticDQN(config, encoder_output_size, action_spec).to(self.device)
+        self.target_q_network = CriticDQN(config, encoder_output_size, action_spec).to(self.device)
         self.target_q_network.load_state_dict(self.q_network.state_dict())
-
-        # Optimizers
         self.q_optimizer = optim.Adam(self.q_network.parameters(), lr=config.learning_rate)
-
-        # Replay buffer
         self.replay_buffer = PrioritizedReplayBuffer(
             capacity=config.max_replay_size,
             alpha=config.priority_exponent,
@@ -125,29 +114,29 @@ class DecQNAgent:
             n_step=config.adder_n_step,
             discount=config.discount
         )
-
-        # Create actors for training and evaluation
         self.actor = CustomDiscreteFeedForwardActor(
             policy_network=self.q_network,
             encoder=self.encoder,
             action_discretizer=self.action_discretizer,
             epsilon=config.epsilon,
-            decouple=config.decouple,
-            device=device
+            decouple=config.decouple
         )
-
         self.eval_actor = CustomDiscreteFeedForwardActor(
             policy_network=self.q_network,
             encoder=self.encoder,
             action_discretizer=self.action_discretizer,
             epsilon=0.0,  # No exploration during evaluation
-            decouple=config.decouple,
-            device=device
+            decouple=config.decouple
         )
 
         # Training state
         self.training_step = 0
         self.epsilon = config.epsilon
+
+    def update_epsilon(self, decay_rate=0.995, min_epsilon=0.01):
+        """Update epsilon for exploration decay."""
+        self.epsilon = max(min_epsilon, self.epsilon * decay_rate)
+        self.actor.epsilon = self.epsilon
 
     def select_action(self, obs, evaluate=False):
         """Select action using the appropriate actor."""
@@ -266,7 +255,7 @@ class DecQNAgent:
             return actions
         else:
             # Standard epsilon-greedy
-            if random.random() < epsilon:
+            if torch.rand(1).item() < epsilon:
                 return torch.randint(0, q_max.shape[1], (batch_size,), device=self.device)
             else:
                 return q_max.argmax(dim=1)
@@ -310,20 +299,30 @@ class DecQNAgent:
             q1_next_online, q2_next_online = self.q_network(next_obs_encoded)
 
             if self.config.decouple:
-                # For decoupled case: implement Equation 4 from paper
-                # yt = r(st, at) + γ * (Σⱼ maxₐⱼ Qⱼ(st+1, aⱼ)) / M
+                # Double DQN: select with online, evaluate with target
+                q1_next_online_reshaped = q1_next_online.view(q1_next_online.shape[0],
+                                                              self.action_discretizer.action_dim, -1)
+                q2_next_online_reshaped = q2_next_online.view(q2_next_online.shape[0],
+                                                              self.action_discretizer.action_dim, -1)
 
-                # Get max Q-values for each action dimension independently
-                q1_max_per_dim = q1_next_target.max(dim=2)[0]  # [batch, action_dims]
-                q2_max_per_dim = q2_next_target.max(dim=2)[0]  # [batch, action_dims]
+                q_next_online = 0.5 * (q1_next_online_reshaped + q2_next_online_reshaped)
+                next_actions = q_next_online.argmax(dim=2)
 
-                # Average the two Q-networks
-                q_max_per_dim = 0.5 * (q1_max_per_dim + q2_max_per_dim)
+                q1_target_reshaped = q1_next_target.view(q1_next_target.shape[0], self.action_discretizer.action_dim,
+                                                         -1)
+                q2_target_reshaped = q2_next_target.view(q2_next_target.shape[0], self.action_discretizer.action_dim,
+                                                         -1)
 
-                # Sum across dimensions and divide by M (value decomposition)
-                q_target_values = q_max_per_dim.sum(dim=1) / q_max_per_dim.shape[1]  # [batch]
+                batch_indices = torch.arange(q1_target_reshaped.shape[0], device=self.device)
+                dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
 
-                targets = rewards + discounts * q_target_values * ~dones
+                q1_selected = q1_target_reshaped[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
+                q2_selected = q2_target_reshaped[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
+
+                q_target_per_dim = 0.5 * (q1_selected + q2_selected)
+                q_target_values = q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+
+                targets = rewards + discounts * q_target_values * (~dones).float()
             else:
                 # Standard case
                 next_actions = self.make_epsilon_greedy_policy((q1_next_online, q2_next_online), 0.0, False)
@@ -336,16 +335,17 @@ class DecQNAgent:
             # For decoupled case: implement Equation 2 from paper
             # Q(st, at) = (Σⱼ Qⱼ(st, aⱼₜ)) / M
 
-            batch_indices = torch.arange(q1_current.shape[0], device=self.device)
-            dim_indices = torch.arange(q1_current.shape[1], device=self.device)
+            q1_reshaped = q1_current.view(q1_current.shape[0], self.action_discretizer.action_dim, -1)
+            q2_reshaped = q2_current.view(q2_current.shape[0], self.action_discretizer.action_dim, -1)
 
-            # Select Q-values for each dimension: [batch, action_dims]
-            q1_per_dim = q1_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
-            q2_per_dim = q2_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
+            batch_indices = torch.arange(q1_reshaped.shape[0], device=self.device)
+            dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
 
-            # Apply value decomposition: sum and divide by M
-            q1_selected = q1_per_dim.sum(dim=1) / q1_per_dim.shape[1]  # [batch]
-            q2_selected = q2_per_dim.sum(dim=1) / q2_per_dim.shape[1]  # [batch]
+            q1_per_dim = q1_reshaped[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
+            q2_per_dim = q2_reshaped[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
+
+            q1_selected = q1_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+            q2_selected = q2_per_dim.sum(dim=1) / self.action_discretizer.action_dim
         else:
             if len(actions.shape) > 1:
                 actions = actions.squeeze(-1)
@@ -360,10 +360,9 @@ class DecQNAgent:
         loss1 = huber_loss(td_error1, self.config.get('huber_loss_parameter', 1.0))
         loss2 = huber_loss(td_error2, self.config.get('huber_loss_parameter', 1.0)) if self.config.use_double_q else torch.zeros_like(loss1)
 
-
-        # Apply importance sampling weights
-        loss1 = (loss1 * weights).mean()
-        loss2 = (loss2 * weights).mean()
+        # Apply importance sampling weights properly
+        loss1 = (loss1 * weights).sum() / weights.sum()
+        loss2 = (loss2 * weights).sum() / weights.sum() if self.config.use_double_q else torch.zeros_like(loss1)
 
         total_loss = loss1 + loss2
 

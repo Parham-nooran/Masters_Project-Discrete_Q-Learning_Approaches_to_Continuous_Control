@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
-from typing import List
+from typing import List, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy import floating
 
 
 class MetricsTracker:
@@ -66,7 +67,7 @@ class MetricsTracker:
             self.q_values = metrics.get('q_values', [])
             self.epsilon_values = metrics.get('epsilon_values', [])
 
-    def get_running_average(self, values: List[float], window: int = 100) -> List[float]:
+    def get_running_average(self, values: List[float], window: int = 100) -> list[floating[Any]] | list[Any]:
         """Calculate running average with given window size."""
         if len(values) < window:
             return [np.mean(values[:i + 1]) for i in range(len(values))]

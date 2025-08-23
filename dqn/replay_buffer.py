@@ -6,6 +6,63 @@ Transition = namedtuple('Transition',
                         ['obs', 'action', 'reward', 'next_obs', 'done', 'n_step_return', 'n_step_discount'])
 
 
+def stack_actions(actions_list):
+    try:
+        return torch.stack(actions_list)
+    except RuntimeError:
+        # Handle mixed shapes - find the target shape
+        shapes = [a.shape for a in actions_list]
+
+        # Check if all actions are scalars or 1D with different lengths
+        if all(len(shape) <= 1 for shape in shapes):
+            # Convert all to 1D tensors and find max length
+            max_len = max(a.numel() for a in actions_list)
+
+            padded_actions = []
+            for action in actions_list:
+                # Flatten to 1D
+                flat_action = action.flatten()
+                # Pad if necessary
+                if flat_action.numel() < max_len:
+                    padding = max_len - flat_action.numel()
+                    flat_action = torch.nn.functional.pad(flat_action, (0, padding))
+                padded_actions.append(flat_action)
+
+            return torch.stack(padded_actions)
+
+        else:
+            # Handle multi-dimensional case - pad to largest shape in each dimension
+            max_shape = list(shapes[0])
+            for shape in shapes[1:]:
+                for i, dim_size in enumerate(shape):
+                    if i < len(max_shape):
+                        max_shape[i] = max(max_shape[i], dim_size)
+                    else:
+                        max_shape.append(dim_size)
+
+            padded_actions = []
+            for action in actions_list:
+                current_shape = list(action.shape)
+
+                # Add missing dimensions
+                while len(current_shape) < len(max_shape):
+                    action = action.unsqueeze(-1)
+                    current_shape.append(1)
+
+                # Pad existing dimensions
+                pad_sizes = []
+                for i in range(len(max_shape)):
+                    pad_size = max_shape[-(i + 1)] - current_shape[-(i + 1)]
+                    pad_sizes.extend([0, pad_size])
+
+                if any(p > 0 for p in pad_sizes):
+                    action = torch.nn.functional.pad(action, pad_sizes)
+
+                padded_actions.append(action)
+
+            return torch.stack(padded_actions)
+
+
 class PrioritizedReplayBuffer:
     """Prioritized Experience Replay buffer."""
 
@@ -15,6 +72,7 @@ class PrioritizedReplayBuffer:
         self.beta = beta  # importance sampling exponent
         self.n_step = n_step
         self.discount = discount
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Storage
         self.buffer = []
@@ -27,19 +85,19 @@ class PrioritizedReplayBuffer:
 
     def add(self, obs, action, reward, next_obs, done):
         """Add transition with n-step returns."""
-        # Convert to CPU tensors for storage efficiency
+        # Convert to CPU tensors for storage efficiency - keep on CPU to save GPU memory
         if isinstance(obs, torch.Tensor):
-            obs = obs.cpu()
+            obs = obs.cpu().detach()
         else:
             obs = torch.tensor(obs, dtype=torch.float32)
 
         if isinstance(next_obs, torch.Tensor):
-            next_obs = next_obs.cpu()
+            next_obs = next_obs.cpu().detach()
         else:
             next_obs = torch.tensor(next_obs, dtype=torch.float32)
 
         if isinstance(action, torch.Tensor):
-            action = action.cpu()
+            action = action.cpu().detach()
         elif isinstance(action, np.ndarray):
             action = torch.from_numpy(action)
         else:
@@ -124,73 +182,40 @@ class PrioritizedReplayBuffer:
         if len(self.buffer) < batch_size:
             return None
 
+
         # Calculate probabilities (keep numpy for efficiency)
         priorities = self.priorities[:len(self.buffer)]
         probs = priorities ** self.alpha
         probs = probs / probs.sum()
 
-        # Sample indices
         indices = np.random.choice(len(self.buffer), batch_size, p=probs)
 
-        # Calculate importance sampling weights
         total = len(self.buffer)
         weights = (total * probs[indices]) ** (-self.beta)
-        weights = weights / weights.max()  # Normalize
+        weights = weights / weights.max()
 
-        # Get transitions
         batch = [self.buffer[idx] for idx in indices]
+        obs_list = [t.obs for t in batch]
+        next_obs_list = [t.next_obs for t in batch]
+        actions_list = [t.action for t in batch]
+        rewards_list = [t.n_step_return for t in batch]
+        dones_list = [t.done for t in batch]
+        discounts_list = [t.n_step_discount for t in batch]
 
-        # Convert directly to tensors
-        obs_list = []
-        actions_list = []
-        rewards_list = []
-        next_obs_list = []
-        dones_list = []
-        discounts_list = []
+        obs = torch.stack(obs_list).to(self.device, non_blocking=True)
+        next_obs = torch.stack(next_obs_list).to(self.device, non_blocking=True)
+        actions = stack_actions(actions_list)
+        rewards = torch.tensor(rewards_list, dtype=torch.float32, device=self.device)
+        dones = torch.tensor(dones_list, dtype=torch.bool, device=self.device)
+        discounts = torch.tensor(discounts_list, dtype=torch.float32, device=self.device)
+        weights_tensor = torch.tensor(weights, dtype=torch.float32, device=self.device)
 
-        for t in batch:
-            obs_list.append(t.obs)
-            actions_list.append(t.action)
-            rewards_list.append(t.n_step_return)
-            next_obs_list.append(t.next_obs)
-            dones_list.append(t.done)
-            discounts_list.append(t.n_step_discount)
-
-        # Stack tensors
-        obs = torch.stack(obs_list)
-        next_obs = torch.stack(next_obs_list)
-
-        # Handle actions with proper shape
-        if all(a.shape == actions_list[0].shape for a in actions_list):
-            actions = torch.stack(actions_list)
-        else:
-            # Handle different action shapes by padding to max dimensions
-            max_shape = max(a.shape for a in actions_list)
-            padded_actions = []
-            for action in actions_list:
-                if action.shape != max_shape:
-                    # Pad or expand to match max shape
-                    if len(action.shape) == 0:  # scalar
-                        action = action.unsqueeze(0)
-                    if action.shape[0] < max_shape[0]:
-                        padding = [0] * (len(action.shape) * 2)
-                        padding[-1] = max_shape[0] - action.shape[0]
-                        action = torch.nn.functional.pad(action, padding)
-                padded_actions.append(action)
-            actions = torch.stack(padded_actions)
-
-        rewards = torch.tensor(rewards_list, dtype=torch.float32)
-        dones = torch.tensor(dones_list, dtype=torch.bool)
-        discounts = torch.tensor(discounts_list, dtype=torch.float32)
-        weights = torch.tensor(weights, dtype=torch.float32)
-
-        return obs, actions, rewards, next_obs, dones, discounts, weights, indices
-
+        return obs, actions, rewards, next_obs, dones, discounts, weights_tensor, indices
 
     def update_priorities(self, indices, priorities):
         """Update priorities based on TD errors."""
         for idx, priority in zip(indices, priorities):
-            self.priorities[idx] = priority
+            self.priorities[idx] = max(priority, 1e-6)  # Avoid zero priorities
             self.max_priority = max(self.max_priority, priority)
 
     def __len__(self):

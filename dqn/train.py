@@ -1,6 +1,6 @@
 import os
 import time
-
+import gc
 import torch
 
 from agents import DecQNAgent
@@ -30,7 +30,7 @@ def train_decqn():
     obs_shape = (3, 84, 84) if config.use_pixels else (17,)  # Walker state dim
     action_spec = {'low': np.array([-1.0, -1.0]), 'high': np.array([1.0, 1.0])}  # 2D continuous
 
-    agent = DecQNAgent(config, obs_shape, action_spec, device=device)
+    agent = DecQNAgent(config, obs_shape, action_spec)
 
     # Create checkpoints directory
     os.makedirs('checkpoints', exist_ok=True)
@@ -99,6 +99,8 @@ def train_decqn():
             epsilon=agent.epsilon
         )
 
+        agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
+
         # Enhanced progress logging
         episode_time = time.time() - episode_start_time
         if episode % 5 == 0:
@@ -108,6 +110,7 @@ def train_decqn():
                   f"Q-mean: {avg_q_mean:6.3f} | "
                   f"Time: {episode_time:.2f}s | "
                   f"Buffer: {len(agent.replay_buffer):6d}")
+            torch.cuda.empty_cache()
 
         # Detailed logging every 25 episodes
         if episode % 25 == 0 and episode > 0:

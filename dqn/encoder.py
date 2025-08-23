@@ -29,6 +29,8 @@ class VisionEncoder(nn.Module):
         self.mlp = LayerNormMLP([conv_output_size, config.layer_size_bottleneck], activate_final=True)
 
     def forward(self, x):
+        if not x.is_cuda and next(self.parameters()).is_cuda:
+            x = x.cuda()
         # Handle both normalized [0,1] and pixel [0,255] inputs
         if x.max() > 1.0:
             x = x / 255.0 - 0.5  # Normalize to [-0.5, 0.5] for [0,255] inputs

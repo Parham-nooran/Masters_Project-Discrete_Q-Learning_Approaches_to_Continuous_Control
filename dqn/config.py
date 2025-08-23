@@ -13,7 +13,7 @@ class Config:
 
     # Algorithm
     algorithm: str = 'dqn'
-    num_bins: int = 3  # Changed to 3 for bang-off-bang control (paper default)
+    num_bins: int = 2  # Bang-bang control as per DecQN paper
 
     # Network
     layer_size_network: List[int] = None

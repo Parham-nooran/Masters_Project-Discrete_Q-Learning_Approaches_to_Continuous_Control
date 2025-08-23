@@ -12,8 +12,7 @@ class CustomDiscreteFeedForwardActor:
     and manages interaction with the replay buffer.
     """
 
-    def __init__(self, policy_network, encoder=None, action_discretizer=None, epsilon=0.1, decouple=False,
-                 device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, policy_network, encoder=None, action_discretizer=None, epsilon=0.1, decouple=False):
         """
         Args:
             policy_network: The Q-network that outputs Q-values
@@ -28,7 +27,7 @@ class CustomDiscreteFeedForwardActor:
         self.action_discretizer = action_discretizer
         self.epsilon = epsilon
         self.decouple = decouple
-        self.device = device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Set to evaluation mode by default
         self.policy_network.eval()
