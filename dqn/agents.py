@@ -213,6 +213,11 @@ class DecQNAgent:
     def load_checkpoint(self, path):
         """Load agent checkpoint."""
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        if 'replay_buffer_buffer' in checkpoint:
+            self.replay_buffer.buffer = checkpoint['replay_buffer_buffer']
+            self.replay_buffer.position = checkpoint['replay_buffer_position']
+            self.replay_buffer.priorities = checkpoint['replay_buffer_priorities']
+            self.replay_buffer.max_priority = checkpoint['replay_buffer_max_priority']
 
         self.q_network.load_state_dict(checkpoint['q_network_state_dict'])
         self.target_q_network.load_state_dict(checkpoint['target_q_network_state_dict'])

@@ -223,9 +223,13 @@ def save_checkpoint(agent, episode, path):
         'q_network_state_dict': agent.q_network.state_dict(),
         'target_q_network_state_dict': agent.target_q_network.state_dict(),
         'q_optimizer_state_dict': agent.q_optimizer.state_dict(),
-        'config_dict': config_dict,
+        'config': agent.config,
         'training_step': agent.training_step,
-        'epsilon': agent.epsilon
+        'epsilon': agent.epsilon,
+        'replay_buffer_buffer': agent.replay_buffer.buffer,
+        'replay_buffer_position': agent.replay_buffer.position,
+        'replay_buffer_priorities': agent.replay_buffer.priorities,
+        'replay_buffer_max_priority': agent.replay_buffer.max_priority
     }
 
     if agent.encoder:

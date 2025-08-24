@@ -67,8 +67,7 @@ class CustomDiscreteFeedForwardActor:
 
             # Convert to continuous action
             if self.action_discretizer:
-                continuous_action = self.action_discretizer.discrete_to_continuous(
-                    discrete_action)[0]  # Remove batch dimension
+                continuous_action = self.action_discretizer.discrete_to_continuous(discrete_action)[0]
                 return continuous_action.detach()
             else:
                 return discrete_action[0]
@@ -80,13 +79,8 @@ class CustomDiscreteFeedForwardActor:
         batch_size = q_combined.shape[0]
 
         if self.decouple:
-            # Each dimension and each batch element gets independent random decisions
-            actions = torch.zeros(batch_size, q_combined.shape[1], dtype=torch.long, device=self.device)
-
-            # Vectorized approach for efficiency
             random_mask = torch.rand(batch_size, q_combined.shape[1], device=self.device) < self.epsilon
 
-            # For exploration: random actions where mask is True
             num_actions = q_combined.shape[2]  # number of bins per dimension
             random_actions = torch.randint(0, num_actions, (batch_size, q_combined.shape[1]), device=self.device)
 
