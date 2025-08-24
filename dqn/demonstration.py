@@ -162,7 +162,7 @@ def main():
     parser.add_argument(
         "--checkpoints",
         type=str,
-        default="checkpoints/decqn_final.pth",
+        default="checkpoints/decqn_episode_100.pth",
         help="Path to checkpoints file",
     )
     parser.add_argument(
@@ -180,7 +180,7 @@ def main():
     else:
         device = args.device
 
-    demonstrate(args.checkpoint, args.episodes, device)
+    demonstrate(args.checkpoints, args.episodes, device)
 
 
 if __name__ == "__main__":

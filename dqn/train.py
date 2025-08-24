@@ -91,7 +91,7 @@ def train_decqn():
 
     # Handle checkpoints loading
     start_episode = 0
-    checkpoint_to_load = args.load_checkpoint
+    checkpoint_to_load = args.load_checkpoints
 
     # If no specific checkpoints provided, check for latest
     if checkpoint_to_load is None:

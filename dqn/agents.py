@@ -1,4 +1,3 @@
-import random
 import torch.optim as optim
 from actors import CustomDiscreteFeedForwardActor
 from critic import *
@@ -153,6 +152,7 @@ class DecQNAgent:
             n_step=config.adder_n_step,
             discount=config.discount,
         )
+        self.replay_buffer.device = self.device
         self.actor = CustomDiscreteFeedForwardActor(
             policy_network=self.q_network,
             encoder=self.encoder,
@@ -261,6 +261,7 @@ class DecQNAgent:
             self.replay_buffer.position = checkpoint["replay_buffer_position"]
             self.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
             self.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
+            self.replay_buffer.to_device(self.device)
 
         self.q_network.load_state_dict(checkpoint["q_network_state_dict"])
         self.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])

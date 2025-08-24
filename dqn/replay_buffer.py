@@ -85,21 +85,50 @@ class PrioritizedReplayBuffer:
         # N-step tracking
         self.n_step_buffer = []
 
+    def to_device(self, device):
+        """Move the replay buffer to the specified device."""
+        self.device = device
+        # Convert all stored tensors to the new device
+        new_buffer = []
+        for transition in self.buffer:
+            if transition is not None:
+                new_transition = Transition(
+                    obs=self._ensure_tensor_device(transition.obs, device),
+                    action=self._ensure_tensor_device(transition.action, device),
+                    reward=transition.reward,
+                    next_obs=self._ensure_tensor_device(transition.next_obs, device),
+                    done=transition.done,
+                    n_step_return=transition.n_step_return,
+                    n_step_discount=transition.n_step_discount
+                )
+                new_buffer.append(new_transition)
+            else:
+                new_buffer.append(None)
+        self.buffer = new_buffer
+
+    def _ensure_tensor_device(self, tensor, device):
+        """Ensure tensor is on the correct device."""
+        if isinstance(tensor, torch.Tensor):
+            return tensor.to(device)
+        return tensor
+
+    def _ensure_tensor_on_cpu(self, data):
+        """Convert data to tensor and ensure it's on CPU for storage."""
+        if isinstance(data, torch.Tensor):
+            return data.detach().cpu()
+        elif isinstance(data, np.ndarray):
+            return torch.from_numpy(data)
+        else:
+            return torch.tensor(data, dtype=torch.float32)
+
     def add(self, obs, action, reward, next_obs, done):
         """Add transition with n-step returns."""
-        # Convert to CPU tensors for storage efficiency - keep on CPU to save GPU memory
-        if isinstance(obs, torch.Tensor):
-            obs = obs.cpu().detach()
-        else:
-            obs = torch.tensor(obs, dtype=torch.float32)
-
-        if isinstance(next_obs, torch.Tensor):
-            next_obs = next_obs.cpu().detach()
-        else:
-            next_obs = torch.tensor(next_obs, dtype=torch.float32)
+        # Always store tensors on CPU for memory efficiency, but ensure they're detached
+        obs = self._ensure_tensor_on_cpu(obs)
+        next_obs = self._ensure_tensor_on_cpu(next_obs)
 
         if isinstance(action, torch.Tensor):
-            action = action.cpu().detach()
+            action = action.detach().cpu()
         elif isinstance(action, np.ndarray):
             action = torch.from_numpy(action)
         else:
@@ -202,7 +231,7 @@ class PrioritizedReplayBuffer:
 
         # Calculate probabilities (keep numpy for efficiency)
         priorities = self.priorities[: len(self.buffer)]
-        probs = priorities**self.alpha
+        probs = priorities ** self.alpha
         probs = probs / probs.sum()
 
         indices = np.random.choice(len(self.buffer), batch_size, p=probs)
@@ -212,15 +241,16 @@ class PrioritizedReplayBuffer:
         weights = weights / weights.max()
 
         batch = [self.buffer[idx] for idx in indices]
-        obs_list = [t.obs for t in batch]
-        next_obs_list = [t.next_obs for t in batch]
-        actions_list = [t.action for t in batch]
+        obs_list = [t.obs.to(self.device, non_blocking=True) for t in batch]
+        next_obs_list = [t.next_obs.to(self.device, non_blocking=True) for t in batch]
+        actions_list = [t.action.to(self.device, non_blocking=True) for t in batch]
         rewards_list = [t.n_step_return for t in batch]
         dones_list = [t.done for t in batch]
         discounts_list = [t.n_step_discount for t in batch]
 
-        obs = torch.stack(obs_list).to(self.device, non_blocking=True)
-        next_obs = torch.stack(next_obs_list).to(self.device, non_blocking=True)
+        # Stack tensors that are now all on the same device
+        obs = torch.stack(obs_list)
+        next_obs = torch.stack(next_obs_list)
         actions = stack_actions(actions_list)
         rewards = torch.tensor(rewards_list, dtype=torch.float32, device=self.device)
         dones = torch.tensor(dones_list, dtype=torch.bool, device=self.device)

@@ -53,7 +53,7 @@ def parse_args():
         "--max-replay-size", type=int, default=500000, help="Maximum replay buffer size"
     )
     parser.add_argument(
-        "--checkpoints-interval",
+        "--checkpoint-interval",
         type=int,
         default=100,
         help="Save checkpoints every N episodes",
