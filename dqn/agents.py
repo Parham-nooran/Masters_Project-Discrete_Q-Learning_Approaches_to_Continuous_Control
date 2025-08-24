@@ -212,7 +212,7 @@ class DecQNAgent:
 
     def load_checkpoint(self, path):
         """Load agent checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
 
         self.q_network.load_state_dict(checkpoint['q_network_state_dict'])
         self.target_q_network.load_state_dict(checkpoint['target_q_network_state_dict'])
@@ -222,6 +222,19 @@ class DecQNAgent:
         if self.encoder and 'encoder_state_dict' in checkpoint:
             self.encoder.load_state_dict(checkpoint['encoder_state_dict'])
             self.encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer_state_dict'])
+
+        # Load epsilon if available
+        if 'epsilon' in checkpoint:
+            self.epsilon = checkpoint['epsilon']
+            self.actor.epsilon = self.epsilon
+
+        # Handle both old config format and new config_dict format
+        if 'config_dict' in checkpoint:
+            # New format - config saved as dictionary
+            config_dict = checkpoint['config_dict']
+            for key, value in config_dict.items():
+                setattr(self.config, key, value)
+        # Old format with Config object will work with weights_only=False
 
         return checkpoint['episode']
 
@@ -357,8 +370,8 @@ class DecQNAgent:
         td_error2 = targets - q2_selected
 
         # Huber loss
-        loss1 = huber_loss(td_error1, self.config.get('huber_loss_parameter', 1.0))
-        loss2 = huber_loss(td_error2, self.config.get('huber_loss_parameter', 1.0)) if self.config.use_double_q else torch.zeros_like(loss1)
+        loss1 = huber_loss(td_error1, getattr(self.config, 'huber_loss_parameter', 1.0))
+        loss2 = huber_loss(td_error2, getattr(self.config, 'huber_loss_parameter', 1.0)) if self.config.use_double_q else torch.zeros_like(loss1)
 
         # Apply importance sampling weights properly
         loss1 = (loss1 * weights).sum() / weights.sum()
@@ -374,7 +387,7 @@ class DecQNAgent:
         total_loss.backward()
 
         # Gradient clipping as specified in paper (40.0)
-        if hasattr(self.config, 'clip_gradients') and self.config.clip_gradients:
+        if getattr(self.config, 'clip_gradients', False):
             clip_norm = getattr(self.config, 'clip_gradients_norm', 40.0)  # Paper uses 40.0
             torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), clip_norm)
             if self.encoder:
