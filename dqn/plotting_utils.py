@@ -2,11 +2,10 @@ import os
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import List, Optional
-
+from pathlib import Path
 
 class MetricsTracker:
-    def __init__(self, save_dir="metrics"):
+    def __init__(self, save_dir="./metrics"):
         self.save_dir = save_dir
         self.episode_rewards = []
         self.episode_lengths = []
@@ -66,12 +65,14 @@ class MetricsTracker:
 
 
 class PlottingUtils:
-    def __init__(self, metrics_tracker):
+    def __init__(self, metrics_tracker, save_dir="./plots"):
         self.metrics = metrics_tracker
+        self.save_dir = save_dir
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
 
-    def plot_training_curves(self, save=False, save_dir="plots"):
-        if save:
-            os.makedirs(save_dir, exist_ok=True)
+    def plot_training_curves(self, window=100, save=False, save_dir=None):
+        if save_dir is None:
+            save_dir = self.save_dir
 
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
@@ -83,7 +84,7 @@ class PlottingUtils:
 
         # Moving average of rewards
         if len(self.metrics.episode_rewards) > 10:
-            window = min(50, len(self.metrics.episode_rewards) // 10)
+            window = min(window, len(self.metrics.episode_rewards) // 10)
             moving_avg = np.convolve(
                 self.metrics.episode_rewards, np.ones(window) / window, mode="valid"
             )
@@ -121,9 +122,9 @@ class PlottingUtils:
             )
         plt.show()
 
-    def plot_reward_distribution(self, save=False, save_dir="plots"):
-        if save:
-            os.makedirs(save_dir, exist_ok=True)
+    def plot_reward_distribution(self, save=False, save_dir=None):
+        if save_dir is None:
+            save_dir = self.save_dir
 
         plt.figure(figsize=(10, 6))
         plt.hist(self.metrics.episode_rewards, bins=50, alpha=0.7, edgecolor="black")

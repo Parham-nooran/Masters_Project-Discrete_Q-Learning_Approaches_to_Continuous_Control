@@ -17,8 +17,8 @@ def main():
     parser = argparse.ArgumentParser(description="Plot DecQN training results")
     parser.add_argument(
         "--metrics_file",
-        default="metrics/training_metrics.json",
-        help="Path to metrics JSON file",
+        default="metrics/metrics.pkl",
+        help="Path to metrics pkl file",
     )
     parser.add_argument(
         "--window", type=int, default=100, help="Window size for running average"
@@ -57,9 +57,6 @@ def main():
 
         print(f"\n✅ All plots saved to {args.output_dir}/")
 
-    except FileNotFoundError:
-        print(f"❌ Metrics file not found: {args.metrics_file}")
-        print("Make sure you have run training first to generate metrics.")
     except Exception as e:
         print(f"❌ Error loading metrics: {e}")
 
