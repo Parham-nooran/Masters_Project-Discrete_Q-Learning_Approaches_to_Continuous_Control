@@ -14,17 +14,16 @@ from plotting_utils import MetricsTracker, PlottingUtils
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Plot DecQN training results')
-    parser.add_argument('--metrics_file',
-                        default='metrics/training_metrics.json',
-                        help='Path to metrics JSON file')
-    parser.add_argument('--window',
-                        type=int,
-                        default=100,
-                        help='Window size for running average')
-    parser.add_argument('--output_dir',
-                        default='plots',
-                        help='Directory to save plots')
+    parser = argparse.ArgumentParser(description="Plot DecQN training results")
+    parser.add_argument(
+        "--metrics_file",
+        default="metrics/training_metrics.json",
+        help="Path to metrics JSON file",
+    )
+    parser.add_argument(
+        "--window", type=int, default=100, help="Window size for running average"
+    )
+    parser.add_argument("--output_dir", default="plots", help="Directory to save plots")
 
     args = parser.parse_args()
 

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from networks import LayerNormMLP
 
+
 class VisionEncoder(nn.Module):
     """Vision encoder based on DrQ-v2 architecture."""
 
@@ -18,7 +19,7 @@ class VisionEncoder(nn.Module):
             nn.ReLU(),
             nn.Conv2d(32, 32, kernel_size=3, stride=1),
             nn.ReLU(),
-            nn.Flatten()
+            nn.Flatten(),
         )
 
         # Calculate conv output size
@@ -26,7 +27,9 @@ class VisionEncoder(nn.Module):
             dummy_input = torch.zeros(1, 3, shape, shape)
             conv_output_size = self.conv(dummy_input).shape[1]
 
-        self.mlp = LayerNormMLP([conv_output_size, config.layer_size_bottleneck], activate_final=True)
+        self.mlp = LayerNormMLP(
+            [conv_output_size, config.layer_size_bottleneck], activate_final=True
+        )
 
     def forward(self, x):
         if not x.is_cuda and next(self.parameters()).is_cuda:

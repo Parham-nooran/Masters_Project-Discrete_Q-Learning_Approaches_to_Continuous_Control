@@ -14,14 +14,14 @@ class CriticDQN(nn.Module):
         # Extract action dimensions from action_spec
         if isinstance(action_spec, dict):
             # Handle dict format like {'low': array, 'high': array}
-            if 'low' in action_spec and 'high' in action_spec:
-                self.action_dims = len(action_spec['low'])
+            if "low" in action_spec and "high" in action_spec:
+                self.action_dims = len(action_spec["low"])
             else:
                 raise ValueError(f"Invalid action_spec format: {action_spec}")
-        elif hasattr(action_spec, 'shape'):
+        elif hasattr(action_spec, "shape"):
             # Handle numpy array or similar with shape attribute
             self.action_dims = action_spec.shape[0] if len(action_spec.shape) > 0 else 1
-        elif hasattr(action_spec, '__len__'):
+        elif hasattr(action_spec, "__len__"):
             # Handle list/tuple
             self.action_dims = len(action_spec)
         else:
@@ -32,7 +32,7 @@ class CriticDQN(nn.Module):
         if config.decouple:
             self.output_dim = config.num_bins * self.action_dims
         else:
-            self.output_dim = config.num_bins ** self.action_dims
+            self.output_dim = config.num_bins**self.action_dims
 
         # Build networks
         if config.use_residual and not config.use_pixels:
@@ -40,13 +40,13 @@ class CriticDQN(nn.Module):
                 nn.Flatten(),
                 LayerNormAndResidualMLP(config.layer_size_network[0], num_blocks=1),
                 nn.ELU(),
-                nn.Linear(config.layer_size_network[0], self.output_dim)
+                nn.Linear(config.layer_size_network[0], self.output_dim),
             )
             self.q2_network = nn.Sequential(
                 nn.Flatten(),
                 LayerNormAndResidualMLP(config.layer_size_network[0], num_blocks=1),
                 nn.ELU(),
-                nn.Linear(config.layer_size_network[0], self.output_dim)
+                nn.Linear(config.layer_size_network[0], self.output_dim),
             )
         else:
             if config.use_pixels:
@@ -66,6 +66,10 @@ class CriticDQN(nn.Module):
 
         if self.decouple:
             q1 = q1.view(q1.shape[0], self.action_dims, self.num_bins)
-            q2 = q2.view(q2.shape[0], self.action_dims, self.num_bins) if self.use_double_q else q1
+            q2 = (
+                q2.view(q2.shape[0], self.action_dims, self.num_bins)
+                if self.use_double_q
+                else q1
+            )
 
         return q1, q2

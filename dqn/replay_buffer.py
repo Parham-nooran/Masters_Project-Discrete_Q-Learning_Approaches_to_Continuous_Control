@@ -2,8 +2,10 @@ import torch
 import numpy as np
 from collections import namedtuple
 
-Transition = namedtuple('Transition',
-                        ['obs', 'action', 'reward', 'next_obs', 'done', 'n_step_return', 'n_step_discount'])
+Transition = namedtuple(
+    "Transition",
+    ["obs", "action", "reward", "next_obs", "done", "n_step_return", "n_step_discount"],
+)
 
 
 def stack_actions(actions_list):
@@ -72,7 +74,7 @@ class PrioritizedReplayBuffer:
         self.beta = beta  # importance sampling exponent
         self.n_step = n_step
         self.discount = discount
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Storage
         self.buffer = []
@@ -133,7 +135,15 @@ class PrioritizedReplayBuffer:
                 else:
                     _, _, _, next_obs_n, done_n = self.n_step_buffer[self.n_step - 1]
 
-                transition = Transition(obs_0, action_0, reward_0, next_obs_n, done_n, n_step_return, n_step_discount)
+                transition = Transition(
+                    obs_0,
+                    action_0,
+                    reward_0,
+                    next_obs_n,
+                    done_n,
+                    n_step_return,
+                    n_step_discount,
+                )
 
                 # Store and update position
                 if len(self.buffer) < self.capacity:
@@ -163,7 +173,15 @@ class PrioritizedReplayBuffer:
             obs_0, action_0, reward_0, _, _ = self.n_step_buffer[0]
             _, _, _, next_obs_n, done_n = self.n_step_buffer[-1]
 
-            transition = Transition(obs_0, action_0, reward_0, next_obs_n, done_n, n_step_return, n_step_discount)
+            transition = Transition(
+                obs_0,
+                action_0,
+                reward_0,
+                next_obs_n,
+                done_n,
+                n_step_return,
+                n_step_discount,
+            )
 
             # Store transition
             if len(self.buffer) < self.capacity:
@@ -182,10 +200,9 @@ class PrioritizedReplayBuffer:
         if len(self.buffer) < batch_size:
             return None
 
-
         # Calculate probabilities (keep numpy for efficiency)
-        priorities = self.priorities[:len(self.buffer)]
-        probs = priorities ** self.alpha
+        priorities = self.priorities[: len(self.buffer)]
+        probs = priorities**self.alpha
         probs = probs / probs.sum()
 
         indices = np.random.choice(len(self.buffer), batch_size, p=probs)
@@ -207,10 +224,21 @@ class PrioritizedReplayBuffer:
         actions = stack_actions(actions_list)
         rewards = torch.tensor(rewards_list, dtype=torch.float32, device=self.device)
         dones = torch.tensor(dones_list, dtype=torch.bool, device=self.device)
-        discounts = torch.tensor(discounts_list, dtype=torch.float32, device=self.device)
+        discounts = torch.tensor(
+            discounts_list, dtype=torch.float32, device=self.device
+        )
         weights_tensor = torch.tensor(weights, dtype=torch.float32, device=self.device)
 
-        return obs, actions, rewards, next_obs, dones, discounts, weights_tensor, indices
+        return (
+            obs,
+            actions,
+            rewards,
+            next_obs,
+            dones,
+            discounts,
+            weights_tensor,
+            indices,
+        )
 
     def update_priorities(self, indices, priorities):
         """Update priorities based on TD errors."""

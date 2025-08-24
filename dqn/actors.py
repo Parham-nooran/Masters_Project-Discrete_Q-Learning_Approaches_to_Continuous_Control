@@ -12,7 +12,14 @@ class CustomDiscreteFeedForwardActor:
     and manages interaction with the replay buffer.
     """
 
-    def __init__(self, policy_network, encoder=None, action_discretizer=None, epsilon=0.1, decouple=False):
+    def __init__(
+        self,
+        policy_network,
+        encoder=None,
+        action_discretizer=None,
+        epsilon=0.1,
+        decouple=False,
+    ):
         """
         Args:
             policy_network: The Q-network that outputs Q-values
@@ -45,11 +52,15 @@ class CustomDiscreteFeedForwardActor:
             Continuous action for the environment
         """
         if isinstance(observation, np.ndarray):
-            observation = torch.from_numpy(observation).float().unsqueeze(0).to(self.device)
+            observation = (
+                torch.from_numpy(observation).float().unsqueeze(0).to(self.device)
+            )
         elif isinstance(observation, torch.Tensor):
             if observation.device != self.device:
                 observation = observation.to(self.device)
-            if len(observation.shape) < 2 or (self.encoder and len(observation.shape) == 3):
+            if len(observation.shape) < 2 or (
+                self.encoder and len(observation.shape) == 3
+            ):
                 observation = observation.unsqueeze(0)
 
         with torch.no_grad():
@@ -67,7 +78,9 @@ class CustomDiscreteFeedForwardActor:
 
             # Convert to continuous action
             if self.action_discretizer:
-                continuous_action = self.action_discretizer.discrete_to_continuous(discrete_action)[0]
+                continuous_action = self.action_discretizer.discrete_to_continuous(
+                    discrete_action
+                )[0]
                 return continuous_action.detach()
             else:
                 return discrete_action[0]
@@ -79,10 +92,15 @@ class CustomDiscreteFeedForwardActor:
         batch_size = q_combined.shape[0]
 
         if self.decouple:
-            random_mask = torch.rand(batch_size, q_combined.shape[1], device=self.device) < self.epsilon
+            random_mask = (
+                torch.rand(batch_size, q_combined.shape[1], device=self.device)
+                < self.epsilon
+            )
 
             num_actions = q_combined.shape[2]  # number of bins per dimension
-            random_actions = torch.randint(0, num_actions, (batch_size, q_combined.shape[1]), device=self.device)
+            random_actions = torch.randint(
+                0, num_actions, (batch_size, q_combined.shape[1]), device=self.device
+            )
 
             # For exploitation: argmax actions where mask is False
             greedy_actions = q_combined.argmax(dim=2)
@@ -94,6 +112,8 @@ class CustomDiscreteFeedForwardActor:
         else:
             # Standard epsilon-greedy
             if random.random() < self.epsilon:
-                return torch.randint(0, q_combined.shape[1], (batch_size,), device=self.device)
+                return torch.randint(
+                    0, q_combined.shape[1], (batch_size,), device=self.device
+                )
             else:
                 return q_combined.argmax(dim=1)
