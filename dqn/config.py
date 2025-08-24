@@ -52,7 +52,7 @@ def create_config_from_args(args):
 
     # Add derived properties and missing defaults
     config.decouple = 'decqn' in config.algorithm
-    config.use_pixels = 'vis' in config.algorithm
+    config.use_pixels = False
     config.use_double_q = True
     config.layer_size_network = [1024, 1024] if config.use_pixels else [512, 512]
     config.layer_size_bottleneck = 100

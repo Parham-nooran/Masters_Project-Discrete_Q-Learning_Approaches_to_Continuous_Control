@@ -5,7 +5,45 @@ from config import *
 
 from agents import DecQNAgent
 from plotting_utils import *
+from dm_control import suite
+import numpy as np
 
+
+def process_observation(dm_obs, use_pixels, device):
+    """Convert DM Control observation to tensor format."""
+    if use_pixels:
+        # Get RGB camera observation
+        if 'pixels' in dm_obs:
+            obs = dm_obs['pixels']
+        else:
+            # Some DM Control tasks use different camera names
+            camera_obs = [v for k, v in dm_obs.items() if 'camera' in k or 'rgb' in k]
+            if camera_obs:
+                obs = camera_obs[0]
+            else:
+                raise ValueError("No pixel observations found in DM Control observation")
+
+        # Convert to CHW format and normalize
+        obs = torch.tensor(obs, dtype=torch.float32, device=device)
+        if len(obs.shape) == 3:  # HWC -> CHW
+            obs = obs.permute(2, 0, 1)
+
+        return obs
+    else:
+        # Concatenate all state observations
+        state_parts = []
+        for key in sorted(dm_obs.keys()):  # Consistent ordering
+            val = dm_obs[key]
+            if isinstance(val, np.ndarray):
+                # Ensure it's float32 and flatten
+                state_parts.append(val.astype(np.float32).flatten())
+            else:
+                # Convert scalars to float32 numpy arrays
+                state_parts.append(np.array([float(val)], dtype=np.float32))
+
+        # Concatenate all parts - now all are float32 numpy arrays
+        state_vector = np.concatenate(state_parts, dtype=np.float32)
+        return torch.from_numpy(state_vector).to(device)
 
 def train_decqn():
     """training function."""
@@ -22,11 +60,30 @@ def train_decqn():
         torch.backends.cudnn.benchmark = True
         torch.backends.cuda.matmul.allow_tf32 = True
 
-    # Mock environment setup - replace with actual environment
-    obs_shape = (3, 84, 84) if config.use_pixels else (17,)  # Walker state dim
-    action_spec = {'low': np.array([-1.0, -1.0]), 'high': np.array([1.0, 1.0])}  # 2D continuous
+    if config.task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
+        print(f"Warning: Task {config.task} not found in suite, using walker_walk")
+        config.task = 'walker_walk'
 
-    agent = DecQNAgent(config, obs_shape, action_spec)
+    domain_name, task_name = config.task.split('_', 1)
+    env = suite.load(domain_name, task_name)
+    action_spec = env.action_spec()
+    obs_spec = env.observation_spec()
+
+    # Convert DM Control specs to your format
+    if config.use_pixels:
+        obs_shape = (3, 84, 84)  # RGB camera view
+    else:
+        # Calculate state dimension from observation spec
+        state_dim = sum(spec.shape[0] if len(spec.shape) > 0 else 1
+                        for spec in obs_spec.values())
+        obs_shape = (state_dim,)
+
+    action_spec_dict = {
+        'low': action_spec.minimum,
+        'high': action_spec.maximum
+    }
+
+    agent = DecQNAgent(config, obs_shape, action_spec_dict)
 
     # Create checkpoints directory
     os.makedirs('checkpoints', exist_ok=True)
@@ -67,38 +124,43 @@ def train_decqn():
 
     # [Rest of the training loop remains the same...]
     # Training loop (mock - replace with actual environment interaction)
+    # Training loop with DM Control Walker Walk
     print("Starting training...")
     start_time = time.time()
+
     for episode in range(start_episode, config.num_episodes):
         episode_start_time = time.time()
-        # Mock episode - replace with actual environment interaction
         episode_reward = 0
         episode_loss = 0
         episode_q_mean = 0
         loss_count = 0
 
-        # Generate mock observations as tensors directly on device
-        if config.use_pixels:
-            # Mock RGB image data [0, 255]
-            obs = torch.randint(0, 256, obs_shape, device=device, dtype=torch.float32)
-        else:
-            # Mock state data
-            obs = torch.randn(obs_shape, device=device, dtype=torch.float32)
-
+        # Reset environment
+        time_step = env.reset()
+        obs = process_observation(time_step.observation, config.use_pixels, device)
         agent.observe_first(obs)
 
-        for step in range(config.mock_episode_length):  # Mock episode length
+        step = 0
+        while not time_step.last():
+            # Select action
             action = agent.select_action(obs)
 
-            # Generate next observation
-            if config.use_pixels:
-                next_obs = torch.randint(0, 256, obs_shape, device=device, dtype=torch.float32)
+            # Convert to numpy for DM Control
+            if isinstance(action, torch.Tensor):
+                action_np = action.cpu().numpy()
             else:
-                next_obs = torch.randn(obs_shape, device=device, dtype=torch.float32)
+                action_np = action
 
-            reward = torch.rand(1, device=device).item() - 0.5  # Mock reward
-            done = step == 99
+            # Step environment
+            time_step = env.step(action_np)
 
+            # Process next observation
+            next_obs = process_observation(time_step.observation, config.use_pixels, device)
+
+            reward = time_step.reward if time_step.reward is not None else 0.0
+            done = time_step.last()
+
+            # Store transition
             agent.observe(action, reward, next_obs, done)
 
             # Update agent
@@ -111,6 +173,11 @@ def train_decqn():
 
             obs = next_obs
             episode_reward += reward
+            step += 1
+
+            # Safety break for very long episodes
+            if step > 1000:
+                break
 
         # Calculate averages
         avg_loss = episode_loss / max(loss_count, 1)
@@ -120,13 +187,16 @@ def train_decqn():
         metrics_tracker.log_episode(
             episode=episode,
             reward=episode_reward,
-            length=config.mock_episode_length,
+            length=step,
             loss=avg_loss if loss_count > 0 else None,
             q_mean=avg_q_mean if loss_count > 0 else None,
             epsilon=agent.epsilon
         )
 
         agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
+
+        if device == 'cuda':
+            torch.cuda.synchronize()
 
         # Enhanced progress logging
         episode_time = time.time() - episode_start_time
