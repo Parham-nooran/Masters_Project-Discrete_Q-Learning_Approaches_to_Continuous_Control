@@ -107,7 +107,7 @@ class PlottingUtils:
             axes[1, 0].set_title("Training Loss")
             axes[1, 0].set_xlabel("Episode")
             axes[1, 0].set_ylabel("Loss")
-            axes[1, 0].set_yscale('log')  # Add log scale for better loss visualization
+            # axes[1, 0].set_yscale('log')
             axes[1, 0].grid(True)
 
         # Q-means

@@ -2,44 +2,9 @@ import numpy as np
 import torch
 import argparse
 import os
-from agents import DecQNAgent
+from dec_qn_agent import DecQNAgent
 from dm_control import suite
-
-
-def process_observation(dm_obs, use_pixels, device):
-    """Convert DM Control observation to tensor format."""
-    if use_pixels:
-        # Get RGB camera observation
-        if "pixels" in dm_obs:
-            obs = dm_obs["pixels"]
-        else:
-            # Some DM Control tasks use different camera names
-            camera_obs = [v for k, v in dm_obs.items() if "camera" in k or "rgb" in k]
-            if camera_obs:
-                obs = camera_obs[0]
-            else:
-                raise ValueError(
-                    "No pixel observations found in DM Control observation"
-                )
-
-        # Convert to CHW format and normalize
-        obs = torch.tensor(obs, dtype=torch.float32, device=device)
-        if len(obs.shape) == 3:  # HWC -> CHW
-            obs = obs.permute(2, 0, 1)
-
-        return obs
-    else:
-        # Concatenate all state observations
-        state_parts = []
-        for key in sorted(dm_obs.keys()):  # Consistent ordering
-            val = dm_obs[key]
-            if isinstance(val, np.ndarray):
-                state_parts.append(val.flatten())
-            else:
-                state_parts.append(np.array([val], dtype=np.float32))
-
-        state_vector = np.concatenate(state_parts)
-        return torch.tensor(state_vector, dtype=torch.float32, device=device)
+from train import process_observation
 
 
 def load_checkpoint(

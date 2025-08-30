@@ -3,104 +3,95 @@ import gc
 import torch
 from config import *
 
-from agents import DecQNAgent
+from dec_qn_agent import DecQNAgent
 from plotting_utils import *
 from dm_control import suite
 import numpy as np
 
 
-def process_observation(dm_obs, use_pixels, device):
-    """Convert DM Control observation to tensor format."""
-    if use_pixels:
-        # Get RGB camera observation
-        if "pixels" in dm_obs:
-            obs = dm_obs["pixels"]
-        else:
-            # Some DM Control tasks use different camera names
-            camera_obs = [v for k, v in dm_obs.items() if "camera" in k or "rgb" in k]
-            if camera_obs:
-                obs = camera_obs[0]
-            else:
-                raise ValueError(
-                    "No pixel observations found in DM Control observation"
-                )
+def find_latest_checkpoint(checkpoint_dir="checkpoints"):
+    if not os.path.exists(checkpoint_dir):
+        return None
 
-        # Convert to CHW format and normalize
-        obs = torch.tensor(obs, dtype=torch.float32, device=device)
-        if len(obs.shape) == 3:  # HWC -> CHW
-            obs = obs.permute(2, 0, 1)
+    checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pth")]
+    if not checkpoint_files:
+        return None
 
-        return obs
+    checkpoint_files.sort(
+        key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)), reverse=True
+    )
+    latest_file = checkpoint_files[0]
+
+    return os.path.join(checkpoint_dir, latest_file)
+
+
+def save_checkpoint(agent, episode, path):
+
+    checkpoint = {
+        "episode": episode,
+        "q_network_state_dict": agent.q_network.state_dict(),
+        "target_q_network_state_dict": agent.target_q_network.state_dict(),
+        "q_optimizer_state_dict": agent.q_optimizer.state_dict(),
+        "config": agent.config,
+        "training_step": agent.training_step,
+        "epsilon": agent.epsilon,
+        "replay_buffer_buffer": agent.replay_buffer.buffer,
+        "replay_buffer_position": agent.replay_buffer.position,
+        "replay_buffer_priorities": agent.replay_buffer.priorities,
+        "replay_buffer_max_priority": agent.replay_buffer.max_priority,
+    }
+
+    if agent.encoder:
+        checkpoint["encoder_state_dict"] = agent.encoder.state_dict()
+        checkpoint["encoder_optimizer_state_dict"] = (
+            agent.encoder_optimizer.state_dict()
+        )
+
+    torch.save(checkpoint, path)
+
+
+def process_pixel_observation(dm_obs, device):
+    if "pixels" in dm_obs:
+        obs = dm_obs["pixels"]
     else:
-        # Concatenate all state observations
+        camera_obs = [v for k, v in dm_obs.items() if "camera" in k or "rgb" in k]
+        if camera_obs:
+            obs = camera_obs[0]
+        else:
+            raise ValueError(
+                "No pixel observations found in DM Control observation"
+            )
+
+    obs = torch.tensor(obs, dtype=torch.float32, device=device)
+    if len(obs.shape) == 3:  # HWC -> CHW
+        obs = obs.permute(2, 0, 1)
+
+    return obs
+
+def process_observation(dm_obs, use_pixels, device):
+    if use_pixels:
+        return process_pixel_observation(dm_obs, device)
+    else:
         state_parts = []
-        for key in sorted(dm_obs.keys()):  # Consistent ordering
+        for key in sorted(dm_obs.keys()):
             val = dm_obs[key]
             if isinstance(val, np.ndarray):
-                # Ensure it's float32 and flatten
                 state_parts.append(val.astype(np.float32).flatten())
             else:
-                # Convert scalars to float32 numpy arrays
                 state_parts.append(np.array([float(val)], dtype=np.float32))
 
-        # Concatenate all parts - now all are float32 numpy arrays
         state_vector = np.concatenate(state_parts, dtype=np.float32)
         return torch.from_numpy(state_vector).to(device)
 
 
-def train_decqn():
-    """training function."""
-    args = parse_args()
-    config = create_config_from_args(args)
-
-    # Device selection
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-
-    # GPU optimizations
-    if device == "cuda":
-        torch.cuda.empty_cache()
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-
-    if config.task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
-        print(f"Warning: Task {config.task} not found in suite, using walker_walk")
-        config.task = "walker_walk"
-
-    domain_name, task_name = config.task.split("_", 1)
-    env = suite.load(domain_name, task_name)
-    action_spec = env.action_spec()
-    obs_spec = env.observation_spec()
-
-    # Convert DM Control specs to your format
-    if config.use_pixels:
-        obs_shape = (3, 84, 84)  # RGB camera view
-    else:
-        # Calculate state dimension from observation spec
-        state_dim = sum(
-            spec.shape[0] if len(spec.shape) > 0 else 1 for spec in obs_spec.values()
-        )
-        obs_shape = (state_dim,)
-
-    action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
-
-    agent = DecQNAgent(config, obs_shape, action_spec_dict)
-
-    # Create checkpoints directory
-    os.makedirs("checkpoints", exist_ok=True)
-
-    # Handle checkpoints loading
+def handle_checkpoint_loading(agent, checkpoint_to_load):
     start_episode = 0
-    checkpoint_to_load = args.load_checkpoints
-
-    # If no specific checkpoints provided, check for latest
     if checkpoint_to_load is None:
         latest_checkpoint = find_latest_checkpoint()
         if latest_checkpoint:
             checkpoint_to_load = latest_checkpoint
             print(f"Found latest checkpoints: {latest_checkpoint}")
 
-    # Load checkpoints if available
     if checkpoint_to_load:
         if os.path.exists(checkpoint_to_load):
             try:
@@ -117,21 +108,59 @@ def train_decqn():
             print(
                 f"Checkpoint file {checkpoint_to_load} not found. Starting fresh training..."
             )
+    return start_episode
 
-    # Initialize metrics tracker
+def get_obs_shape(use_pixels, obs_spec):
+    if use_pixels:
+        obs_shape = (3, 84, 84)  # RGB camera view
+    else:
+        state_dim = sum(
+            spec.shape[0] if len(spec.shape) > 0 else 1 for spec in obs_spec.values()
+        )
+        obs_shape = (state_dim,)
+    return obs_shape
+
+def get_numpy_action(action):
+    if isinstance(action, torch.Tensor):
+        action_np = action.cpu().numpy()
+    else:
+        action_np = action
+    return action_np
+
+def optimize_gpu_usage(device):
+    if device == "cuda":
+        torch.cuda.empty_cache()
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+
+
+def train_decqn():
+    args = parse_args()
+    config = create_config_from_args(args)
+
+    # Device selection
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+    optimize_gpu_usage(device)
+
+    if config.task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
+        print(f"Warning: Task {config.task} not found in suite, using walker_walk")
+        config.task = "walker_walk"
+
+    domain_name, task_name = config.task.split("_", 1)
+    env = suite.load(domain_name, task_name)
+    action_spec = env.action_spec()
+    obs_spec = env.observation_spec()
+    obs_shape = get_obs_shape(config.use_pixels, obs_spec)
+    action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
+    agent = DecQNAgent(config, obs_shape, action_spec_dict)
+    os.makedirs("checkpoints", exist_ok=True)
+    checkpoint_to_load = args.load_checkpoints
+    start_episode = handle_checkpoint_loading(agent, checkpoint_to_load)
     metrics_tracker = MetricsTracker(save_dir="metrics")
-
-    # Load existing metrics if resuming
     if start_episode > 0:
         metrics_tracker.load_metrics()
-
-    print(
-        f"Agent setup - decouple: {agent.config.decouple}, action_dim: {agent.action_discretizer.action_dim}"
-    )
-
-    # [Rest of the training loop remains the same...]
-    # Training loop (mock - replace with actual environment interaction)
-    # Training loop with DM Control Walker Walk
+    print(f"Agent setup - decouple: {agent.config.decouple}, action_dim: {agent.action_discretizer.action_dim}")
     print("Starting training...")
     start_time = time.time()
 
@@ -142,34 +171,18 @@ def train_decqn():
         episode_q_mean = 0
         loss_count = 0
 
-        # Reset environment
         time_step = env.reset()
         obs = process_observation(time_step.observation, config.use_pixels, device)
         agent.observe_first(obs)
 
         step = 0
         while not time_step.last():
-            # Select action
             action = agent.select_action(obs)
-
-            # Convert to numpy for DM Control
-            if isinstance(action, torch.Tensor):
-                action_np = action.cpu().numpy()
-            else:
-                action_np = action
-
-            # Step environment
+            action_np = get_numpy_action(action)
             time_step = env.step(action_np)
-
-            # Process next observation
-            next_obs = process_observation(
-                time_step.observation, config.use_pixels, device
-            )
-
+            next_obs = process_observation(time_step.observation, config.use_pixels, device)
             reward = time_step.reward if time_step.reward is not None else 0.0
             done = time_step.last()
-
-            # Store transition
             agent.observe(action, reward, next_obs, done)
 
             # Update agent
@@ -184,7 +197,6 @@ def train_decqn():
             episode_reward += reward
             step += 1
 
-            # Safety break for very long episodes
             if step > 1000:
                 break
 
@@ -281,52 +293,6 @@ def train_decqn():
     plotter.print_summary_stats()
 
     return agent
-
-
-def find_latest_checkpoint(checkpoint_dir="checkpoints"):
-    """Find the latest checkpoints file."""
-    if not os.path.exists(checkpoint_dir):
-        return None
-
-    checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pth")]
-    if not checkpoint_files:
-        return None
-
-    # Sort by modification time and get the latest
-    checkpoint_files.sort(
-        key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)), reverse=True
-    )
-    latest_file = checkpoint_files[0]
-
-    return os.path.join(checkpoint_dir, latest_file)
-
-
-def save_checkpoint(agent, episode, path):
-    """Save agent checkpoints."""
-    # Convert config to dict to avoid pickle issues
-    config_dict = vars(agent.config)  # Much simpler since it's a SimpleNamespace
-
-    checkpoint = {
-        "episode": episode,
-        "q_network_state_dict": agent.q_network.state_dict(),
-        "target_q_network_state_dict": agent.target_q_network.state_dict(),
-        "q_optimizer_state_dict": agent.q_optimizer.state_dict(),
-        "config": agent.config,
-        "training_step": agent.training_step,
-        "epsilon": agent.epsilon,
-        "replay_buffer_buffer": agent.replay_buffer.buffer,
-        "replay_buffer_position": agent.replay_buffer.position,
-        "replay_buffer_priorities": agent.replay_buffer.priorities,
-        "replay_buffer_max_priority": agent.replay_buffer.max_priority,
-    }
-
-    if agent.encoder:
-        checkpoint["encoder_state_dict"] = agent.encoder.state_dict()
-        checkpoint["encoder_optimizer_state_dict"] = (
-            agent.encoder_optimizer.state_dict()
-        )
-
-    torch.save(checkpoint, path)
 
 
 if __name__ == "__main__":

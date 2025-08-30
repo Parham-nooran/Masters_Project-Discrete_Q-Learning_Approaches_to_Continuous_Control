@@ -1,123 +1,23 @@
+import numpy as np
 import torch.optim as optim
+
 from actors import CustomDiscreteFeedForwardActor
 from critic import *
+from discretizer import ActionDiscretizer
 from encoder import *
-from replay_buffer import *
+from replay_buffer import PrioritizedReplayBuffer
 
 
 def huber_loss(td_error, huber_loss_parameter=1.0):
-    """
-    Huber loss implementation matching TensorFlow's acme.tf.losses.huber
-
-    Args:
-        td_error: Temporal difference error tensor
-        huber_loss_parameter: Threshold for switching from quadratic to linear loss
-
-    Returns:
-        Huber loss tensor
-    """
     abs_error = torch.abs(td_error)
     quadratic = torch.minimum(
         abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device)
     )
     linear = abs_error - quadratic
-    return 0.5 * quadratic**2 + huber_loss_parameter * linear
-
-
-class ActionDiscretizer:
-    """Handles continuous to discrete action conversion."""
-
-    def __init__(self, action_spec, num_bins, decouple=False):
-        self.num_bins = num_bins
-        self.decouple = decouple
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # Handle different action_spec formats
-        if isinstance(action_spec, dict):
-            if "low" in action_spec and "high" in action_spec:
-                self.action_min = torch.tensor(
-                    action_spec["low"], dtype=torch.float32, device=self.device
-                )
-                self.action_max = torch.tensor(
-                    action_spec["high"], dtype=torch.float32, device=self.device
-                )
-            else:
-                raise ValueError(f"Invalid action_spec format: {action_spec}")
-        elif hasattr(action_spec, "low") and hasattr(action_spec, "high"):
-            # Handle gym-style Box spaces
-            self.action_min = torch.tensor(
-                action_spec.low, dtype=torch.float32, device=self.device
-            )
-            self.action_max = torch.tensor(
-                action_spec.high, dtype=torch.float32, device=self.device
-            )
-        else:
-            raise ValueError(f"Unsupported action_spec format: {type(action_spec)}")
-
-        self.action_dim = len(self.action_min)
-
-        if decouple:
-            # Per-dimension discretization - create bins for each dimension separately
-            self.action_bins = []
-            for dim in range(self.action_dim):
-                bins = torch.linspace(
-                    self.action_min[dim],
-                    self.action_max[dim],
-                    num_bins,
-                    device=self.device,
-                )
-                self.action_bins.append(bins)
-            self.action_bins = torch.stack(
-                self.action_bins
-            )  # Shape: [action_dim, num_bins]
-        else:
-            bins_per_dim = torch.stack(
-                [
-                    torch.linspace(
-                        self.action_min[i],
-                        self.action_max[i],
-                        num_bins,
-                        device=self.device,
-                    )
-                    for i in range(self.action_dim)
-                ]
-            )
-            # Create cartesian product more efficiently
-            mesh = torch.meshgrid(*bins_per_dim, indexing="ij")
-            self.action_bins = torch.stack([m.flatten() for m in mesh], dim=1)
-
-    def discrete_to_continuous(self, discrete_actions):
-        """Convert discrete actions to continuous."""
-        if not isinstance(discrete_actions, torch.Tensor):
-            discrete_actions = torch.tensor(discrete_actions, device=self.device)
-
-        if discrete_actions.device != self.device:
-            discrete_actions = discrete_actions.to(self.device)
-
-        if self.decouple:
-            # discrete_actions shape: [batch_size, action_dim]
-            if len(discrete_actions.shape) == 1:
-                discrete_actions = discrete_actions.unsqueeze(0)
-
-            batch_size = discrete_actions.shape[0]
-            continuous_actions = torch.zeros(
-                batch_size, self.action_dim, device=self.device
-            )
-
-            for dim in range(self.action_dim):
-                bin_indices = discrete_actions[:, dim].long()
-                continuous_actions[:, dim] = self.action_bins[dim][bin_indices]
-
-            return continuous_actions
-        else:
-            if len(discrete_actions.shape) == 0:
-                discrete_actions = discrete_actions.unsqueeze(0)
-            return self.action_bins[discrete_actions.long()]
+    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
 
 
 class DecQNAgent:
-    """DecQN Agent with PyTorch implementation."""
-
     def __init__(self, config, obs_shape, action_spec):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -173,20 +73,16 @@ class DecQNAgent:
         self.epsilon = config.epsilon
 
     def update_epsilon(self, decay_rate=0.995, min_epsilon=0.01):
-        """Update epsilon for exploration decay."""
         self.epsilon = max(min_epsilon, self.epsilon * decay_rate)
         self.actor.epsilon = self.epsilon
 
     def select_action(self, obs, evaluate=False):
-        """Select action using the appropriate actor."""
         if evaluate:
             return self.eval_actor.select_action(obs)
         else:
             return self.actor.select_action(obs)
 
     def observe_first(self, obs):
-        """Handle first observation in an episode."""
-        # Store initial observation if needed
         self.last_obs = obs
 
     def observe(self, action, reward, next_obs, done):
@@ -376,7 +272,7 @@ class DecQNAgent:
                 )
 
                 q_next_online = 0.5 * (
-                    q1_next_online_reshaped + q2_next_online_reshaped
+                        q1_next_online_reshaped + q2_next_online_reshaped
                 )
                 next_actions = q_next_online.argmax(dim=2)
 
@@ -403,7 +299,7 @@ class DecQNAgent:
 
                 q_target_per_dim = 0.5 * (q1_selected + q2_selected)
                 q_target_values = (
-                    q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+                        q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
                 )
 
                 targets = rewards + discounts * q_target_values * (~dones).float()
