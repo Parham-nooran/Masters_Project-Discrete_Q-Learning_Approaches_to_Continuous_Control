@@ -189,7 +189,8 @@ def train_decqn():
             if len(agent.replay_buffer) > config.min_replay_size:
                 metrics = agent.update()
                 if metrics:
-                    episode_loss += metrics.get("loss", 0)
+                    if "loss" in metrics and metrics["loss"] is not None:
+                        episode_loss += metrics["loss"]
                     episode_q_mean += metrics.get("q1_mean", 0)
                     loss_count += 1
 
@@ -201,7 +202,7 @@ def train_decqn():
                 break
 
         # Calculate averages
-        avg_loss = episode_loss / max(loss_count, 1)
+        avg_loss = episode_loss / max(loss_count, 1) if loss_count > 0 else 0.0
         avg_q_mean = episode_q_mean / max(loss_count, 1)
 
         # Log metrics
