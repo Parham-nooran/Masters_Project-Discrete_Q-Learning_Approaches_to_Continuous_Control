@@ -72,7 +72,7 @@ def demonstrate(
     if save_video:
         if video_path is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            video_path = f"./videos/decqn_demo_{timestamp}.mp4"
+            video_path = f"./output/videos/decqn_demo_{timestamp}.mp4"
 
         # Create output directory if it doesn't exist
         os.makedirs(os.path.dirname(video_path) if os.path.dirname(video_path) else '.', exist_ok=True)

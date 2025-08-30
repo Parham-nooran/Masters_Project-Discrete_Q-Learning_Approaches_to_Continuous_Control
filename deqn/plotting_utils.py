@@ -65,7 +65,7 @@ class MetricsTracker:
 
 
 class PlottingUtils:
-    def __init__(self, metrics_tracker, save_dir="./plots"):
+    def __init__(self, metrics_tracker, save_dir="./output/plots"):
         self.metrics = metrics_tracker
         self.save_dir = save_dir
         Path(save_dir).mkdir(parents=True, exist_ok=True)

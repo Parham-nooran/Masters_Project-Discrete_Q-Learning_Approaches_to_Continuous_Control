@@ -154,10 +154,10 @@ def train_decqn():
     obs_shape = get_obs_shape(config.use_pixels, obs_spec)
     action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
     agent = DecQNAgent(config, obs_shape, action_spec_dict)
-    os.makedirs("checkpoints", exist_ok=True)
+    os.makedirs("output/checkpoints", exist_ok=True)
     checkpoint_to_load = args.load_checkpoints
     start_episode = handle_checkpoint_loading(agent, checkpoint_to_load)
-    metrics_tracker = MetricsTracker(save_dir="metrics")
+    metrics_tracker = MetricsTracker(save_dir="output/metrics")
     if start_episode > 0:
         metrics_tracker.load_metrics()
     print(f"Agent setup - decouple: {agent.config.decouple}, action_dim: {agent.action_discretizer.action_dim}")
@@ -256,16 +256,12 @@ def train_decqn():
         # Save checkpoints
         if episode % args.checkpoint_interval == 0:
             import shutil
-
-            # Save metrics before clearing checkpoints
             metrics_tracker.save_metrics()
+            if os.path.exists("output/checkpoints"):
+                shutil.rmtree("output/checkpoints")
+            os.makedirs("output/checkpoints", exist_ok=True)
 
-            # Remove old checkpoints directory and create new one
-            if os.path.exists("checkpoints"):
-                shutil.rmtree("checkpoints")
-            os.makedirs("checkpoints", exist_ok=True)
-
-            checkpoint_path = f"./checkpoints/decqn_episode_{episode}.pth"
+            checkpoint_path = f"output/checkpoints/decqn_episode_{episode}.pth"
             save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
 
@@ -273,9 +269,9 @@ def train_decqn():
     import shutil
 
     metrics_tracker.save_metrics()  # Save metrics first
-    if os.path.exists("checkpoints"):
-        shutil.rmtree("checkpoints")
-    os.makedirs("checkpoints", exist_ok=True)
+    if os.path.exists("output/checkpoints"):
+        shutil.rmtree("output/checkpoints")
+    os.makedirs("output/checkpoints", exist_ok=True)
     final_checkpoint = "checkpoints/decqn_final.pth"
     save_checkpoint(agent, config.num_episodes, final_checkpoint)
     print(f"Final checkpoints saved: {final_checkpoint}")
