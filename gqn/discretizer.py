@@ -2,18 +2,18 @@ from typing import Dict
 
 import torch
 
+from common.discretizer import Discretizer
 
-class GrowingActionDiscretizer:
+
+class GrowingActionDiscretizer(Discretizer):
     """
     Action discretizer that supports growing resolution as described in the GQN paper.
     Implements both linear and adaptive growing schedules.
     """
 
-    def __init__(self, action_spec: Dict, max_bins: int = 9, decouple: bool = True):
-        self.decouple = decouple
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, action_spec: Dict, num_bins, max_bins: int = 9, decouple: bool = True):
+        super().__init__(action_spec, num_bins, decouple)
 
-        # Action space bounds
         self.action_min = torch.tensor(action_spec["low"], dtype=torch.float32, device=self.device)
         self.action_max = torch.tensor(action_spec["high"], dtype=torch.float32, device=self.device)
         self.action_dim = len(self.action_min)
@@ -55,7 +55,6 @@ class GrowingActionDiscretizer:
                 joint_bins = torch.stack([m.flatten() for m in mesh], dim=1)
                 self.all_action_bins[num_bins] = joint_bins
 
-        # Initialize with starting bins
         self.action_bins = self.all_action_bins[self.current_bins]
 
     def grow_action_space(self) -> bool:
@@ -97,28 +96,3 @@ class GrowingActionDiscretizer:
                     mask[dim, idx] = True
 
             return mask
-
-    def discrete_to_continuous(self, discrete_actions: torch.Tensor) -> torch.Tensor:
-        """Convert discrete actions to continuous using current resolution."""
-        if not isinstance(discrete_actions, torch.Tensor):
-            discrete_actions = torch.tensor(discrete_actions, device=self.device)
-
-        if discrete_actions.device != self.device:
-            discrete_actions = discrete_actions.to(self.device)
-
-        if self.decouple:
-            if len(discrete_actions.shape) == 1:
-                discrete_actions = discrete_actions.unsqueeze(0)
-
-            batch_size = discrete_actions.shape[0]
-            continuous_actions = torch.zeros(batch_size, self.action_dim, device=self.device)
-
-            for dim in range(self.action_dim):
-                bin_indices = discrete_actions[:, dim].long()
-                continuous_actions[:, dim] = self.action_bins[dim][bin_indices]
-
-            return continuous_actions
-        else:
-            if len(discrete_actions.shape) == 0:
-                discrete_actions = discrete_actions.unsqueeze(0)
-            return self.action_bins[discrete_actions.long()]
