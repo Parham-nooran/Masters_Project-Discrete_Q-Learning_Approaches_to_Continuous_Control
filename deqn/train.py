@@ -3,8 +3,8 @@ import gc
 import torch
 from config import *
 
-from dec_qn_agent import DecQNAgent
-from plotting_utils import *
+from agent import DecQNAgent
+from plotting.plotting_utils import *
 from dm_control import suite
 import numpy as np
 

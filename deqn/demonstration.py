@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from dm_control import suite
 
-from dec_qn_agent import DecQNAgent
+from agent import DecQNAgent
 from train import process_observation
 
 

@@ -1,4 +1,3 @@
-import numpy as np
 import torch.optim as optim
 
 from actors import CustomDiscreteFeedForwardActor
