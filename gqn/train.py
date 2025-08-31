@@ -241,7 +241,7 @@ def train_growing_qn():
         while not time_step.last():
             # Select action
             action = agent.select_action(obs)
-            action_np = action.cpu().numpy() if isinstance(action, torch.Tensor) else action
+            action_np = action.cpu().numpy()
 
             # Take environment step
             time_step = env.step(action_np)

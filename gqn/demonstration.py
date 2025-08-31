@@ -105,7 +105,6 @@ def demonstrate_gqn(
     total_rewards = []
     action_magnitudes = []
     action_changes = []
-    last_action = None
 
     for episode in range(num_episodes):
         episode_reward = 0
