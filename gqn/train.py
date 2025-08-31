@@ -1,14 +1,13 @@
 import time
 import gc
-import torch
-import numpy as np
 from dm_control import suite
 import os
 import argparse
-from types import SimpleNamespace
+from config import GQNConfig
 
 from agent import GrowingQNAgent
 from plotting.plotting_utils import MetricsTracker, PlottingUtils
+from train_utils import *
 
 
 def parse_gqn_args():
@@ -42,69 +41,6 @@ def parse_gqn_args():
     parser.add_argument("--detailed-log-interval", type=int, default=50, help="Detailed log every N episodes")
 
     return parser.parse_args()
-
-
-def create_gqn_config(args):
-    """Create configuration for Growing Q-Networks."""
-    config = SimpleNamespace()
-
-    # Copy arguments to config
-    for key, value in vars(args).items():
-        setattr(config, key.replace("-", "_"), value)
-
-    # GQN specific configuration
-    config.decouple = True  # GQN uses decoupled Q-learning
-    config.use_pixels = False  # Focus on state-based control as in paper
-    config.use_double_q = True
-
-    # Network architecture (as specified in paper)
-    config.layer_size_network = [512, 512]  # Paper uses simple MLP
-    config.layer_size_bottleneck = 100
-    config.num_pixels = 84
-
-    # Training parameters from paper (Table 1)
-    config.samples_per_insert = 32.0
-    config.importance_sampling_exponent = 0.2
-    config.priority_exponent = 0.6
-    config.adder_n_step = 3
-    config.huber_loss_parameter = 1.0
-    config.clip_gradients = True
-    config.clip_gradients_norm = 40.0  # As specified in paper
-
-    # Set final bins to max_bins
-    config.num_bins = config.max_bins
-
-    return config
-
-
-def process_observation(dm_obs, use_pixels, device):
-    """Process DM Control observations."""
-    if use_pixels:
-        if "pixels" in dm_obs:
-            obs = dm_obs["pixels"]
-        else:
-            camera_obs = [v for k, v in dm_obs.items() if "camera" in k or "rgb" in k]
-            if camera_obs:
-                obs = camera_obs[0]
-            else:
-                raise ValueError("No pixel observations found")
-
-        obs = torch.tensor(obs, dtype=torch.float32, device=device)
-        if len(obs.shape) == 3:
-            obs = obs.permute(2, 0, 1)
-        return obs
-    else:
-        # State-based observation processing
-        state_parts = []
-        for key in sorted(dm_obs.keys()):
-            val = dm_obs[key]
-            if isinstance(val, np.ndarray):
-                state_parts.append(val.astype(np.float32).flatten())
-            else:
-                state_parts.append(np.array([float(val)], dtype=np.float32))
-
-        state_vector = np.concatenate(state_parts, dtype=np.float32)
-        return torch.from_numpy(state_vector).to(device)
 
 
 def apply_action_penalty(reward, action, penalty_coeff):
@@ -223,7 +159,7 @@ def load_checkpoint(agent, checkpoint_path):
 def train_growing_qn():
     """Train Growing Q-Networks agent."""
     args = parse_gqn_args()
-    config = create_gqn_config(args)
+    config = GQNConfig.get_walker_config(args)
 
     # Set random seeds
     torch.manual_seed(args.seed)
