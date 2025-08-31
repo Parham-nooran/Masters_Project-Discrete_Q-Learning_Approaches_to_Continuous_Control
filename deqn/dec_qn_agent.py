@@ -4,17 +4,9 @@ import torch.optim as optim
 from actors import CustomDiscreteFeedForwardActor
 from critic import *
 from discretizer import ActionDiscretizer
-from encoder import *
-from replay_buffer import PrioritizedReplayBuffer
-
-
-def huber_loss(td_error, huber_loss_parameter=1.0):
-    abs_error = torch.abs(td_error)
-    quadratic = torch.minimum(
-        abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device)
-    )
-    linear = abs_error - quadratic
-    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
+from common.encoder import *
+from common.replay_buffer import PrioritizedReplayBuffer
+from common.agent_utils import *
 
 
 class DecQNAgent:
