@@ -1,4 +1,4 @@
-from replay_buffer import *
+from common.replay_buffer import *
 
 
 class ActionDiscretizer:
