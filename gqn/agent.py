@@ -73,7 +73,6 @@ class GrowingQNAgent:
             epsilon = 0.0 if evaluate else self.epsilon
             discrete_action = self._epsilon_greedy_action_selection(q_combined, epsilon)
             continuous_action = self.action_discretizer.discrete_to_continuous(discrete_action)
-
             return continuous_action[0].detach()
 
     def _epsilon_greedy_action_selection(self, q_values: torch.Tensor, epsilon: float) -> torch.Tensor:

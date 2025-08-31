@@ -2,6 +2,18 @@ import torch
 import torch.nn as nn
 from typing import Dict, List, Tuple, Optional
 
+
+def _build_network(layer_sizes: List[int]) -> nn.Module:
+    layers = []
+    for i in range(len(layer_sizes) - 1):
+        layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+        if i < len(layer_sizes) - 2:  # No activation on final layer
+            layers.append(nn.LayerNorm(layer_sizes[i + 1]))
+            layers.append(nn.ELU())
+
+    return nn.Sequential(*layers)
+
+
 class GrowingQCritic(nn.Module):
     def __init__(self, config, input_size: int, action_spec: Dict):
         super().__init__()
@@ -16,21 +28,11 @@ class GrowingQCritic(nn.Module):
             self.max_output_dim = self.max_bins ** self.action_dim
         layer_sizes = [input_size] + config.layer_size_network + [self.max_output_dim]
 
-        self.q1_network = self._build_network(layer_sizes)
+        self.q1_network = _build_network(layer_sizes)
         if self.use_double_q:
-            self.q2_network = self._build_network(layer_sizes)
+            self.q2_network = _build_network(layer_sizes)
         else:
             self.q2_network = self.q1_network
-
-    def _build_network(self, layer_sizes: List[int]) -> nn.Module:
-        layers = []
-        for i in range(len(layer_sizes) - 1):
-            layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
-            if i < len(layer_sizes) - 2:  # No activation on final layer
-                layers.append(nn.LayerNorm(layer_sizes[i + 1]))
-                layers.append(nn.ELU())
-
-        return nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor, action_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
