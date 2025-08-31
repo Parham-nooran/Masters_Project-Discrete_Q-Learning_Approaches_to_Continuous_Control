@@ -1,6 +1,5 @@
 from typing import Dict, Tuple
 
-import numpy as np
 import torch.optim as optim
 
 from common.agent_utils import *
@@ -83,11 +82,8 @@ class GrowingQNAgent:
         if self.config.decouple:
             num_dims = q_values.shape[1]
             current_bins = self.action_discretizer.current_bins
-            random_mask = torch.rand(batch_size, num_dims, device=self.device) < epsilon
-            random_actions = torch.randint(0, current_bins, (batch_size, num_dims), device=self.device)
-            greedy_actions = q_values.argmax(dim=2)
-            actions = torch.where(random_mask, random_actions, greedy_actions)
-            return actions
+            return get_combined_random_and_greedy_actions(
+                q_values, num_dims, current_bins, batch_size, epsilon, self.device)
         else:
             if torch.rand(1).item() < epsilon:
                 current_bins = self.action_discretizer.current_bins
@@ -101,28 +97,10 @@ class GrowingQNAgent:
 
     def observe(self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool):
         if hasattr(self, 'last_obs') and self.last_obs is not None:
-            discrete_action = self._continuous_to_discrete_action(action)
+            discrete_action = continuous_to_discrete_action(self.config, self.action_discretizer, action)
             self.replay_buffer.add(self.last_obs, discrete_action, reward, next_obs, done)
 
         self.last_obs = next_obs.detach() if isinstance(next_obs, torch.Tensor) else next_obs
-
-    def _continuous_to_discrete_action(self, continuous_action: torch.Tensor) -> np.ndarray:
-        if isinstance(continuous_action, torch.Tensor):
-            continuous_action = continuous_action.cpu().numpy()
-
-        continuous_action = np.array(continuous_action)
-
-        if self.config.decouple:
-            discrete_action = []
-            for dim in range(len(continuous_action)):
-                bins = self.action_discretizer.action_bins[dim].cpu().numpy()
-                closest_idx = np.argmin(np.abs(bins - continuous_action[dim]))
-                discrete_action.append(closest_idx)
-            return np.array(discrete_action, dtype=np.int64)
-        else:
-            action_bins_cpu = self.action_discretizer.action_bins.cpu().numpy()
-            distances = np.linalg.norm(action_bins_cpu - continuous_action, axis=1)
-            return np.argmin(distances)
 
     def maybe_grow_action_space(self, episode_return: float) -> bool:
         if self.scheduler.should_grow(self.episode_count, episode_return):

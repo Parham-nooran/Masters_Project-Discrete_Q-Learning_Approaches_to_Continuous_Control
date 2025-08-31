@@ -82,7 +82,7 @@ class DecQNAgent:
         if hasattr(self, "last_obs"):
             # Keep everything as tensors, only convert to discrete for storage
             if isinstance(action, torch.Tensor):
-                discrete_action = self._continuous_to_discrete_action(action)
+                discrete_action = continuous_to_discrete_action(self.config, self.action_discretizer, action)
             else:
                 discrete_action = action
 
@@ -96,26 +96,6 @@ class DecQNAgent:
         else:
             self.last_obs = next_obs
 
-    def _continuous_to_discrete_action(self, continuous_action):
-        """Convert continuous action back to discrete indices for storage."""
-        if isinstance(continuous_action, torch.Tensor):
-            continuous_action = continuous_action.cpu().numpy()
-
-        continuous_action = np.array(continuous_action)
-
-        if self.config.decouple:
-            # Find closest bin for each dimension
-            discrete_action = []
-            for dim in range(len(continuous_action)):
-                bins = self.action_discretizer.action_bins[dim].cpu().numpy()
-                closest_idx = np.argmin(np.abs(bins - continuous_action[dim]))
-                discrete_action.append(closest_idx)
-            return np.array(discrete_action, dtype=np.int64)
-        else:
-            # Find closest action in joint space
-            action_bins_cpu = self.action_discretizer.action_bins.cpu().numpy()
-            distances = np.linalg.norm(action_bins_cpu - continuous_action, axis=1)
-            return np.argmin(distances)
 
     def store_transition(self, obs, action, reward, next_obs, done):
         """Store transition in replay buffer."""
@@ -177,6 +157,7 @@ class DecQNAgent:
 
         return checkpoint["episode"]
 
+
     def make_epsilon_greedy_policy(self, q_values, epsilon, decouple=False):
         """Create epsilon-greedy policy from Q-values."""
         batch_size = q_values[0].shape[0]
@@ -192,21 +173,8 @@ class DecQNAgent:
             num_dims = q_max.shape[1]
             num_bins = q_max.shape[2]
 
-            # Create random mask for exploration decisions (independent for each batch and dimension)
-            random_mask = torch.rand(batch_size, num_dims, device=self.device) < epsilon
-
-            # Random actions for exploration
-            random_actions = torch.randint(
-                0, num_bins, (batch_size, num_dims), device=self.device
-            )
-
-            # Greedy actions for exploitation
-            greedy_actions = q_max.argmax(dim=2)
-
-            # Combine using the mask
-            actions = torch.where(random_mask, random_actions, greedy_actions)
-
-            return actions
+            return get_combined_random_and_greedy_actions(
+                q_max, num_dims, num_bins, batch_size, epsilon, self.device)
         else:
             # Standard epsilon-greedy
             if torch.rand(1).item() < epsilon:
@@ -217,7 +185,6 @@ class DecQNAgent:
                 return q_max.argmax(dim=1)
 
     def update(self):
-        """Update the agent."""
         if len(self.replay_buffer) < self.config.min_replay_size:
             return {}
 
