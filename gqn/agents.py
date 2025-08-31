@@ -1,128 +1,280 @@
+from typing import Dict, Tuple
+
 import numpy as np
-import torch
-import torch.nn as nn
 import torch.optim as optim
-from typing import Dict, List, Tuple, Optional, Union
-from collections import deque
+
+from common.agent_utils import *
+from common.encoder import VisionEncoder
+from common.replay_buffer import PrioritizedReplayBuffer
+from critic import GrowingQCritic
+from discretizer import GrowingActionDiscretizer
+from scheduler import GrowingScheduler
 
 
-
-class GrowingActionDiscretizer:
-    """
-    Action discretizer that supports growing resolution as described in the GQN paper.
-    Implements both linear and adaptive growing schedules.
-    """
-
-    def __init__(self, action_spec: Dict, max_bins: int = 9, decouple: bool = True):
-        self.decouple = decouple
+class GrowingQNAgent:
+    def __init__(self, config, obs_shape: Tuple, action_spec: Dict):
+        self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.action_discretizer = GrowingActionDiscretizer(
+            action_spec, max_bins=config.num_bins, decouple=config.decouple
+        )
+        self.scheduler = GrowingScheduler(
+            total_episodes=config.num_episodes,
+            num_growth_stages=len(self.action_discretizer.growth_sequence) - 1,
+            schedule_type=getattr(config, 'growing_schedule', 'adaptive')
+        )
 
-        # Action space bounds
-        self.action_min = torch.tensor(action_spec["low"], dtype=torch.float32, device=self.device)
-        self.action_max = torch.tensor(action_spec["high"], dtype=torch.float32, device=self.device)
-        self.action_dim = len(self.action_min)
+        if config.use_pixels:
+            self.encoder = VisionEncoder(config, config.num_pixels).to(self.device)
+            encoder_output_size = config.layer_size_bottleneck
+            self.encoder_optimizer = optim.Adam(self.encoder.parameters(), lr=config.learning_rate)
+        else:
+            self.encoder = None
+            encoder_output_size = np.prod(obs_shape)
+        self.q_network = GrowingQCritic(config, encoder_output_size, action_spec).to(self.device)
+        self.target_q_network = GrowingQCritic(config, encoder_output_size, action_spec).to(self.device)
+        self.target_q_network.load_state_dict(self.q_network.state_dict())
+        self.q_optimizer = optim.Adam(self.q_network.parameters(), lr=config.learning_rate)
+        self.replay_buffer = PrioritizedReplayBuffer(
+            capacity=config.max_replay_size,
+            alpha=config.priority_exponent,
+            beta=config.importance_sampling_exponent,
+            n_step=config.adder_n_step,
+            discount=config.discount
+        )
+        self.replay_buffer.device = self.device
+        self.training_step = 0
+        self.episode_count = 0
+        self.epsilon = config.epsilon
+        self.last_obs = None
+        self.current_resolution_level = 0
+        self.growth_history = [2]
 
-        # Growing parameters
-        self.max_bins = max_bins
-        self.current_bins = 2  # Start with 2 bins as per paper
-        self.growth_sequence = [2, 3, 5, 9]  # As specified in paper experiments
-        self.current_growth_idx = 0
+    def update_epsilon(self, decay_rate: float = 0.995, min_epsilon: float = 0.01):
+        self.epsilon = max(min_epsilon, self.epsilon * decay_rate)
 
-        # Pre-compute all bin levels for efficiency
-        self.all_action_bins = {}
-        for num_bins in self.growth_sequence:
-            if decouple:
-                # Per-dimension discretization
-                bins_per_dim = []
-                for dim in range(self.action_dim):
-                    bins = torch.linspace(
-                        self.action_min[dim],
-                        self.action_max[dim],
-                        num_bins,
-                        device=self.device
-                    )
-                    bins_per_dim.append(bins)
-                self.all_action_bins[num_bins] = torch.stack(bins_per_dim)
+    def get_current_action_mask(self) -> torch.Tensor:
+        return self.action_discretizer.get_action_mask(self.config.num_bins)
+
+    def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
+        if isinstance(obs, np.ndarray):
+            obs = torch.from_numpy(obs).float().unsqueeze(0).to(self.device)
+        elif len(obs.shape) < 2:
+            obs = obs.unsqueeze(0)
+
+        with torch.no_grad():
+            if self.encoder:
+                encoded_obs = self.encoder(obs)
             else:
-                # Joint discretization (cartesian product)
-                bins_per_dim = []
-                for dim in range(self.action_dim):
-                    bins = torch.linspace(
-                        self.action_min[dim],
-                        self.action_max[dim],
-                        num_bins,
-                        device=self.device
-                    )
-                    bins_per_dim.append(bins)
+                encoded_obs = obs.flatten(1)
 
-                mesh = torch.meshgrid(*bins_per_dim, indexing="ij")
-                joint_bins = torch.stack([m.flatten() for m in mesh], dim=1)
-                self.all_action_bins[num_bins] = joint_bins
+            action_mask = self.get_current_action_mask()
+            q1, q2 = self.q_network(encoded_obs, action_mask)
+            q_combined = torch.max(q1, q2)
+            epsilon = 0.0 if evaluate else self.epsilon
+            discrete_action = self._epsilon_greedy_action_selection(q_combined, epsilon)
+            continuous_action = self.action_discretizer.discrete_to_continuous(discrete_action)
 
-        # Initialize with starting bins
-        self.action_bins = self.all_action_bins[self.current_bins]
+            return continuous_action[0].detach()
 
-    def grow_action_space(self) -> bool:
-        """
-        Grow to next resolution level. Returns True if growth occurred.
-        """
-        if self.current_growth_idx < len(self.growth_sequence) - 1:
-            self.current_growth_idx += 1
-            self.current_bins = self.growth_sequence[self.current_growth_idx]
-            self.action_bins = self.all_action_bins[self.current_bins]
-            return True
+    def _epsilon_greedy_action_selection(self, q_values: torch.Tensor, epsilon: float) -> torch.Tensor:
+        batch_size = q_values.shape[0]
+
+        if self.config.decouple:
+            num_dims = q_values.shape[1]
+            current_bins = self.action_discretizer.current_bins
+            random_mask = torch.rand(batch_size, num_dims, device=self.device) < epsilon
+            random_actions = torch.randint(0, current_bins, (batch_size, num_dims), device=self.device)
+            greedy_actions = q_values.argmax(dim=2)
+            actions = torch.where(random_mask, random_actions, greedy_actions)
+            return actions
+        else:
+            if torch.rand(1).item() < epsilon:
+                current_bins = self.action_discretizer.current_bins
+                total_actions = current_bins ** self.action_discretizer.action_dim
+                return torch.randint(0, total_actions, (batch_size,), device=self.device)
+            else:
+                return q_values.argmax(dim=1)
+
+    def observe_first(self, obs: torch.Tensor):
+        self.last_obs = obs.detach() if isinstance(obs, torch.Tensor) else obs
+
+    def observe(self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool):
+        if hasattr(self, 'last_obs') and self.last_obs is not None:
+            discrete_action = self._continuous_to_discrete_action(action)
+            self.replay_buffer.add(self.last_obs, discrete_action, reward, next_obs, done)
+
+        self.last_obs = next_obs.detach() if isinstance(next_obs, torch.Tensor) else next_obs
+
+    def _continuous_to_discrete_action(self, continuous_action: torch.Tensor) -> np.ndarray:
+        if isinstance(continuous_action, torch.Tensor):
+            continuous_action = continuous_action.cpu().numpy()
+
+        continuous_action = np.array(continuous_action)
+
+        if self.config.decouple:
+            discrete_action = []
+            for dim in range(len(continuous_action)):
+                bins = self.action_discretizer.action_bins[dim].cpu().numpy()
+                closest_idx = np.argmin(np.abs(bins - continuous_action[dim]))
+                discrete_action.append(closest_idx)
+            return np.array(discrete_action, dtype=np.int64)
+        else:
+            action_bins_cpu = self.action_discretizer.action_bins.cpu().numpy()
+            distances = np.linalg.norm(action_bins_cpu - continuous_action, axis=1)
+            return np.argmin(distances)
+
+    def maybe_grow_action_space(self, episode_return: float) -> bool:
+        if self.scheduler.should_grow(self.episode_count, episode_return):
+            growth_occurred = self.action_discretizer.grow_action_space()
+            if growth_occurred:
+                current_bins = self.action_discretizer.current_bins
+                self.growth_history.append(current_bins)
+                print(f"Episode {self.episode_count}: Growing action space to {current_bins} bins per dimension")
+                return True
         return False
 
-    def get_action_mask(self, full_bins: int) -> torch.Tensor:
-        """
-        Generate action mask for current active bins within full discretization.
-        This implements the action masking mechanism from Figure 1 in the paper.
-        """
-        if not self.decouple:
-            # For joint discretization, mask based on total actions
-            total_current = self.current_bins ** self.action_dim
-            total_full = full_bins ** self.action_dim
-            mask = torch.zeros(total_full, dtype=torch.bool, device=self.device)
+    def update(self) -> Dict:
+        if len(self.replay_buffer) < self.config.min_replay_size:
+            return {}
 
-            # Calculate which joint actions are active based on current resolution
-            step = total_full // total_current
-            for i in range(total_current):
-                mask[i * step] = True
-            return mask
+        batch = self.replay_buffer.sample(self.config.batch_size)
+        if batch is None:
+            return {}
+
+        obs, actions, rewards, next_obs, dones, discounts, weights, indices = batch
+
+        obs = obs.to(self.device)
+        actions = actions.to(self.device)
+        rewards = rewards.to(self.device)
+        next_obs = next_obs.to(self.device)
+        dones = dones.to(self.device)
+        discounts = discounts.to(self.device)
+        weights = weights.to(self.device)
+
+        if self.encoder:
+            obs_encoded = self.encoder(obs)
+            with torch.no_grad():
+                next_obs_encoded = self.encoder(next_obs)
         else:
-            # For decoupled case, create mask for each dimension
-            mask = torch.zeros(self.action_dim, full_bins, dtype=torch.bool, device=self.device)
+            obs_encoded = obs.flatten(1)
+            next_obs_encoded = next_obs.flatten(1)
 
-            # Calculate step size for current resolution
-            step = max(1, full_bins // self.current_bins)
-            for dim in range(self.action_dim):
-                for i in range(self.current_bins):
-                    idx = min(i * step, full_bins - 1)
-                    mask[dim, idx] = True
+        action_mask = self.get_current_action_mask()
 
-            return mask
+        q1_current, q2_current = self.q_network(obs_encoded, action_mask)
 
-    def discrete_to_continuous(self, discrete_actions: torch.Tensor) -> torch.Tensor:
-        """Convert discrete actions to continuous using current resolution."""
-        if not isinstance(discrete_actions, torch.Tensor):
-            discrete_actions = torch.tensor(discrete_actions, device=self.device)
+        # Next Q-values for target (Equation 3 from paper)
+        with torch.no_grad():
+            q1_next_target, q2_next_target = self.target_q_network(next_obs_encoded, action_mask)
+            q1_next_online, q2_next_online = self.q_network(next_obs_encoded, action_mask)
 
-        if discrete_actions.device != self.device:
-            discrete_actions = discrete_actions.to(self.device)
+            if self.config.decouple:
+                # Double DQN: select with online, evaluate with target
+                # Implement value decomposition as per Equation 2: Q(s,a) = Σ Q_j(s,a_j) / M
 
-        if self.decouple:
-            if len(discrete_actions.shape) == 1:
-                discrete_actions = discrete_actions.unsqueeze(0)
+                q_next_online = 0.5 * (q1_next_online + q2_next_online)
+                next_actions = q_next_online.argmax(dim=2)
 
-            batch_size = discrete_actions.shape[0]
-            continuous_actions = torch.zeros(batch_size, self.action_dim, device=self.device)
+                batch_indices = torch.arange(q1_next_target.shape[0], device=self.device)
+                dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
 
-            for dim in range(self.action_dim):
-                bin_indices = discrete_actions[:, dim].long()
-                continuous_actions[:, dim] = self.action_bins[dim][bin_indices]
+                # Select Q-values for chosen actions
+                q1_selected = q1_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
+                q2_selected = q2_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
 
-            return continuous_actions
+                # Average Q-values and sum over dimensions, then divide by M (Equation 2)
+                q_target_per_dim = 0.5 * (q1_selected + q2_selected)
+                q_target_values = q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+
+                targets = rewards + discounts * q_target_values * (~dones).float()
+            else:
+                # Standard case for joint actions
+                q_next_combined = 0.5 * (q1_next_target + q2_next_target)
+                next_actions = self._epsilon_greedy_action_selection(
+                    0.5 * (q1_next_online + q2_next_online), 0.0
+                )
+                q_target_values = q_next_combined.gather(1, next_actions.unsqueeze(1)).squeeze(1)
+                targets = rewards + discounts * q_target_values * ~dones
+
+        # Current Q-values for selected actions
+        if self.config.decouple:
+            # Apply Equation 2: sum over dimensions and divide by M
+            batch_indices = torch.arange(q1_current.shape[0], device=self.device)
+            dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
+
+            q1_per_dim = q1_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
+            q2_per_dim = q2_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
+
+            q1_selected = q1_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+            q2_selected = q2_per_dim.sum(dim=1) / self.action_discretizer.action_dim
         else:
-            if len(discrete_actions.shape) == 0:
-                discrete_actions = discrete_actions.unsqueeze(0)
-            return self.action_bins[discrete_actions.long()]
+            if len(actions.shape) > 1:
+                actions = actions.squeeze(-1)
+            q1_selected = q1_current.gather(1, actions.unsqueeze(1)).squeeze(1)
+            q2_selected = q2_current.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # Compute losses with Huber loss as specified in paper
+        td_error1 = targets - q1_selected
+        td_error2 = targets - q2_selected
+
+        # Huber loss (paper uses huber_loss_parameter = 1.0)
+        huber_param = getattr(self.config, "huber_loss_parameter", 1.0)
+        loss1 = huber_loss(td_error1, huber_param)
+        loss2 = huber_loss(td_error2, huber_param) if self.config.use_double_q else torch.zeros_like(loss1)
+
+        # Apply importance sampling weights
+        loss1 = (loss1 * weights).sum() / weights.sum()
+        loss2 = (loss2 * weights).sum() / weights.sum() if self.config.use_double_q else torch.zeros_like(loss1)
+
+        total_loss = loss1 + loss2
+
+        # Optimize
+        self.q_optimizer.zero_grad()
+        if self.encoder:
+            self.encoder_optimizer.zero_grad()
+
+        total_loss.backward()
+
+        # Gradient clipping as specified in paper (40.0)
+        if getattr(self.config, "clip_gradients", False):
+            clip_norm = getattr(self.config, "clip_gradients_norm", 40.0)
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), clip_norm)
+            if self.encoder:
+                torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), clip_norm)
+
+        self.q_optimizer.step()
+        if self.encoder:
+            self.encoder_optimizer.step()
+
+        # Update priorities
+        priorities1 = torch.abs(td_error1).detach().cpu().numpy()
+        priorities2 = torch.abs(td_error2).detach().cpu().numpy()
+        priorities = 0.5 * (priorities1 + priorities2) if self.config.use_double_q else priorities1
+        self.replay_buffer.update_priorities(indices, priorities)
+
+        # Update target network
+        self.training_step += 1
+        if self.training_step % self.config.target_update_period == 0:
+            self.target_q_network.load_state_dict(self.q_network.state_dict())
+
+        return {
+            "loss": total_loss.item(),
+            "q1_mean": q1_selected.mean().item(),
+            "q2_mean": q2_selected.mean().item() if self.config.use_double_q else 0,
+            "current_bins": self.action_discretizer.current_bins,
+            "resolution_level": self.current_resolution_level
+        }
+
+    def end_episode(self, episode_return: float):
+        self.episode_count += 1
+        self.maybe_grow_action_space(episode_return)
+
+    def get_growth_info(self) -> Dict:
+        return {
+            "current_bins": self.action_discretizer.current_bins,
+            "resolution_level": self.current_resolution_level,
+            "growth_history": self.growth_history,
+            "max_bins": self.config.num_bins,
+            "growth_sequence": self.action_discretizer.growth_sequence
+        }
