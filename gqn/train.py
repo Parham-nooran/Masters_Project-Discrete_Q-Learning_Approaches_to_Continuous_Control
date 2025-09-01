@@ -49,15 +49,16 @@ def apply_action_penalty(reward, action, penalty_coeff):
         if isinstance(action, torch.Tensor):
             action_np = action.cpu().numpy()
         else:
-            action_np = action
+            action_np = np.array(action)
 
         # Penalty: -ca * ||a||^2 / M (as in paper)
-        action_penalty = penalty_coeff * np.sum(action_np ** 2) / len(action_np)
+        M = action_np.shape[-1] if len(action_np.shape) > 0 else 1
+        action_penalty = penalty_coeff * np.sum(action_np ** 2) / M
         return reward - action_penalty
     return reward
 
 
-def save_checkpoint(agent, episode, path, metrics_tracker):
+def save_checkpoint(agent, episode, path):
     """Save agent checkpoint including GQN-specific state."""
     checkpoint = {
         "episode": episode,
@@ -339,13 +340,13 @@ def train_growing_qn():
         if episode % args.checkpoint_interval == 0:
             metrics_tracker.save_metrics()
             checkpoint_path = f"output/checkpoints/gqn_episode_{episode}.pth"
-            save_checkpoint(agent, episode, checkpoint_path, metrics_tracker)
+            save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
 
     # Final save
     metrics_tracker.save_metrics()
     final_checkpoint = "output/checkpoints/gqn_final.pth"
-    save_checkpoint(agent, config.num_episodes, final_checkpoint, metrics_tracker)
+    save_checkpoint(agent, config.num_episodes, final_checkpoint)
     print(f"Final checkpoint saved: {final_checkpoint}")
 
     total_time = time.time() - start_time

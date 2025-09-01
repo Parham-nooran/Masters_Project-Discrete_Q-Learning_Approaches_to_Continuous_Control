@@ -1,8 +1,9 @@
 from typing import Dict, Tuple
-
+import numpy as np
+import torch
 import torch.optim as optim
 
-from common.agent_utils import *
+from common.agent_utils import get_combined_random_and_greedy_actions, huber_loss, continuous_to_discrete_action
 from common.encoder import VisionEncoder
 from common.replay_buffer import PrioritizedReplayBuffer
 from critic import GrowingQCritic
@@ -14,8 +15,19 @@ class GrowingQNAgent:
     def __init__(self, config, obs_shape: Tuple, action_spec: Dict):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if hasattr(config, 'growth_sequence') and config.growth_sequence is not None:
+            growth_sequence = config.growth_sequence
+        elif any(task in config.task.lower() for task in ['sawyer', 'metaworld', 'manipulation']):
+            growth_sequence = [9, 17, 33, 65]  # As used for MetaWorld experiments
+        elif 'myo' in config.task.lower():
+            growth_sequence = [2, 3, 5, 9, 17, 33, 65]  # Extended sequence for MyoSuite
+        else:
+            growth_sequence = [2, 3, 5, 9]
         self.action_discretizer = GrowingActionDiscretizer(
-            action_spec, max_bins=config.num_bins, decouple=config.decouple
+            action_spec,
+            max_bins=config.max_bins,
+            decouple=config.decouple,
+            growth_sequence=growth_sequence
         )
         self.scheduler = GrowingScheduler(
             total_episodes=config.num_episodes,
@@ -47,13 +59,13 @@ class GrowingQNAgent:
         self.epsilon = config.epsilon
         self.last_obs = None
         self.current_resolution_level = 0
-        self.growth_history = [2]
+        self.growth_history = [self.action_discretizer.current_bins]
 
     def update_epsilon(self, decay_rate: float = 0.995, min_epsilon: float = 0.01):
         self.epsilon = max(min_epsilon, self.epsilon * decay_rate)
 
     def get_current_action_mask(self) -> torch.Tensor:
-        return self.action_discretizer.get_action_mask(self.config.num_bins)
+        return self.action_discretizer.get_action_mask(self.config.max_bins)
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
         if isinstance(obs, np.ndarray):
@@ -84,11 +96,19 @@ class GrowingQNAgent:
             return get_combined_random_and_greedy_actions(
                 q_values, num_dims, current_bins, batch_size, epsilon, self.device)
         else:
+            # Joint action case
             if torch.rand(1).item() < epsilon:
-                current_bins = self.action_discretizer.current_bins
-                total_actions = current_bins ** self.action_discretizer.action_dim
-                return torch.randint(0, total_actions, (batch_size,), device=self.device)
+                # Random action from valid masked actions only
+                action_mask = self.get_current_action_mask()
+                valid_actions = torch.where(action_mask)[0]
+                if len(valid_actions) > 0:
+                    random_indices = torch.randint(0, len(valid_actions), (batch_size,), device=self.device)
+                    return valid_actions[random_indices]
+                else:
+                    # Fallback if no valid actions (shouldn't happen)
+                    return torch.randint(0, q_values.shape[1], (batch_size,), device=self.device)
             else:
+                # Greedy action selection
                 return q_values.argmax(dim=1)
 
     def observe_first(self, obs: torch.Tensor):
@@ -144,35 +164,52 @@ class GrowingQNAgent:
         # Next Q-values for target (Equation 3 from paper)
         with torch.no_grad():
             q1_next_target, q2_next_target = self.target_q_network(next_obs_encoded, action_mask)
-            q1_next_online, q2_next_online = self.q_network(next_obs_encoded, action_mask)
 
-            if self.config.decouple:
-                # Double DQN: select with online, evaluate with target
-                # Implement value decomposition as per Equation 2: Q(s,a) = Σ Q_j(s,a_j) / M
+            if self.config.use_double_q:
+                # Double DQN: select actions with online network, evaluate with target
+                q1_next_online, q2_next_online = self.q_network(next_obs_encoded, action_mask)
+                if self.config.decouple:
+                    q_next_online = 0.5 * (q1_next_online + q2_next_online)
+                    next_actions = q_next_online.argmax(dim=2)
 
-                q_next_online = 0.5 * (q1_next_online + q2_next_online)
-                next_actions = q_next_online.argmax(dim=2)
+                    batch_indices = torch.arange(q1_next_target.shape[0], device=self.device)
+                    dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
 
-                batch_indices = torch.arange(q1_next_target.shape[0], device=self.device)
-                dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
+                    # Select Q-values for chosen actions using target network
+                    q1_selected = q1_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
+                    q2_selected = q2_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
 
-                # Select Q-values for chosen actions
-                q1_selected = q1_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
-                q2_selected = q2_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
-
-                # Average Q-values and sum over dimensions, then divide by M (Equation 2)
-                q_target_per_dim = 0.5 * (q1_selected + q2_selected)
-                q_target_values = q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
-
-                targets = rewards + discounts * q_target_values * (~dones).float()
+                    # Apply Equation 2: Q(s,a) = Σ Q_j(s,a_j) / M
+                    q_target_per_dim = 0.5 * (q1_selected + q2_selected)
+                    q_target_decomposed = q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+                    targets = rewards + discounts * q_target_decomposed * (~dones).float()
+                else:
+                    # Joint case with Double DQN
+                    q_next_online = 0.5 * (q1_next_online + q2_next_online)
+                    next_actions = q_next_online.argmax(dim=1)
+                    q_next_target_combined = 0.5 * (q1_next_target + q2_next_target)
+                    q_target_values = q_next_target_combined.gather(1, next_actions.unsqueeze(1)).squeeze(1)
+                    targets = rewards + discounts * q_target_values * (~dones).float()
             else:
-                # Standard case for joint actions
-                q_next_combined = 0.5 * (q1_next_target + q2_next_target)
-                next_actions = self._epsilon_greedy_action_selection(
-                    0.5 * (q1_next_online + q2_next_online), 0.0
-                )
-                q_target_values = q_next_combined.gather(1, next_actions.unsqueeze(1)).squeeze(1)
-                targets = rewards + discounts * q_target_values * ~dones
+                # Standard DQN: use target network for both selection and evaluation
+                if self.config.decouple:
+                    q_next_target_combined = 0.5 * (q1_next_target + q2_next_target)
+                    next_actions = q_next_target_combined.argmax(dim=2)
+
+                    batch_indices = torch.arange(q1_next_target.shape[0], device=self.device)
+                    dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
+
+                    q1_selected = q1_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
+                    q2_selected = q2_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
+
+                    q_target_per_dim = 0.5 * (q1_selected + q2_selected)
+                    q_target_decomposed = q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+                    targets = rewards + discounts * q_target_decomposed * (~dones).float()
+                else:
+                    q_next_target_combined = 0.5 * (q1_next_target + q2_next_target)
+                    next_actions = q_next_target_combined.argmax(dim=1)
+                    q_target_values = q_next_target_combined.gather(1, next_actions.unsqueeze(1)).squeeze(1)
+                    targets = rewards + discounts * q_target_values * (~dones).float()
 
         # Current Q-values for selected actions
         if self.config.decouple:
@@ -252,6 +289,6 @@ class GrowingQNAgent:
             "current_bins": self.action_discretizer.current_bins,
             "resolution_level": self.current_resolution_level,
             "growth_history": self.growth_history,
-            "max_bins": self.config.num_bins,
+            "max_bins": self.config.max_bins,
             "growth_sequence": self.action_discretizer.growth_sequence
         }

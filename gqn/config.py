@@ -31,7 +31,10 @@ class GQNConfig:
 
         # ===== Network Architecture =====
         # Paper Table 1 hyperparameters
-        config.layer_size_network = [512, 512]  # Hidden layer sizes
+        if 'myo' in getattr(args, 'task', '').lower():
+            config.layer_size_network = [2048, 2048]  # Extended capacity for MyoSuite
+        else:
+            config.layer_size_network = [512, 512]  # Standard network as per Table 1
         config.layer_size_bottleneck = 100  # For vision encoder (if used)
         config.num_pixels = 84  # Image size for pixel observations
         config.use_residual = False  # Paper uses simple MLP

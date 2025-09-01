@@ -1,3 +1,4 @@
+import itertools
 from typing import Dict
 
 import torch
@@ -11,17 +12,18 @@ class GrowingActionDiscretizer(Discretizer):
     Implements both linear and adaptive growing schedules.
     """
 
-    def __init__(self, action_spec: Dict, num_bins, max_bins: int = 9, decouple: bool = True):
-        super().__init__(action_spec, num_bins, decouple)
-
+    def __init__(self, action_spec: Dict, max_bins: int = 9, decouple: bool = True,
+                 growth_sequence: list = None):
+        super().__init__(action_spec, max_bins, decouple)
         self.action_min = torch.tensor(action_spec["low"], dtype=torch.float32, device=self.device)
         self.action_max = torch.tensor(action_spec["high"], dtype=torch.float32, device=self.device)
         self.action_dim = len(self.action_min)
 
         # Growing parameters
         self.max_bins = max_bins
-        self.current_bins = 2  # Start with 2 bins as per paper
-        self.growth_sequence = [2, 3, 5, 9]  # As specified in paper experiments
+        self.growth_sequence = growth_sequence if growth_sequence is not None else [2, 3, 5,
+                                                                                    9]  # As specified in paper experiments
+        self.current_bins = self.growth_sequence[0]  # Start with 2 bins as per paper
         self.current_growth_idx = 0
 
         # Pre-compute all bin levels for efficiency
@@ -74,25 +76,39 @@ class GrowingActionDiscretizer(Discretizer):
         This implements the action masking mechanism from Figure 1 in the paper.
         """
         if not self.decouple:
-            # For joint discretization, mask based on total actions
-            total_current = self.current_bins ** self.action_dim
+            # For joint discretization
             total_full = full_bins ** self.action_dim
             mask = torch.zeros(total_full, dtype=torch.bool, device=self.device)
 
-            # Calculate which joint actions are active based on current resolution
-            step = total_full // total_current
-            for i in range(total_current):
-                mask[i * step] = True
+            # Map current resolution bins to full resolution indices
+            step = full_bins // self.current_bins
+            if step * self.current_bins != full_bins:
+                # Handle non-divisible cases by using evenly spaced indices
+                indices = torch.linspace(0, full_bins - 1, self.current_bins, dtype=torch.long)
+            else:
+                indices = torch.arange(0, full_bins, step, dtype=torch.long)
+
+            # Generate all valid combinations for joint discretization
+            for combo in itertools.product(indices.tolist(), repeat=self.action_dim):
+                # Convert multi-dimensional index to flat index
+                flat_idx = 0
+                for i, idx in enumerate(combo):
+                    flat_idx += idx * (full_bins ** (self.action_dim - 1 - i))
+                if flat_idx < total_full:
+                    mask[flat_idx] = True
             return mask
         else:
-            # For decoupled case, create mask for each dimension
+            # For decoupled case - per-dimension masking
             mask = torch.zeros(self.action_dim, full_bins, dtype=torch.bool, device=self.device)
+            step = full_bins // self.current_bins
 
-            # Calculate step size for current resolution
-            step = max(1, full_bins // self.current_bins)
+            if step * self.current_bins != full_bins:
+                # Handle non-divisible cases by using evenly spaced indices
+                indices = torch.linspace(0, full_bins - 1, self.current_bins, dtype=torch.long)
+            else:
+                indices = torch.arange(0, full_bins, step, dtype=torch.long)
+
             for dim in range(self.action_dim):
-                for i in range(self.current_bins):
-                    idx = min(i * step, full_bins - 1)
-                    mask[dim, idx] = True
+                mask[dim, indices] = True
 
             return mask

@@ -21,7 +21,7 @@ class GrowingQCritic(nn.Module):
         self.decouple = config.decouple
         self.use_double_q = config.use_double_q
         self.action_dim = len(action_spec["low"])
-        self.max_bins = config.num_bins
+        self.max_bins = config.max_bins
         if self.decouple:
             self.max_output_dim = self.max_bins * self.action_dim
         else:

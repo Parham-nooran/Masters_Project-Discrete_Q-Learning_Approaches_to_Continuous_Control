@@ -44,10 +44,11 @@ class GrowingScheduler:
             mu_ma = np.mean(self.returns_history)
             sigma_ma = np.std(self.returns_history)
 
-            # Threshold calculation: underestimate mean by 5% and add 90% of std
-            threshold = (1.0 - 0.05 * np.sign(mu_ma)) * mu_ma + 0.90 * sigma_ma
+            # Paper's Equation 4: G_threshold = (1 - 0.05 * sign(μ_MA)) * μ_MA + 0.90 * σ_MA
+            sign_mu = np.sign(mu_ma) if mu_ma != 0 else 0
+            threshold = (1.0 - 0.05 * sign_mu) * mu_ma + 0.90 * sigma_ma
 
-            # Grow if current return falls below threshold (performance stagnation)
+            # Growth occurs when performance stagnates below threshold
             should_grow = episode_return < threshold
 
             if should_grow:
