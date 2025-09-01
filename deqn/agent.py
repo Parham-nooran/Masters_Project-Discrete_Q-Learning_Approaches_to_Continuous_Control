@@ -2,10 +2,10 @@ import torch.optim as optim
 
 from actors import CustomDiscreteFeedForwardActor
 from critic import *
-from discretizer import ActionDiscretizer
 from common.encoder import *
 from common.replay_buffer import PrioritizedReplayBuffer
 from common.agent_utils import *
+from gqn.discretizer import GrowingActionDiscretizer
 
 
 class DecQNAgent:
@@ -14,7 +14,7 @@ class DecQNAgent:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.obs_shape = obs_shape
         self.action_spec = action_spec
-        self.action_discretizer = ActionDiscretizer(
+        self.action_discretizer = GrowingActionDiscretizer(
             action_spec, config.num_bins, config.decouple
         )
         if config.use_pixels:

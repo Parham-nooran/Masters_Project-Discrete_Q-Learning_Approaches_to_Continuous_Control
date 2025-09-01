@@ -14,7 +14,7 @@ class GrowingActionDiscretizer(Discretizer):
 
     def __init__(self, action_spec: Dict, max_bins: int = 9, decouple: bool = True,
                  growth_sequence: list = None):
-        super().__init__(action_spec, max_bins, decouple)
+        super().__init__(decouple, action_spec, max_bins)
         self.action_min = torch.tensor(action_spec["low"], dtype=torch.float32, device=self.device)
         self.action_max = torch.tensor(action_spec["high"], dtype=torch.float32, device=self.device)
         self.action_dim = len(self.action_min)
@@ -81,32 +81,29 @@ class GrowingActionDiscretizer(Discretizer):
             mask = torch.zeros(total_full, dtype=torch.bool, device=self.device)
 
             # Map current resolution bins to full resolution indices
-            step = full_bins // self.current_bins
-            if step * self.current_bins != full_bins:
-                # Handle non-divisible cases by using evenly spaced indices
-                indices = torch.linspace(0, full_bins - 1, self.current_bins, dtype=torch.long)
+            if full_bins % self.current_bins == 0:
+                step = full_bins // self.current_bins
+                indices = list(range(0, full_bins, step))
             else:
-                indices = torch.arange(0, full_bins, step, dtype=torch.long)
+                indices = [int(i) for i in torch.linspace(0, full_bins - 1, self.current_bins)]
 
             # Generate all valid combinations for joint discretization
-            for combo in itertools.product(indices.tolist(), repeat=self.action_dim):
+            for combo in itertools.product(indices, repeat=self.action_dim):
                 # Convert multi-dimensional index to flat index
-                flat_idx = 0
-                for i, idx in enumerate(combo):
-                    flat_idx += idx * (full_bins ** (self.action_dim - 1 - i))
+                flat_idx = sum(idx * (full_bins ** (self.action_dim - 1 - i))
+                               for i, idx in enumerate(combo))
                 if flat_idx < total_full:
                     mask[flat_idx] = True
             return mask
         else:
             # For decoupled case - per-dimension masking
             mask = torch.zeros(self.action_dim, full_bins, dtype=torch.bool, device=self.device)
-            step = full_bins // self.current_bins
 
-            if step * self.current_bins != full_bins:
-                # Handle non-divisible cases by using evenly spaced indices
-                indices = torch.linspace(0, full_bins - 1, self.current_bins, dtype=torch.long)
+            if full_bins % self.current_bins == 0:
+                step = full_bins // self.current_bins
+                indices = torch.arange(0, full_bins, step, dtype=torch.long, device=self.device)
             else:
-                indices = torch.arange(0, full_bins, step, dtype=torch.long)
+                indices = torch.round(torch.linspace(0, full_bins - 1, self.current_bins)).long()
 
             for dim in range(self.action_dim):
                 mask[dim, indices] = True
