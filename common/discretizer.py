@@ -24,10 +24,10 @@ class Discretizer:
 
             for dim in range(self.action_dim):
                 bin_indices = discrete_actions[:, dim].long()
-                continuous_actions[:, dim] = self.max_bins[dim][bin_indices]
+                continuous_actions[:, dim] = self.action_bins[dim][bin_indices]
 
             return continuous_actions
         else:
             if len(discrete_actions.shape) == 0:
                 discrete_actions = discrete_actions.unsqueeze(0)
-            return self.max_bins[discrete_actions.long()]
+            return self.action_bins[discrete_actions.long()]
