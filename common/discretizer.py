@@ -24,10 +24,14 @@ class Discretizer:
 
             for dim in range(self.action_dim):
                 bin_indices = discrete_actions[:, dim].long()
+                bin_indices = torch.clamp(bin_indices, 0, self.current_bins - 1)
                 continuous_actions[:, dim] = self.action_bins[dim][bin_indices]
 
             return continuous_actions
         else:
             if len(discrete_actions.shape) == 0:
                 discrete_actions = discrete_actions.unsqueeze(0)
-            return self.action_bins[discrete_actions.long()]
+            flat_indices = discrete_actions.long()
+            max_joint_actions = len(self.action_bins)
+            flat_indices = torch.clamp(flat_indices, 0, max_joint_actions - 1)
+            return self.action_bins[flat_indices]

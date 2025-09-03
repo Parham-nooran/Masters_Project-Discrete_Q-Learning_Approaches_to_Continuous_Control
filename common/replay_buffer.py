@@ -65,6 +65,23 @@ def stack_actions(actions_list):
             return torch.stack(padded_actions)
 
 
+def _ensure_tensor_device(tensor, device):
+    """Ensure tensor is on the correct device."""
+    if isinstance(tensor, torch.Tensor):
+        return tensor.to(device)
+    return tensor
+
+
+def _ensure_tensor_on_cpu(data):
+    """Convert data to tensor and ensure it's on CPU for storage."""
+    if isinstance(data, torch.Tensor):
+        return data.detach().cpu()
+    elif isinstance(data, np.ndarray):
+        return torch.from_numpy(data)
+    else:
+        return torch.tensor(data, dtype=torch.float32)
+
+
 class PrioritizedReplayBuffer:
     """Prioritized Experience Replay buffer."""
 
@@ -93,10 +110,10 @@ class PrioritizedReplayBuffer:
         for transition in self.buffer:
             if transition is not None:
                 new_transition = Transition(
-                    obs=self._ensure_tensor_device(transition.obs, device),
-                    action=self._ensure_tensor_device(transition.action, device),
+                    obs=_ensure_tensor_device(transition.obs, device),
+                    action=_ensure_tensor_device(transition.action, device),
                     reward=transition.reward,
-                    next_obs=self._ensure_tensor_device(transition.next_obs, device),
+                    next_obs=_ensure_tensor_device(transition.next_obs, device),
                     done=transition.done,
                     n_step_return=transition.n_step_return,
                     n_step_discount=transition.n_step_discount
@@ -106,26 +123,11 @@ class PrioritizedReplayBuffer:
                 new_buffer.append(None)
         self.buffer = new_buffer
 
-    def _ensure_tensor_device(self, tensor, device):
-        """Ensure tensor is on the correct device."""
-        if isinstance(tensor, torch.Tensor):
-            return tensor.to(device)
-        return tensor
-
-    def _ensure_tensor_on_cpu(self, data):
-        """Convert data to tensor and ensure it's on CPU for storage."""
-        if isinstance(data, torch.Tensor):
-            return data.detach().cpu()
-        elif isinstance(data, np.ndarray):
-            return torch.from_numpy(data)
-        else:
-            return torch.tensor(data, dtype=torch.float32)
-
     def add(self, obs, action, reward, next_obs, done):
         """Add transition with n-step returns."""
         # Always store tensors on CPU for memory efficiency, but ensure they're detached
-        obs = self._ensure_tensor_on_cpu(obs)
-        next_obs = self._ensure_tensor_on_cpu(next_obs)
+        obs = _ensure_tensor_on_cpu(obs)
+        next_obs = _ensure_tensor_on_cpu(next_obs)
 
         if isinstance(action, torch.Tensor):
             action = action.detach().cpu()

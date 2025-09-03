@@ -65,6 +65,7 @@ class GrowingQNAgent:
         self.epsilon = max(min_epsilon, self.epsilon * decay_rate)
 
     def get_current_action_mask(self) -> torch.Tensor:
+        """Get action mask for current resolution level."""
         return self.action_discretizer.get_action_mask(self.config.max_bins)
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:

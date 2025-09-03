@@ -80,32 +80,52 @@ class GrowingActionDiscretizer(Discretizer):
             total_full = full_bins ** self.action_dim
             mask = torch.zeros(total_full, dtype=torch.bool, device=self.device)
 
-            # Map current resolution bins to full resolution indices
-            if full_bins % self.current_bins == 0:
+            # Calculate step size for uniform sampling across resolution levels
+            if full_bins >= self.current_bins:
                 step = full_bins // self.current_bins
-                indices = list(range(0, full_bins, step))
+                if step * self.current_bins == full_bins:
+                    # Perfect divisibility
+                    indices = list(range(0, full_bins, step))
+                else:
+                    # Use linear interpolation for non-divisible cases
+                    indices = list(dict.fromkeys([int(round(i * (full_bins - 1) / (self.current_bins - 1)))
+                                                  for i in range(self.current_bins)]))
             else:
-                indices = [int(i) for i in torch.linspace(0, full_bins - 1, self.current_bins)]
+                # Current bins exceed full bins - use all available
+                indices = list(range(full_bins))
 
             # Generate all valid combinations for joint discretization
             for combo in itertools.product(indices, repeat=self.action_dim):
                 # Convert multi-dimensional index to flat index
-                flat_idx = sum(idx * (full_bins ** (self.action_dim - 1 - i))
-                               for i, idx in enumerate(combo))
+                flat_idx = 0
+                for i, idx in enumerate(combo):
+                    flat_idx += idx * (full_bins ** (self.action_dim - 1 - i))
+
                 if flat_idx < total_full:
                     mask[flat_idx] = True
+
             return mask
         else:
             # For decoupled case - per-dimension masking
             mask = torch.zeros(self.action_dim, full_bins, dtype=torch.bool, device=self.device)
 
-            if full_bins % self.current_bins == 0:
+            if full_bins >= self.current_bins:
                 step = full_bins // self.current_bins
-                indices = torch.arange(0, full_bins, step, dtype=torch.long, device=self.device)
+                if step * self.current_bins == full_bins:
+                    # Perfect divisibility
+                    indices = torch.arange(0, full_bins, step, dtype=torch.long, device=self.device)
+                else:
+                    # Use linear interpolation for non-divisible cases
+                    indices = torch.round(
+                        torch.linspace(0, full_bins - 1, self.current_bins, device=self.device)
+                    ).long()
             else:
-                indices = torch.round(torch.linspace(0, full_bins - 1, self.current_bins)).long()
+                # Current bins exceed full bins - use all available
+                indices = torch.arange(0, full_bins, dtype=torch.long, device=self.device)
 
+            # Apply mask to all dimensions
             for dim in range(self.action_dim):
-                mask[dim, indices] = True
+                valid_indices = torch.clamp(indices, 0, full_bins - 1)
+                mask[dim, valid_indices] = True
 
             return mask
