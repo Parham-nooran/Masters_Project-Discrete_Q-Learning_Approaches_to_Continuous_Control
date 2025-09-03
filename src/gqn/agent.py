@@ -82,11 +82,28 @@ class GrowingQNAgent:
 
             action_mask = self.get_current_action_mask()
             q1, q2 = self.q_network(encoded_obs, action_mask)
-            q_combined = torch.max(q1, q2)
+            torch.max(q1, q2)
             epsilon = 0.0 if evaluate else self.epsilon
-            discrete_action = self._epsilon_greedy_action_selection(q_combined, epsilon)
+            if self.config.decouple:
+                discrete_action = self._epsilon_greedy_action_selection_decoupled(q1, q2, epsilon)
+            else:
+                q_combined = torch.max(q1, q2)
+                discrete_action = self._epsilon_greedy_action_selection(q_combined, epsilon)
             continuous_action = self.action_discretizer.discrete_to_continuous(discrete_action)
             return continuous_action[0].detach()
+
+    def _epsilon_greedy_action_selection_decoupled(self, q1: torch.Tensor, q2: torch.Tensor,
+                                                   epsilon: float) -> torch.Tensor:
+        """Fixed epsilon-greedy for decoupled case."""
+        batch_size = q1.shape[0]
+        num_dims = q1.shape[1]
+        current_bins = self.action_discretizer.current_bins
+
+        # Combine Q-values properly
+        q_combined = torch.max(q1, q2)  # Shape: [batch, dims, bins]
+
+        return get_combined_random_and_greedy_actions(
+            q_combined, num_dims, current_bins, batch_size, epsilon, self.device)
 
     def _epsilon_greedy_action_selection(self, q_values: torch.Tensor, epsilon: float) -> torch.Tensor:
         batch_size = q_values.shape[0]
@@ -119,17 +136,18 @@ class GrowingQNAgent:
         if hasattr(self, 'last_obs') and self.last_obs is not None:
             discrete_action = continuous_to_discrete_action(self.config, self.action_discretizer, action)
             self.replay_buffer.add(self.last_obs, discrete_action, reward, next_obs, done)
-
-        self.last_obs = next_obs.detach() if isinstance(next_obs, torch.Tensor) else next_obs
+        self.last_obs = next_obs.detach()
 
     def maybe_grow_action_space(self, episode_return: float) -> bool:
-        if self.scheduler.should_grow(self.episode_count, episode_return):
-            growth_occurred = self.action_discretizer.grow_action_space()
-            if growth_occurred:
-                current_bins = self.action_discretizer.current_bins
-                self.growth_history.append(current_bins)
-                print(f"Episode {self.episode_count}: Growing action space to {current_bins} bins per dimension")
-                return True
+        if (self.episode_count > 50 and
+            self.episode_count - self.scheduler.last_growth_episode > 100):
+            if self.scheduler.should_grow(self.episode_count, episode_return):
+                growth_occurred = self.action_discretizer.grow_action_space()
+                if growth_occurred:
+                    current_bins = self.action_discretizer.current_bins
+                    self.growth_history.append(current_bins)
+                    print(f"Episode {self.episode_count}: Growing action space to {current_bins} bins per dimension")
+                    return True
         return False
 
     def update(self) -> Dict:
@@ -170,7 +188,7 @@ class GrowingQNAgent:
                 # Double DQN: select actions with online network, evaluate with target
                 q1_next_online, q2_next_online = self.q_network(next_obs_encoded, action_mask)
                 if self.config.decouple:
-                    q_next_online = 0.5 * (q1_next_online + q2_next_online)
+                    q_next_online = torch.max(q1_next_online, q2_next_online)
                     next_actions = q_next_online.argmax(dim=2)
 
                     batch_indices = torch.arange(q1_next_target.shape[0], device=self.device)
@@ -181,20 +199,20 @@ class GrowingQNAgent:
                     q2_selected = q2_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
 
                     # Apply Equation 2: Q(s,a) = Σ Q_j(s,a_j) / M
-                    q_target_per_dim = 0.5 * (q1_selected + q2_selected)
-                    q_target_decomposed = q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+                    q_target_per_dim = torch.max(q1_selected, q2_selected)
+                    q_target_decomposed = q_target_per_dim.sum(dim=1)
                     targets = rewards + discounts * q_target_decomposed * (~dones).float()
                 else:
                     # Joint case with Double DQN
-                    q_next_online = 0.5 * (q1_next_online + q2_next_online)
+                    q_next_online = torch.max(q1_next_online, q2_next_online)
                     next_actions = q_next_online.argmax(dim=1)
-                    q_next_target_combined = 0.5 * (q1_next_target + q2_next_target)
+                    q_next_target_combined = torch.max(q1_next_target, q2_next_target)
                     q_target_values = q_next_target_combined.gather(1, next_actions.unsqueeze(1)).squeeze(1)
                     targets = rewards + discounts * q_target_values * (~dones).float()
             else:
                 # Standard DQN: use target network for both selection and evaluation
                 if self.config.decouple:
-                    q_next_target_combined = 0.5 * (q1_next_target + q2_next_target)
+                    q_next_target_combined = torch.max(q1_next_target, q2_next_target)
                     next_actions = q_next_target_combined.argmax(dim=2)
 
                     batch_indices = torch.arange(q1_next_target.shape[0], device=self.device)
@@ -203,8 +221,8 @@ class GrowingQNAgent:
                     q1_selected = q1_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
                     q2_selected = q2_next_target[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions]
 
-                    q_target_per_dim = 0.5 * (q1_selected + q2_selected)
-                    q_target_decomposed = q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+                    q_target_per_dim = torch.max(q1_selected, q2_selected)
+                    q_target_decomposed = q_target_per_dim.sum(dim=1)
                     targets = rewards + discounts * q_target_decomposed * (~dones).float()
                 else:
                     q_next_target_combined = 0.5 * (q1_next_target + q2_next_target)
@@ -221,8 +239,8 @@ class GrowingQNAgent:
             q1_per_dim = q1_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
             q2_per_dim = q2_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
 
-            q1_selected = q1_per_dim.sum(dim=1) / self.action_discretizer.action_dim
-            q2_selected = q2_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+            q1_selected = q1_per_dim.sum(dim=1)
+            q2_selected = q2_per_dim.sum(dim=1)
         else:
             if len(actions.shape) > 1:
                 actions = actions.squeeze(-1)

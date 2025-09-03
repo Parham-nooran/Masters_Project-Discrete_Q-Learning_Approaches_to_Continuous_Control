@@ -167,9 +167,11 @@ def train_decqn():
     for episode in range(start_episode, config.num_episodes):
         episode_start_time = time.time()
         episode_reward = 0
-        episode_loss = 0
-        episode_q_mean = 0
-        loss_count = 0
+        recent_losses = []
+        recent_q_means = []
+        loss_window_size = 100
+        q_mean_window_size = 100
+
 
         time_step = env.reset()
         obs = process_observation(time_step.observation, config.use_pixels, device)
@@ -188,11 +190,14 @@ def train_decqn():
             # Update agent
             if len(agent.replay_buffer) > config.min_replay_size:
                 metrics = agent.update()
-                if metrics:
-                    if "loss" in metrics and metrics["loss"] is not None:
-                        episode_loss += metrics["loss"]
-                    episode_q_mean += metrics.get("q1_mean", 0)
-                    loss_count += 1
+                recent_q_means.append(metrics["q1_mean"])
+                if metrics and "loss" in metrics and metrics["loss"] is not None:
+                    recent_losses.append(metrics["loss"])
+                if len(recent_losses) > loss_window_size:
+                    recent_losses.pop(0)
+                if len(recent_q_means) > q_mean_window_size:
+                    recent_q_means.pop(0)
+
 
             obs = next_obs
             episode_reward += reward
@@ -202,16 +207,16 @@ def train_decqn():
                 break
 
         # Calculate averages
-        avg_loss = episode_loss / max(loss_count, 1) if loss_count > 0 else 0.0
-        avg_q_mean = episode_q_mean / max(loss_count, 1)
+        avg_recent_loss = np.mean(recent_losses) if recent_losses else 0.0
+        avg_recent_q_means = np.mean(recent_q_means) if recent_q_means else 0.0
 
         # Log metrics
         metrics_tracker.log_episode(
             episode=episode,
             reward=episode_reward,
             length=step,
-            loss=avg_loss if loss_count > 0 else None,
-            q_mean=avg_q_mean if loss_count > 0 else None,
+            loss=avg_recent_loss if recent_losses else None,
+            q_mean=avg_recent_q_means if recent_q_means else None,
             epsilon=agent.epsilon,
         )
 
@@ -226,8 +231,8 @@ def train_decqn():
             print(
                 f"Episode {episode:4d} | "
                 f"Reward: {episode_reward:7.2f} | "
-                f"Loss: {avg_loss:8.6f} | "
-                f"Q-mean: {avg_q_mean:6.3f} | "
+                f"Loss: {avg_recent_loss:8.6f} | "
+                f"Q-mean: {avg_recent_q_means:6.3f} | "
                 f"Time: {episode_time:.2f}s | "
                 f"Buffer: {len(agent.replay_buffer):6d}"
             )

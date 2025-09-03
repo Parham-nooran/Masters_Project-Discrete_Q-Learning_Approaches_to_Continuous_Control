@@ -39,22 +39,14 @@ class GrowingScheduler:
             if (len(self.returns_history) < self.window_size or
                     episode - self.last_growth_episode < self.min_episodes_between_growth):
                 return False
-
-            # Implement Equation 4 from paper
-            mu_ma = np.mean(self.returns_history)
-            sigma_ma = np.std(self.returns_history)
-
-            # Paper's Equation 4: G_threshold = (1 - 0.05 * sign(μ_MA)) * μ_MA + 0.90 * σ_MA
-            sign_mu = np.sign(mu_ma) if mu_ma != 0 else 0
-            threshold = (1.0 - 0.05 * sign_mu) * mu_ma + 0.90 * sigma_ma
-
-            # Growth occurs when performance stagnates below threshold
-            should_grow = episode_return < threshold
-
-            if should_grow:
-                self.last_growth_episode = episode
-
-            return should_grow
+            recent_returns = list(self.returns_history)[-20:]
+            earlier_returns = list(self.returns_history)[:-20]
+            if len(earlier_returns) < 20:
+                return False
+            recent_mean = np.mean(recent_returns)
+            earlier_mean = np.mean(earlier_returns)
+            improvement = recent_mean - earlier_mean
+            return improvement < 0.05 * abs(earlier_mean)
 
         return False
 

@@ -14,6 +14,13 @@ def _build_network(layer_sizes: List[int]) -> nn.Module:
     return nn.Sequential(*layers)
 
 
+def _init_weights(m):
+    if isinstance(m, nn.Linear):
+        torch.nn.init.xavier_uniform_(m.weight, gain=0.5)
+        if m.bias is not None:
+            torch.nn.init.zeros_(m.bias)
+
+
 class GrowingQCritic(nn.Module):
     def __init__(self, config, input_size: int, action_spec: Dict):
         super().__init__()
@@ -29,8 +36,10 @@ class GrowingQCritic(nn.Module):
         layer_sizes = [input_size] + config.layer_size_network + [self.max_output_dim]
 
         self.q1_network = _build_network(layer_sizes)
+        self.q1_network.apply(_init_weights)
         if self.use_double_q:
             self.q2_network = _build_network(layer_sizes)
+            self.q1_network.apply(_init_weights)
         else:
             self.q2_network = self.q1_network
 

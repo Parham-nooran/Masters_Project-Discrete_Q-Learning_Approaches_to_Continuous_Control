@@ -53,7 +53,7 @@ def apply_action_penalty(reward, action, penalty_coeff):
 
         # Penalty: -ca * ||a||^2 / M (as in paper)
         M = action_np.shape[-1] if len(action_np.shape) > 0 else 1
-        action_penalty = penalty_coeff * np.sum(action_np ** 2) / M
+        action_penalty = penalty_coeff * np.sum(action_np ** 2) / (M * 4.0)
         return reward - action_penalty
     return reward
 
@@ -233,7 +233,6 @@ def train_growing_qn():
         episode_start_time = time.time()
         episode_reward = 0
         original_episode_reward = 0
-        episode_q_mean = 0
         action_magnitude_sum = 0
 
         time_step = env.reset()
@@ -261,13 +260,13 @@ def train_growing_qn():
             # Update agent
             if len(agent.replay_buffer) > config.min_replay_size:
                 metrics = agent.update()
+                recent_q_means.append(metrics["q1_mean"])
                 if metrics and "loss" in metrics and metrics["loss"] is not None:
-                    recent_q_means.append(metrics["q1_mean"])
                     recent_losses.append(metrics["loss"])
-                    if len(recent_losses) > loss_window_size:
-                        recent_losses.pop(0)
-                    if len(recent_q_means) > q_mean_window_size:
-                        recent_q_means.pop(0)
+                if len(recent_losses) > loss_window_size:
+                    recent_losses.pop(0)
+                if len(recent_q_means) > q_mean_window_size:
+                    recent_q_means.pop(0)
 
             # Track metrics
             obs = next_obs
