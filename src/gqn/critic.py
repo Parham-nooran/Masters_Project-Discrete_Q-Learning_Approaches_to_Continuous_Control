@@ -20,6 +20,12 @@ def _init_weights(m):
         if m.bias is not None:
             torch.nn.init.zeros_(m.bias)
 
+def apply_action_mask_optimized(q_values: torch.Tensor,
+                               action_mask: torch.Tensor) -> torch.Tensor:
+    """JIT-compiled action masking for speed."""
+    mask_value = -1e8
+    return torch.where(action_mask.unsqueeze(0), q_values,
+                      torch.full_like(q_values, mask_value))
 
 class GrowingQCritic(nn.Module):
     def __init__(self, config, input_size: int, action_spec: Dict):
@@ -48,7 +54,7 @@ class GrowingQCritic(nn.Module):
         Forward pass with optional action masking.
         """
         q1 = self.q1_network(x)
-        q2 = self.q2_network(x)
+        q2 = self.q2_network(x) if self.use_double_q else q1
 
         if self.decouple:
             # Reshape to [batch, action_dim, max_bins]
@@ -58,10 +64,8 @@ class GrowingQCritic(nn.Module):
             # Apply action mask if provided
             if action_mask is not None:
                 # Mask inactive actions with large negative values
-                mask_value = -1e8
-                expanded_mask = action_mask.unsqueeze(0).expand(q1.shape[0], -1, -1)
-                q1 = torch.where(expanded_mask, q1, torch.full_like(q1, mask_value))
-                q2 = torch.where(expanded_mask, q2, torch.full_like(q2, mask_value))
+                q1 = apply_action_mask_optimized(q1, action_mask)
+                q2 = apply_action_mask_optimized(q2, action_mask)
         else:
             # For joint discretization
             if action_mask is not None:

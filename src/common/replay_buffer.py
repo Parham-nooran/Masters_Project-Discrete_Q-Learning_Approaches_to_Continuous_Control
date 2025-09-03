@@ -243,21 +243,15 @@ class PrioritizedReplayBuffer:
         weights = weights / weights.max()
 
         batch = [self.buffer[idx] for idx in indices]
-        obs_list = [t.obs.to(self.device, non_blocking=True) for t in batch]
-        next_obs_list = [t.next_obs.to(self.device, non_blocking=True) for t in batch]
-        actions_list = [t.action.to(self.device, non_blocking=True) for t in batch]
-        rewards_list = [t.n_step_return for t in batch]
-        dones_list = [t.done for t in batch]
-        discounts_list = [t.n_step_discount for t in batch]
 
         # Stack tensors that are now all on the same device
-        obs = torch.stack(obs_list)
-        next_obs = torch.stack(next_obs_list)
-        actions = stack_actions(actions_list)
-        rewards = torch.tensor(rewards_list, dtype=torch.float32, device=self.device)
-        dones = torch.tensor(dones_list, dtype=torch.bool, device=self.device)
+        obs = torch.stack([t.obs for t in batch]).to(self.device, non_blocking=True)
+        next_obs = torch.stack([t.next_obs for t in batch]).to(self.device, non_blocking=True)
+        actions = stack_actions([t.action for t in batch]).to(self.device, non_blocking=True)
+        rewards = torch.tensor([t.n_step_return for t in batch], dtype=torch.float32, device=self.device)
+        dones = torch.tensor([t.done for t in batch], dtype=torch.bool, device=self.device)
         discounts = torch.tensor(
-            discounts_list, dtype=torch.float32, device=self.device
+            [t.n_step_discount for t in batch], dtype=torch.float32, device=self.device
         )
         weights_tensor = torch.tensor(weights, dtype=torch.float32, device=self.device)
 

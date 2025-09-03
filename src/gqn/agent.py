@@ -68,7 +68,7 @@ class GrowingQNAgent:
 
     def get_current_action_mask(self) -> torch.Tensor:
         """Get action mask for current resolution level."""
-        if (self._cached_action_mask is not None or
+        if (self._cached_action_mask is None or
             self._cached_mask_bins != self.action_discretizer.current_bins):
             self._cached_action_mask = self.action_discretizer.get_action_mask(self.config.max_bins)
             self._cached_mask_bins = self.action_discretizer.current_bins

@@ -31,5 +31,4 @@ def process_observation(dm_obs, use_pixels, device, obs_buffer=None):
         if obs_buffer is None:
             return torch.from_numpy(state_vector).to(device)
         else:
-            obs_buffer.copy_(torch.from_numpy(state_vector))
-            return obs_buffer
+            return obs_buffer.update(torch.from_numpy(state_vector))

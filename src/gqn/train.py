@@ -4,7 +4,7 @@ from dm_control import suite
 import os
 import argparse
 from src.gqn.config import GQNConfig
-
+from collections import deque
 from src.gqn.agent import GrowingQNAgent
 from src.plotting.plotting_utils import MetricsTracker, PlottingUtils
 from src.gqn.train_utils import *
@@ -42,21 +42,32 @@ def parse_gqn_args():
 
     return parser.parse_args()
 
+class OptimizedObsBuffer:
+    def __init__(self, obs_shape, device):
+        self.device = device
+        if len(obs_shape) == 1:  # State-based
+            self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
+        else:  # Pixel-based
+            self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
 
-def apply_action_penalty(reward, action, penalty_coeff):
-    """Apply action penalty as used in paper experiments."""
-    if penalty_coeff > 0:
-        if isinstance(action, torch.Tensor):
-            action_np = action.cpu().numpy()
+    def update(self, new_obs):
+        if isinstance(new_obs, np.ndarray):
+            self.obs_buffer.copy_(torch.from_numpy(new_obs))
         else:
-            action_np = np.array(action)
+            self.obs_buffer.copy_(new_obs)
+        return self.obs_buffer
 
-        # Penalty: -ca * ||a||^2 / M (as in paper)
-        M = action_np.shape[-1] if len(action_np.shape) > 0 else 1
-        action_penalty = penalty_coeff * np.sum(action_np ** 2) / M
-        return reward - action_penalty
-    return reward
-
+def apply_action_penalty(rewards, actions, penalty_coeff):
+    """Apply action penalty as used in paper experiments."""
+    if penalty_coeff <= 0:
+        return rewards
+    if isinstance(actions, torch.Tensor):
+        action_norms = torch.norm(actions, dim=-1) ** 2
+    else:
+        action_norms = np.sum(np.array(actions) ** 2, axis=-1)
+    M = actions.shape[-1] if hasattr(actions, 'shape') else len(actions)
+    penalties = penalty_coeff * action_norms / M
+    return rewards - penalties
 
 def save_checkpoint(agent, episode, path):
     """Save agent checkpoint including GQN-specific state."""
@@ -161,10 +172,11 @@ def train_growing_qn():
     """Train Growing Q-Networks agent."""
     args = parse_gqn_args()
     config = GQNConfig.get_walker_config(args)
-    recent_losses = []
-    recent_q_means = []
     loss_window_size = 100
     q_mean_window_size = 100
+    recent_losses = deque(maxlen=loss_window_size)
+    recent_q_means = deque(maxlen=q_mean_window_size)
+    UPDATE_FREQUENCY = 4
 
     # Set random seeds
     torch.manual_seed(args.seed)
@@ -212,6 +224,8 @@ def train_growing_qn():
         start_episode = load_checkpoint(agent, args.load_checkpoints)
         start_episode += 1
 
+    # agent.q_network = torch.compile(agent.q_network)
+    # agent.target_q_network = torch.compile(agent.target_q_network)
     # Metrics tracking
     metrics_tracker = MetricsTracker(save_dir="output/metrics")
     if start_episode > 0:
@@ -226,9 +240,9 @@ def train_growing_qn():
     print(f"  Current bins: {agent.action_discretizer.current_bins}")
     print(f"  Action penalty: {config.action_penalty}")
     print(f"Starting training from episode {start_episode}...")
-
+    step_count = 0
     start_time = time.time()
-
+    obs_buffer = OptimizedObsBuffer(obs_shape, device)
     for episode in range(start_episode, config.num_episodes):
         episode_start_time = time.time()
         episode_reward = 0
@@ -236,7 +250,7 @@ def train_growing_qn():
         action_magnitude_sum = 0
 
         time_step = env.reset()
-        obs = process_observation(time_step.observation, config.use_pixels, device)
+        obs = process_observation(time_step.observation, config.use_pixels, device, obs_buffer)
         agent.observe_first(obs)
 
         step = 0
@@ -247,7 +261,7 @@ def train_growing_qn():
 
             # Take environment step
             time_step = env.step(action_np)
-            next_obs = process_observation(time_step.observation, config.use_pixels, device)
+            next_obs = process_observation(time_step.observation, config.use_pixels, device, obs_buffer)
 
             # Get reward and apply penalty
             original_reward = time_step.reward if time_step.reward is not None else 0.0
@@ -256,17 +270,15 @@ def train_growing_qn():
 
             # Store transition
             agent.observe(action, reward, next_obs, done)
+            step_count += 1
 
             # Update agent
-            if len(agent.replay_buffer) > config.min_replay_size:
+            if len(agent.replay_buffer) > config.min_replay_size and step_count % UPDATE_FREQUENCY == 0:
                 metrics = agent.update()
-                recent_q_means.append(metrics["q1_mean"])
-                if metrics and "loss" in metrics and metrics["loss"] is not None:
-                    recent_losses.append(metrics["loss"])
-                if len(recent_losses) > loss_window_size:
-                    recent_losses.pop(0)
-                if len(recent_q_means) > q_mean_window_size:
-                    recent_q_means.pop(0)
+                if metrics:
+                    recent_q_means.append(metrics["q1_mean"])
+                    if "loss" in metrics and metrics["loss"] is not None:
+                        recent_losses.append(metrics["loss"])
 
             # Track metrics
             obs = next_obs
