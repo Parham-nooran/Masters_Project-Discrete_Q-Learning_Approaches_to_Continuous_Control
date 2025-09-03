@@ -4,7 +4,7 @@ import torch
 from config import *
 
 from agent import DecQNAgent
-from plotting.plotting_utils import *
+from src.plotting.plotting_utils import *
 from dm_control import suite
 import numpy as np
 

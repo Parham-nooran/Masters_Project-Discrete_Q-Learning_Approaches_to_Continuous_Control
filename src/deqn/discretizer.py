@@ -1,5 +1,5 @@
-from common.discretizer import Discretizer
-from common.replay_buffer import *
+from src.common.discretizer import Discretizer
+from src.common.replay_buffer import *
 
 
 class ActionDiscretizer(Discretizer):

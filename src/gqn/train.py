@@ -3,11 +3,11 @@ import gc
 from dm_control import suite
 import os
 import argparse
-from config import GQNConfig
+from src.gqn.config import GQNConfig
 
-from agent import GrowingQNAgent
-from plotting.plotting_utils import MetricsTracker, PlottingUtils
-from train_utils import *
+from src.gqn.agent import GrowingQNAgent
+from src.plotting.plotting_utils import MetricsTracker, PlottingUtils
+from src.gqn.train_utils import *
 
 
 def parse_gqn_args():

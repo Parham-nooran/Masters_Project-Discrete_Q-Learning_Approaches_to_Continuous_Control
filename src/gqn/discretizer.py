@@ -3,7 +3,7 @@ from typing import Dict
 
 import torch
 
-from common.discretizer import Discretizer
+from src.common.discretizer import Discretizer
 
 
 class GrowingActionDiscretizer(Discretizer):

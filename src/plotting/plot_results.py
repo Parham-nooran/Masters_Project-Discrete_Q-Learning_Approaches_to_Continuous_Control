@@ -10,7 +10,7 @@ Usage:
 
 import argparse
 
-from plotting_utils import MetricsTracker, PlottingUtils
+from src.plotting.plotting_utils import MetricsTracker, PlottingUtils
 
 
 def main():

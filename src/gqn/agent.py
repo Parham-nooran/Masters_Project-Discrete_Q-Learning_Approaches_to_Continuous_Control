@@ -3,12 +3,12 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from common.agent_utils import get_combined_random_and_greedy_actions, huber_loss, continuous_to_discrete_action
-from common.encoder import VisionEncoder
-from common.replay_buffer import PrioritizedReplayBuffer
-from critic import GrowingQCritic
-from discretizer import GrowingActionDiscretizer
-from scheduler import GrowingScheduler
+from src.common.agent_utils import get_combined_random_and_greedy_actions, huber_loss, continuous_to_discrete_action
+from src.common.encoder import VisionEncoder
+from src.common.replay_buffer import PrioritizedReplayBuffer
+from src.gqn.critic import GrowingQCritic
+from src.gqn.discretizer import GrowingActionDiscretizer
+from src.gqn.scheduler import GrowingScheduler
 
 
 class GrowingQNAgent:

@@ -2,10 +2,10 @@ import torch.optim as optim
 
 from actors import CustomDiscreteFeedForwardActor
 from critic import *
-from common.encoder import *
-from common.replay_buffer import PrioritizedReplayBuffer
-from common.agent_utils import *
-from gqn.discretizer import GrowingActionDiscretizer
+from src.common.encoder import *
+from src.common.replay_buffer import PrioritizedReplayBuffer
+from src.common.agent_utils import *
+from src.gqn.discretizer import GrowingActionDiscretizer
 
 
 class DecQNAgent:

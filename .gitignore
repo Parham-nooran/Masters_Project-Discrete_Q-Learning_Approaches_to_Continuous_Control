@@ -1,4 +1,4 @@
 .idea
 __pycache__
-deqn/output/checkpoints
-deqn/output/videos
+src/deqn/output/checkpoints
+src/deqn/output/videos

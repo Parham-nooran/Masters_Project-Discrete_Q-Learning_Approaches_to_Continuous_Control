@@ -4,8 +4,8 @@ from datetime import datetime
 import cv2
 from dm_control import suite
 
-from agent import GrowingQNAgent
-from train_utils import *
+from src.gqn.agent import GrowingQNAgent
+from src.gqn.train_utils import *
 
 
 def load_gqn_checkpoint(checkpoint_path, env, device="cuda" if torch.cuda.is_available() else "cpu"):
