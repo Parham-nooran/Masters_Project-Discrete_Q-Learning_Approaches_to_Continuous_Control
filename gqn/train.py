@@ -161,6 +161,10 @@ def train_growing_qn():
     """Train Growing Q-Networks agent."""
     args = parse_gqn_args()
     config = GQNConfig.get_walker_config(args)
+    recent_losses = []
+    recent_q_means = []
+    loss_window_size = 100
+    q_mean_window_size = 100
 
     # Set random seeds
     torch.manual_seed(args.seed)
@@ -228,10 +232,8 @@ def train_growing_qn():
     for episode in range(start_episode, config.num_episodes):
         episode_start_time = time.time()
         episode_reward = 0
-        original_episode_reward = 0  # Track reward without penalty
-        episode_loss = 0
+        original_episode_reward = 0
         episode_q_mean = 0
-        loss_count = 0
         action_magnitude_sum = 0
 
         time_step = env.reset()
@@ -259,11 +261,13 @@ def train_growing_qn():
             # Update agent
             if len(agent.replay_buffer) > config.min_replay_size:
                 metrics = agent.update()
-                if metrics:
-                    if "loss" in metrics and metrics["loss"] is not None:
-                        episode_loss += metrics["loss"]
-                    episode_q_mean += metrics.get("q1_mean", 0)
-                    loss_count += 1
+                if metrics and "loss" in metrics and metrics["loss"] is not None:
+                    recent_q_means.append(metrics["q1_mean"])
+                    recent_losses.append(metrics["loss"])
+                    if len(recent_losses) > loss_window_size:
+                        recent_losses.pop(0)
+                    if len(recent_q_means) > q_mean_window_size:
+                        recent_q_means.pop(0)
 
             # Track metrics
             obs = next_obs
@@ -279,8 +283,8 @@ def train_growing_qn():
         agent.end_episode(original_episode_reward)  # Use original reward for growth decisions
 
         # Calculate averages
-        avg_loss = episode_loss / max(loss_count, 1) if loss_count > 0 else 0.0
-        avg_q_mean = episode_q_mean / max(loss_count, 1)
+        avg_recent_loss = np.mean(recent_losses) if recent_losses else 0.0
+        avg_recent_q_means = np.mean(recent_q_means) if recent_q_means else 0.0
         avg_action_magnitude = action_magnitude_sum / max(step, 1)
 
         # Log metrics
@@ -288,8 +292,8 @@ def train_growing_qn():
             episode=episode,
             reward=episode_reward,
             length=step,
-            loss=avg_loss if loss_count > 0 else None,
-            q_mean=avg_q_mean if loss_count > 0 else None,
+            loss=avg_recent_loss if recent_losses else None,
+            q_mean=avg_recent_q_means if recent_q_means else None,
             epsilon=agent.epsilon,
         )
 
