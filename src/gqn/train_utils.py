@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 
-def process_observation(dm_obs, use_pixels, device):
+def process_observation(dm_obs, use_pixels, device, obs_buffer=None):
     if use_pixels:
         if "pixels" in dm_obs:
             obs = dm_obs["pixels"]
@@ -28,4 +28,8 @@ def process_observation(dm_obs, use_pixels, device):
                 state_parts.append(np.array([float(val)], dtype=np.float32))
 
         state_vector = np.concatenate(state_parts, dtype=np.float32)
-        return torch.from_numpy(state_vector).to(device)
+        if obs_buffer is None:
+            return torch.from_numpy(state_vector).to(device)
+        else:
+            obs_buffer.copy_(torch.from_numpy(state_vector))
+            return obs_buffer

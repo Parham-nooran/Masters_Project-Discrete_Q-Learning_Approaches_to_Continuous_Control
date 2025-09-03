@@ -76,34 +76,17 @@ class GrowingActionDiscretizer(Discretizer):
         This implements the action masking mechanism from Figure 1 in the paper.
         """
         if not self.decouple:
-            # For joint discretization
-            total_full = full_bins ** self.action_dim
-            mask = torch.zeros(total_full, dtype=torch.bool, device=self.device)
-
-            # Calculate step size for uniform sampling across resolution levels
             if full_bins >= self.current_bins:
                 step = full_bins // self.current_bins
-                if step * self.current_bins == full_bins:
-                    # Perfect divisibility
-                    indices = list(range(0, full_bins, step))
-                else:
-                    # Use linear interpolation for non-divisible cases
-                    indices = list(dict.fromkeys([int(round(i * (full_bins - 1) / (self.current_bins - 1)))
-                                                  for i in range(self.current_bins)]))
+                indices = torch.arange(0, full_bins, step, device=self.device)
             else:
-                # Current bins exceed full bins - use all available
-                indices = list(range(full_bins))
+                indices = torch.arange(full_bins, device=self.device)
 
-            # Generate all valid combinations for joint discretization
-            for combo in itertools.product(indices, repeat=self.action_dim):
-                # Convert multi-dimensional index to flat index
-                flat_idx = 0
-                for i, idx in enumerate(combo):
-                    flat_idx += idx * (full_bins ** (self.action_dim - 1 - i))
-
-                if flat_idx < total_full:
-                    mask[flat_idx] = True
-
+            meshes = torch.meshgrid([indices] * self.action_dim, indexing="ij")
+            flat_indices = sum(meshes[i].flatten() * (full_bins ** (self.action_dim - 1 - i))
+                               for i in range(self.action_dim))
+            mask = torch.zeros(full_bins ** self.action_dim, dtype=torch.bool, device=self.device)
+            mask[flat_indices] = True
             return mask
         else:
             # For decoupled case - per-dimension masking

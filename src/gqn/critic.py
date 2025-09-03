@@ -16,7 +16,7 @@ def _build_network(layer_sizes: List[int]) -> nn.Module:
 
 def _init_weights(m):
     if isinstance(m, nn.Linear):
-        torch.nn.init.xavier_uniform_(m.weight, gain=0.5)
+        torch.nn.init.xavier_uniform_(m.weight, gain=1.4)
         if m.bias is not None:
             torch.nn.init.zeros_(m.bias)
 
@@ -39,7 +39,7 @@ class GrowingQCritic(nn.Module):
         self.q1_network.apply(_init_weights)
         if self.use_double_q:
             self.q2_network = _build_network(layer_sizes)
-            self.q1_network.apply(_init_weights)
+            self.q2_network.apply(_init_weights)
         else:
             self.q2_network = self.q1_network
 

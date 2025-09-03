@@ -15,6 +15,8 @@ class GrowingQNAgent:
     def __init__(self, config, obs_shape: Tuple, action_spec: Dict):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._cached_action_mask = None
+        self._cached_mask_bins = None
         if hasattr(config, 'growth_sequence') and config.growth_sequence is not None:
             growth_sequence = config.growth_sequence
         elif any(task in config.task.lower() for task in ['sawyer', 'metaworld', 'manipulation']):
@@ -66,6 +68,10 @@ class GrowingQNAgent:
 
     def get_current_action_mask(self) -> torch.Tensor:
         """Get action mask for current resolution level."""
+        if (self._cached_action_mask is not None or
+            self._cached_mask_bins != self.action_discretizer.current_bins):
+            self._cached_action_mask = self.action_discretizer.get_action_mask(self.config.max_bins)
+            self._cached_mask_bins = self.action_discretizer.current_bins
         return self.action_discretizer.get_action_mask(self.config.max_bins)
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
@@ -90,6 +96,9 @@ class GrowingQNAgent:
                 q_combined = torch.max(q1, q2)
                 discrete_action = self._epsilon_greedy_action_selection(q_combined, epsilon)
             continuous_action = self.action_discretizer.discrete_to_continuous(discrete_action)
+            continuous_action = torch.clamp(continuous_action,
+                                            torch.tensor(self.action_discretizer.action_spec["low"]).to(self.device),
+                                            torch.tensor(self.action_discretizer.action_spec["high"]).to(self.device))
             return continuous_action[0].detach()
 
     def _epsilon_greedy_action_selection_decoupled(self, q1: torch.Tensor, q2: torch.Tensor,
@@ -225,7 +234,7 @@ class GrowingQNAgent:
                     q_target_decomposed = q_target_per_dim.sum(dim=1)
                     targets = rewards + discounts * q_target_decomposed * (~dones).float()
                 else:
-                    q_next_target_combined = 0.5 * (q1_next_target + q2_next_target)
+                    q_next_target_combined = torch.max(q1_next_target, q2_next_target)
                     next_actions = q_next_target_combined.argmax(dim=1)
                     q_target_values = q_next_target_combined.gather(1, next_actions.unsqueeze(1)).squeeze(1)
                     targets = rewards + discounts * q_target_values * (~dones).float()
@@ -236,7 +245,7 @@ class GrowingQNAgent:
             batch_indices = torch.arange(q1_current.shape[0], device=self.device)
             dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
 
-            q1_per_dim = q1_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
+            q1_per_dim = torch.gather(q1_current, 2, actions.unsqueeze(2)).squeeze(2)
             q2_per_dim = q2_current[batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), actions]
 
             q1_selected = q1_per_dim.sum(dim=1)

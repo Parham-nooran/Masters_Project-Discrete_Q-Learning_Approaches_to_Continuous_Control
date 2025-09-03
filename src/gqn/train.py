@@ -53,7 +53,7 @@ def apply_action_penalty(reward, action, penalty_coeff):
 
         # Penalty: -ca * ||a||^2 / M (as in paper)
         M = action_np.shape[-1] if len(action_np.shape) > 0 else 1
-        action_penalty = penalty_coeff * np.sum(action_np ** 2) / (M * 4.0)
+        action_penalty = penalty_coeff * np.sum(action_np ** 2) / M
         return reward - action_penalty
     return reward
 
@@ -335,7 +335,7 @@ def train_growing_qn():
             print("-" * 40)
 
         # Memory cleanup
-        if episode % 10 == 0 and device == "cuda":
+        if episode % 100 == 0 and device == "cuda":
             torch.cuda.empty_cache()
             gc.collect()
 
