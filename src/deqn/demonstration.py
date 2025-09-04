@@ -7,8 +7,8 @@ import numpy as np
 import torch
 from dm_control import suite
 
-from agent import DecQNAgent
-from train import process_observation
+from src.deqn.agent import DecQNAgent
+from src.deqn.train import process_observation
 
 
 def load_checkpoint(

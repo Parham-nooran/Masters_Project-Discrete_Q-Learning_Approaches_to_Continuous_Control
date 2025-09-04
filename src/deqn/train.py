@@ -1,9 +1,9 @@
 import time
 import gc
 import torch
-from config import *
+from src.deqn.config import *
 
-from agent import DecQNAgent
+from src.deqn.agent import DecQNAgent
 from src.plotting.plotting_utils import *
 from dm_control import suite
 import numpy as np
@@ -162,6 +162,7 @@ def train_decqn():
         metrics_tracker.load_metrics()
     print(f"Agent setup - decouple: {agent.config.decouple}, action_dim: {agent.action_discretizer.action_dim}")
     print("Starting training...")
+    print(f"Environment task: {config.task}")
     start_time = time.time()
 
     for episode in range(start_episode, config.num_episodes):
@@ -169,8 +170,8 @@ def train_decqn():
         episode_reward = 0
         recent_losses = []
         recent_q_means = []
-        loss_window_size = 100
-        q_mean_window_size = 100
+        loss_window_size = 20
+        q_mean_window_size = 20
 
 
         time_step = env.reset()
@@ -266,7 +267,7 @@ def train_decqn():
                 shutil.rmtree("output/checkpoints")
             os.makedirs("output/checkpoints", exist_ok=True)
 
-            checkpoint_path = f"output/checkpoints/decqn_episode_{episode}.pth"
+            checkpoint_path = f"output/checkpoints/decqn_episode_{config.task}_{episode}.pth"
             save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
 

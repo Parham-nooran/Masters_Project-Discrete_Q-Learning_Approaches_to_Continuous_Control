@@ -1,7 +1,7 @@
 import torch.optim as optim
 
-from actors import CustomDiscreteFeedForwardActor
-from critic import *
+from src.deqn.actors import CustomDiscreteFeedForwardActor
+from src.deqn.critic import *
 from src.common.encoder import *
 from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.agent_utils import *
@@ -317,12 +317,9 @@ class DecQNAgent:
         )
 
         # Apply importance sampling weights properly
-        loss1 = (loss1 * weights).sum() / weights.sum()
-        loss2 = (
-            (loss2 * weights).sum() / weights.sum()
-            if self.config.use_double_q
-            else torch.zeros_like(loss1)
-        )
+        # Apply importance sampling weights properly
+        loss1 = (loss1 * weights).mean()
+        loss2 = (loss2 * weights).mean() if self.config.use_double_q else torch.zeros_like(loss1)
 
         total_loss = loss1 + loss2
 

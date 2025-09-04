@@ -11,7 +11,7 @@ def parse_args():
         help="Path to checkpoints file to resume from",
     )
     parser.add_argument(
-        "--task", type=str, default="walker_walk", help="Environment task"
+        "--task", type=str, default="walker_run", help="Environment task"
     )
     parser.add_argument(
         "--num-episodes", type=int, default=1000, help="Number of episodes to train"

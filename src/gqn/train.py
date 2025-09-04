@@ -57,17 +57,33 @@ class OptimizedObsBuffer:
             self.obs_buffer.copy_(new_obs)
         return self.obs_buffer
 
+
 def apply_action_penalty(rewards, actions, penalty_coeff):
     """Apply action penalty as used in paper experiments."""
     if penalty_coeff <= 0:
         return rewards
+
     if isinstance(actions, torch.Tensor):
-        action_norms = torch.norm(actions, dim=-1) ** 2
+        actions = actions.cpu().numpy()
+
+    actions = np.array(actions)
+
+    # Calculate L2 norm properly
+    if len(actions.shape) == 1:
+        action_norm_squared = np.sum(actions ** 2)
+        M = len(actions)
     else:
-        action_norms = np.sum(np.array(actions) ** 2, axis=-1)
-    M = actions.shape[-1] if hasattr(actions, 'shape') else len(actions)
-    penalties = penalty_coeff * action_norms / M
+        action_norm_squared = np.sum(actions ** 2, axis=-1)
+        M = actions.shape[-1]
+
+    # FIXED: Proper penalty calculation
+    penalties = penalty_coeff * action_norm_squared / M
+
+    # CRITICAL FIX: Limit penalty to prevent reward explosion
+    penalties = np.clip(penalties, 0, abs(rewards) * 0.1)
+
     return rewards - penalties
+
 
 def save_checkpoint(agent, episode, path):
     """Save agent checkpoint including GQN-specific state."""
@@ -171,9 +187,17 @@ def load_checkpoint(agent, checkpoint_path):
 def train_growing_qn():
     """Train Growing Q-Networks agent."""
     args = parse_gqn_args()
-    config = GQNConfig.get_walker_config(args)
-    loss_window_size = 100
-    q_mean_window_size = 100
+    config = GQNConfig.get_walker_config(args)  # Use walker config
+
+    # FIXED: Override problematic settings
+    config.action_penalty = 0.001  # Much smaller penalty
+    config.learning_rate = 3e-4  # Better learning rate
+    config.batch_size = 128  # Smaller batch
+    config.target_update_period = 500  # Less frequent updates
+    config.adder_n_step = 1  # Single step TD
+    config.layer_size_network = [256, 256]  # Smaller networks
+    loss_window_size = 20
+    q_mean_window_size = 20
     recent_losses = deque(maxlen=loss_window_size)
     recent_q_means = deque(maxlen=q_mean_window_size)
     UPDATE_FREQUENCY = 4
@@ -265,7 +289,8 @@ def train_growing_qn():
 
             # Get reward and apply penalty
             original_reward = time_step.reward if time_step.reward is not None else 0.0
-            reward = apply_action_penalty(original_reward, action_np, config.action_penalty)
+            penalty = apply_action_penalty(0, action_np, config.action_penalty)
+            reward = original_reward - penalty
             done = time_step.last()
 
             # Store transition
@@ -273,12 +298,23 @@ def train_growing_qn():
             step_count += 1
 
             # Update agent
-            if len(agent.replay_buffer) > config.min_replay_size and step_count % UPDATE_FREQUENCY == 0:
+            if len(agent.replay_buffer) > config.min_replay_size:
                 metrics = agent.update()
                 if metrics:
                     recent_q_means.append(metrics["q1_mean"])
                     if "loss" in metrics and metrics["loss"] is not None:
                         recent_losses.append(metrics["loss"])
+
+                    # ADDED: Check for exploding values and reset if needed
+                    # if metrics["loss"] > 1e6 or abs(metrics["q1_mean"]) > 1e6:
+                    #     print(f"WARNING: Detected exploding values at episode {episode}")
+                    #     print(f"Loss: {metrics['loss']}, Q1_mean: {metrics['q1_mean']}")
+                    #     # Reset networks with smaller learning rate
+                    #     agent.q_optimizer = torch.optim.Adam(agent.q_network.parameters(),
+                    #                                          lr=config.learning_rate * 0.1)
+                    #     if agent.encoder:
+                    #         agent.encoder_optimizer = torch.optim.Adam(agent.encoder.parameters(),
+                    #                                                    lr=config.learning_rate * 0.1)
 
             # Track metrics
             obs = next_obs
