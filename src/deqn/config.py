@@ -79,7 +79,7 @@ def create_config_from_args(args):
         setattr(config, key.replace("-", "_"), value)
 
     # Add derived properties and missing defaults
-    config.decouple = "decqn" in config.algorithm
+    config.decouple = True
     config.use_pixels = False
     config.use_double_q = True
     config.layer_size_network = [1024, 1024] if config.use_pixels else [512, 512]

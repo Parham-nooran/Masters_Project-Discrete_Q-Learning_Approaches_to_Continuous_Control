@@ -1,5 +1,7 @@
 import time
 import gc
+from collections import deque
+
 import torch
 from src.deqn.config import *
 
@@ -168,10 +170,10 @@ def train_decqn():
     for episode in range(start_episode, config.num_episodes):
         episode_start_time = time.time()
         episode_reward = 0
-        recent_losses = []
-        recent_q_means = []
         loss_window_size = 20
         q_mean_window_size = 20
+        recent_losses = deque(maxlen=loss_window_size)
+        recent_q_means = deque(maxlen=q_mean_window_size)
 
 
         time_step = env.reset()
@@ -194,10 +196,6 @@ def train_decqn():
                 recent_q_means.append(metrics["q1_mean"])
                 if metrics and "loss" in metrics and metrics["loss"] is not None:
                     recent_losses.append(metrics["loss"])
-                if len(recent_losses) > loss_window_size:
-                    recent_losses.pop(0)
-                if len(recent_q_means) > q_mean_window_size:
-                    recent_q_means.pop(0)
 
 
             obs = next_obs
