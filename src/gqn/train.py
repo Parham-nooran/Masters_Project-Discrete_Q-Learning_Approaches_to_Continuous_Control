@@ -98,7 +98,6 @@ def save_checkpoint(agent, episode, path):
         "episode_count": agent.episode_count,
 
         # GQN specific state
-        "current_resolution_level": agent.current_resolution_level,
         "growth_history": agent.growth_history,
         "action_discretizer_current_bins": agent.action_discretizer.current_bins,
         "action_discretizer_current_growth_idx": agent.action_discretizer.current_growth_idx,
@@ -138,8 +137,6 @@ def load_checkpoint(agent, checkpoint_path):
         agent.episode_count = checkpoint.get("episode_count", 0)
 
         # Load GQN specific state
-        if "current_resolution_level" in checkpoint:
-            agent.current_resolution_level = checkpoint["current_resolution_level"]
         if "growth_history" in checkpoint:
             agent.growth_history = checkpoint["growth_history"]
         if "action_discretizer_current_bins" in checkpoint:
@@ -187,20 +184,18 @@ def load_checkpoint(agent, checkpoint_path):
 def train_growing_qn():
     """Train Growing Q-Networks agent."""
     args = parse_gqn_args()
-    config = GQNConfig.get_walker_config(args)  # Use walker config
+    config = GQNConfig.get_default_gqn_config(args)
 
     # FIXED: Override problematic settings
     config.action_penalty = 0.001  # Much smaller penalty
-    config.learning_rate = 3e-4  # Better learning rate
-    config.batch_size = 128  # Smaller batch
-    config.target_update_period = 500  # Less frequent updates
-    config.adder_n_step = 1  # Single step TD
-    config.layer_size_network = [256, 256]  # Smaller networks
+    config.learning_rate = 1e-4  # Better learning rate
+    config.batch_size = 256  # Smaller batch
+    config.target_update_period = 100
+    config.layer_size_network = [512, 512]
     loss_window_size = 20
     q_mean_window_size = 20
     recent_losses = deque(maxlen=loss_window_size)
     recent_q_means = deque(maxlen=q_mean_window_size)
-    UPDATE_FREQUENCY = 4
 
     # Set random seeds
     torch.manual_seed(args.seed)
@@ -305,16 +300,6 @@ def train_growing_qn():
                     if "loss" in metrics and metrics["loss"] is not None:
                         recent_losses.append(metrics["loss"])
 
-                    # ADDED: Check for exploding values and reset if needed
-                    # if metrics["loss"] > 1e6 or abs(metrics["q1_mean"]) > 1e6:
-                    #     print(f"WARNING: Detected exploding values at episode {episode}")
-                    #     print(f"Loss: {metrics['loss']}, Q1_mean: {metrics['q1_mean']}")
-                    #     # Reset networks with smaller learning rate
-                    #     agent.q_optimizer = torch.optim.Adam(agent.q_network.parameters(),
-                    #                                          lr=config.learning_rate * 0.1)
-                    #     if agent.encoder:
-                    #         agent.encoder_optimizer = torch.optim.Adam(agent.encoder.parameters(),
-                    #                                                    lr=config.learning_rate * 0.1)
 
             # Track metrics
             obs = next_obs

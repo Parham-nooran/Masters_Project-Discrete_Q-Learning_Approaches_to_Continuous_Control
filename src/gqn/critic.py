@@ -22,11 +22,9 @@ def _init_weights(m):
     """Conservative weight initialization for Q-networks."""
     if isinstance(m, nn.Linear):
         # Use smaller initialization to prevent exploding Q-values
-        fan_in = m.weight.size(1)
-        std = 1.0 / math.sqrt(fan_in)
-        torch.nn.init.uniform_(m.weight, -std, std)
+        nn.init.xavier_uniform_(m.weight, gain=1.0)
         if m.bias is not None:
-            torch.nn.init.zeros_(m.bias)
+            nn.init.zeros_(m.bias)
 
 
 def apply_action_mask_optimized(q_values: torch.Tensor,
@@ -36,6 +34,12 @@ def apply_action_mask_optimized(q_values: torch.Tensor,
     mask_value = -1e6  # Changed from -1e8
     return torch.where(action_mask.unsqueeze(0), q_values,
                        torch.full_like(q_values, mask_value))
+
+
+def _init_final_layer(layer):
+    # Small initialization for final layer to prevent exploding Q-values
+    nn.init.uniform_(layer.weight, -0.003, 0.003)
+    nn.init.zeros_(layer.bias)
 
 
 class GrowingQCritic(nn.Module):
@@ -68,8 +72,9 @@ class GrowingQCritic(nn.Module):
         else:
             self.q2_network = self.q1_network
 
-        # FIXED: Add output scaling layer to prevent exploding Q-values
-        self.output_scale = 10.0  # Scale Q-values to reasonable range
+        _init_final_layer(self.q1_network[-1])
+        if self.use_double_q:
+            _init_final_layer(self.q2_network[-1])
 
     def forward(self, x: torch.Tensor, action_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -78,18 +83,11 @@ class GrowingQCritic(nn.Module):
         q1 = self.q1_network(x)
         q2 = self.q2_network(x) if self.use_double_q else q1
 
-        # FIXED: Scale outputs to prevent exploding Q-values
-        q1 = torch.tanh(q1 / self.output_scale) * self.output_scale
-        q2 = torch.tanh(q2 / self.output_scale) * self.output_scale if self.use_double_q else q1
-
         if self.decouple:
-            # Reshape to [batch, action_dim, max_bins]
             q1 = q1.view(q1.shape[0], self.action_dim, self.max_bins)
-            q2 = q2.view(q2.shape[0], self.action_dim, self.max_bins)
+            q2 = q2.view(q2.shape[0], self.action_dim, self.max_bins) if self.use_double_q else q1
 
-            # Apply action mask if provided
             if action_mask is not None:
-                # Mask inactive actions with large negative values
                 q1 = apply_action_mask_optimized(q1, action_mask)
                 q2 = apply_action_mask_optimized(q2, action_mask)
         else:
