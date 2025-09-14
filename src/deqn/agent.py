@@ -77,7 +77,6 @@ class DecQNAgent:
     def observe(self, action, reward, next_obs, done):
         """Observe transition and store in replay buffer."""
         if hasattr(self, "last_obs"):
-            # Keep everything as tensors, only convert to discrete for storage
             if isinstance(action, torch.Tensor):
                 discrete_action = continuous_to_discrete_action(
                     self.config, self.action_discretizer, action
@@ -88,8 +87,6 @@ class DecQNAgent:
             self.store_transition(
                 self.last_obs, discrete_action, reward, next_obs, done
             )
-
-        # Handle tensor storage properly
         if isinstance(next_obs, torch.Tensor):
             self.last_obs = next_obs.detach()
         else:
@@ -110,13 +107,11 @@ class DecQNAgent:
             "config": self.config,
             "training_step": self.training_step,
         }
-
         if self.encoder:
             checkpoint["encoder_state_dict"] = self.encoder.state_dict()
             checkpoint["encoder_optimizer_state_dict"] = (
                 self.encoder_optimizer.state_dict()
             )
-
         torch.save(checkpoint, path)
 
     def load_checkpoint(self, path):
@@ -139,20 +134,13 @@ class DecQNAgent:
             self.encoder_optimizer.load_state_dict(
                 checkpoint["encoder_optimizer_state_dict"]
             )
-
-        # Load epsilon if available
         if "epsilon" in checkpoint:
             self.epsilon = checkpoint["epsilon"]
             self.actor.epsilon = self.epsilon
-
-        # Handle both old config format and new config_dict format
         if "config_dict" in checkpoint:
-            # New format - config saved as dictionary
             config_dict = checkpoint["config_dict"]
             for key, value in config_dict.items():
                 setattr(self.config, key, value)
-        # Old format with Config object will work with weights_only=False
-
         return checkpoint["episode"]
 
     def make_epsilon_greedy_policy(self, q_values, epsilon, decouple=False):

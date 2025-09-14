@@ -24,7 +24,7 @@ def load_checkpoint(
     obs_spec = env.observation_spec()
 
     if config.use_pixels:
-        obs_shape = (3, 84, 84)  # RGB camera view
+        obs_shape = (3, 84, 84)
     else:
         state_dim = sum(
             spec.shape[0] if len(spec.shape) > 0 else 1 for spec in obs_spec.values()

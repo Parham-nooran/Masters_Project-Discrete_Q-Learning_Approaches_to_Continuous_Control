@@ -4,7 +4,6 @@ from src.deqn.networks import LayerNormAndResidualMLP, LayerNormMLP
 
 class CriticDQN(nn.Module):
     """Double Q-network critic for DecQN."""
-
     def __init__(self, config, input_size, action_spec):
         super().__init__()
         self.use_double_q = config.use_double_q
@@ -14,8 +13,6 @@ class CriticDQN(nn.Module):
         if isinstance(action_spec, dict):
             if "low" in action_spec and "high" in action_spec:
                 self.action_dims = len(action_spec["low"])
-            else:
-                raise ValueError(f"Invalid action_spec format: {action_spec}")
         elif hasattr(action_spec, "shape"):
             self.action_dims = action_spec.shape[0] if len(action_spec.shape) > 0 else 1
         elif hasattr(action_spec, "__len__"):
@@ -54,7 +51,6 @@ class CriticDQN(nn.Module):
     def forward(self, x):
         q1 = self.q1_network(x)
         q2 = self.q2_network(x) if self.use_double_q else q1
-
         if self.decouple:
             q1 = q1.view(q1.shape[0], self.action_dims, self.num_bins)
             q2 = (
@@ -62,5 +58,4 @@ class CriticDQN(nn.Module):
                 if self.use_double_q
                 else q1
             )
-
         return q1, q2

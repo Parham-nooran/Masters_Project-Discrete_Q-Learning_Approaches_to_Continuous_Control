@@ -73,12 +73,8 @@ def parse_args():
 def create_config_from_args(args):
     """Create config object from parsed arguments."""
     config = SimpleNamespace()
-
-    # Copy all args to config
     for key, value in vars(args).items():
         setattr(config, key.replace("-", "_"), value)
-
-    # Add derived properties and missing defaults
     config.decouple = True
     config.use_pixels = False
     config.use_double_q = True
