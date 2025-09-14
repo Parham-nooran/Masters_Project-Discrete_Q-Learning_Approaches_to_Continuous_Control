@@ -34,7 +34,7 @@ class GQNConfig:
         gqn_config = GQNConfig.from_decqn_config(decqn_config)
 
         # Override max_bins from args if provided
-        if hasattr(args, 'max_bins'):
+        if hasattr(args, "max_bins"):
             gqn_config.max_bins = args.max_bins
 
         return gqn_config

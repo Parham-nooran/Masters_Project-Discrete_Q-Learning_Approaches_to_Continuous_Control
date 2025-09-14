@@ -1,15 +1,25 @@
 import torch
 
+
 class Discretizer:
-    def __init__(self, decouple, action_spec, max_bins, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(
+        self,
+        decouple,
+        action_spec,
+        max_bins,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+    ):
         self.device = device
         self.decouple = decouple
         self.action_spec = action_spec
-        self.action_min = torch.tensor(action_spec["low"], dtype=torch.float32, device=device)
-        self.action_max = torch.tensor(action_spec["high"], dtype=torch.float32, device=device)
+        self.action_min = torch.tensor(
+            action_spec["low"], dtype=torch.float32, device=device
+        )
+        self.action_max = torch.tensor(
+            action_spec["high"], dtype=torch.float32, device=device
+        )
         self.action_dim = len(self.action_min)
         self.max_bins = max_bins
-
 
     def discrete_to_continuous(self, discrete_actions: torch.Tensor) -> torch.Tensor:
         if discrete_actions.device != self.device:
@@ -20,7 +30,9 @@ class Discretizer:
                 discrete_actions = discrete_actions.unsqueeze(0)
 
             batch_size = discrete_actions.shape[0]
-            continuous_actions = torch.zeros(batch_size, self.action_dim, device=self.device)
+            continuous_actions = torch.zeros(
+                batch_size, self.action_dim, device=self.device
+            )
 
             for dim in range(self.action_dim):
                 bin_indices = discrete_actions[:, dim].long()

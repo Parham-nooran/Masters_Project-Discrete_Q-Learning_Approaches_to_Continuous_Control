@@ -12,7 +12,7 @@ from src.deqn.train import process_observation
 
 
 def load_checkpoint(
-        checkpoint_path, env, device="cuda" if torch.cuda.is_available() else "cpu"
+    checkpoint_path, env, device="cuda" if torch.cuda.is_available() else "cpu"
 ):
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -51,13 +51,13 @@ def load_checkpoint(
 
 
 def demonstrate(
-        checkpoint_path,
-        num_episodes=5,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        save_video=False,
-        video_path=None,
-        show_display=True,
-        fps=30
+    checkpoint_path,
+    num_episodes=5,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    save_video=False,
+    video_path=None,
+    show_display=True,
+    fps=30,
 ):
     print(f"Loading checkpoints: {checkpoint_path}")
     print(f"Using device: {device}")
@@ -75,10 +75,13 @@ def demonstrate(
             video_path = f"./output/videos/decqn_demo_{timestamp}.mp4"
 
         # Create output directory if it doesn't exist
-        os.makedirs(os.path.dirname(video_path) if os.path.dirname(video_path) else '.', exist_ok=True)
+        os.makedirs(
+            os.path.dirname(video_path) if os.path.dirname(video_path) else ".",
+            exist_ok=True,
+        )
 
         # Initialize video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video_writer = cv2.VideoWriter(video_path, fourcc, fps, (640, 480))
         print(f"Recording video to: {video_path}")
 
@@ -112,12 +115,19 @@ def demonstrate(
                 f"Episode: {episode + 1}/{num_episodes}",
                 f"Step: {step}",
                 f"Reward: {episode_reward:.2f}",
-                f"Last Action: {action_np if action_np is not None else 'None'}"
+                f"Last Action: {action_np if action_np is not None else 'None'}",
             ]
 
             for i, text in enumerate(info_text):
-                cv2.putText(frame, text, (10, 30 + i * 25),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                cv2.putText(
+                    frame,
+                    text,
+                    (10, 30 + i * 25),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 255, 255),
+                    2,
+                )
 
             # Save frame to video if recording
             if save_video and video_writer is not None:
@@ -125,10 +135,10 @@ def demonstrate(
 
             # Display frame if requested
             if show_display:
-                cv2.imshow('DecQN Walker Demo', frame)
+                cv2.imshow("DecQN Walker Demo", frame)
                 key = cv2.waitKey(1) & 0xFF
                 # Allow early termination with 'q' key
-                if key == ord('q'):
+                if key == ord("q"):
                     print("Demo terminated by user")
                     break
 
@@ -188,10 +198,16 @@ def main():
         "--save-video", default=True, action="store_true", help="Save video to file"
     )
     parser.add_argument(
-        "--video-path", type=str, default=None, help="Path to save video (default: auto-generated)"
+        "--video-path",
+        type=str,
+        default=None,
+        help="Path to save video (default: auto-generated)",
     )
     parser.add_argument(
-        "--no-display", default=False, action="store_true", help="Don't show video display window"
+        "--no-display",
+        default=False,
+        action="store_true",
+        help="Don't show video display window",
     )
     parser.add_argument(
         "--fps", type=int, default=30, help="Video frame rate (default: 30)"
@@ -211,7 +227,7 @@ def main():
         save_video=args.save_video,
         video_path=args.video_path,
         show_display=not args.no_display,
-        fps=args.fps
+        fps=args.fps,
     )
 
 

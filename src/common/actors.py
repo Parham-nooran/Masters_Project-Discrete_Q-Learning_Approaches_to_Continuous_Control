@@ -31,7 +31,7 @@ class CustomDiscreteFeedForwardActor:
             if observation.device != self.device:
                 observation = observation.to(self.device)
             if len(observation.shape) < 2 or (
-                    self.encoder and len(observation.shape) == 3
+                self.encoder and len(observation.shape) == 3
             ):
                 observation = observation.unsqueeze(0)
         return observation

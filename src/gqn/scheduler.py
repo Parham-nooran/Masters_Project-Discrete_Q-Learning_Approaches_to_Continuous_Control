@@ -19,8 +19,10 @@ class GrowingScheduler:
         self.returns_history.append(episode_return)
 
         # Need minimum history and minimum episodes since last growth
-        if (len(self.returns_history) < self.window_size or
-                episode - self.last_growth_episode < self.min_episodes_between_growth):
+        if (
+            len(self.returns_history) < self.window_size
+            or episode - self.last_growth_episode < self.min_episodes_between_growth
+        ):
             return False
 
         # Check if performance has plateaued (simplified criterion)
@@ -35,7 +37,7 @@ class GrowingScheduler:
         improvement = recent_mean - earlier_mean
 
         # Growth criterion: improvement is less than 5% of earlier performance
-        should_grow = improvement < 0.05 * abs(earlier_mean)
+        should_grow = improvement < 0.02 * max(abs(earlier_mean), 1.0)
 
         if should_grow:
             self.last_growth_episode = episode

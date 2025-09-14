@@ -116,7 +116,7 @@ class PrioritizedReplayBuffer:
                     next_obs=_ensure_tensor_device(transition.next_obs, device),
                     done=transition.done,
                     n_step_return=transition.n_step_return,
-                    n_step_discount=transition.n_step_discount
+                    n_step_discount=transition.n_step_discount,
                 )
                 new_buffer.append(new_transition)
             else:
@@ -233,7 +233,7 @@ class PrioritizedReplayBuffer:
 
         # Calculate probabilities (keep numpy for efficiency)
         priorities = self.priorities[: len(self.buffer)]
-        probs = priorities ** self.alpha
+        probs = priorities**self.alpha
         probs = probs / probs.sum()
 
         indices = np.random.choice(len(self.buffer), batch_size, p=probs)
@@ -246,10 +246,18 @@ class PrioritizedReplayBuffer:
 
         # Stack tensors that are now all on the same device
         obs = torch.stack([t.obs for t in batch]).to(self.device, non_blocking=True)
-        next_obs = torch.stack([t.next_obs for t in batch]).to(self.device, non_blocking=True)
-        actions = stack_actions([t.action for t in batch]).to(self.device, non_blocking=True)
-        rewards = torch.tensor([t.n_step_return for t in batch], dtype=torch.float32, device=self.device)
-        dones = torch.tensor([t.done for t in batch], dtype=torch.bool, device=self.device)
+        next_obs = torch.stack([t.next_obs for t in batch]).to(
+            self.device, non_blocking=True
+        )
+        actions = stack_actions([t.action for t in batch]).to(
+            self.device, non_blocking=True
+        )
+        rewards = torch.tensor(
+            [t.n_step_return for t in batch], dtype=torch.float32, device=self.device
+        )
+        dones = torch.tensor(
+            [t.done for t in batch], dtype=torch.bool, device=self.device
+        )
         discounts = torch.tensor(
             [t.n_step_discount for t in batch], dtype=torch.float32, device=self.device
         )

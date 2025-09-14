@@ -6,16 +6,21 @@ class GrowingActionDiscretizer(Discretizer):
     """Growing action discretizer - minimal implementation matching 2024 paper."""
 
     def __init__(self, action_spec, max_bins, decouple=True):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         super().__init__(decouple, action_spec, max_bins)
 
         self.action_spec = action_spec
-        self.action_min = torch.tensor(action_spec["low"], dtype=torch.float32, device=self.device)
-        self.action_max = torch.tensor(action_spec["high"], dtype=torch.float32, device=self.device)
+        self.action_min = torch.tensor(
+            action_spec["low"], dtype=torch.float32, device=self.device
+        )
+        self.action_max = torch.tensor(
+            action_spec["high"], dtype=torch.float32, device=self.device
+        )
         self.action_dim = len(self.action_min)
         self.max_bins = max_bins
 
         # Growing sequence as per paper: start with 2, grow to 3, 5, 9
-        self.growth_sequence = [2, 3, 5, 9]
+        self.growth_sequence = [2, 4, 8, 16] if max_bins >= 16 else [2, 3, 5, 9]
         self.current_bins = self.growth_sequence[0]  # Start with 2 bins
         self.current_growth_idx = 0
 
@@ -36,24 +41,36 @@ class GrowingActionDiscretizer(Discretizer):
                         self.action_min[dim],
                         self.action_max[dim],
                         num_bins,
-                        device=self.device
+                        device=self.device,
                     )
                     bins_per_dim.append(bins)
                 self.all_action_bins[num_bins] = torch.stack(bins_per_dim)
             else:
                 # Joint discretization - create cartesian product
                 bins_per_dim = [
-                    torch.linspace(self.action_min[i], self.action_max[i], num_bins, device=self.device)
+                    torch.linspace(
+                        self.action_min[i],
+                        self.action_max[i],
+                        num_bins,
+                        device=self.device,
+                    )
                     for i in range(self.action_dim)
                 ]
                 mesh = torch.meshgrid(*bins_per_dim, indexing="ij")
-                self.all_action_bins[num_bins] = torch.stack([m.flatten() for m in mesh], dim=1)
+                self.all_action_bins[num_bins] = torch.stack(
+                    [m.flatten() for m in mesh], dim=1
+                )
 
     def grow_action_space(self):
         """Grow to next resolution level. Returns True if growth occurred."""
         if self.current_growth_idx < len(self.growth_sequence) - 1:
             self.current_growth_idx += 1
+            old_bins = self.current_bins
             self.current_bins = self.growth_sequence[self.current_growth_idx]
+            if self.current_bins not in self.all_action_bins:
+                self.current_growth_idx -= 1
+                self.current_bins = old_bins
+                return False
             self.action_bins = self.all_action_bins[self.current_bins]
             return True
         return False
@@ -68,7 +85,9 @@ class GrowingActionDiscretizer(Discretizer):
                 discrete_actions = discrete_actions.unsqueeze(0)
 
             batch_size = discrete_actions.shape[0]
-            continuous_actions = torch.zeros(batch_size, self.action_dim, device=self.device)
+            continuous_actions = torch.zeros(
+                batch_size, self.action_dim, device=self.device
+            )
 
             for dim in range(self.action_dim):
                 bin_indices = discrete_actions[:, dim].long()

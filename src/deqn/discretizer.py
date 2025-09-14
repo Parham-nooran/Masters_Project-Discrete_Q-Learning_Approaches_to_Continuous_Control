@@ -63,6 +63,3 @@ class ActionDiscretizer(Discretizer):
             # Create cartesian product more efficiently
             mesh = torch.meshgrid(*bins_per_dim, indexing="ij")
             self.action_bins = torch.stack([m.flatten() for m in mesh], dim=1)
-
-
-

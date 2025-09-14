@@ -4,7 +4,7 @@ from collections import deque
 
 import torch
 from src.deqn.config import *
-
+from src.common.metrics_tracker import MetricsTracker
 from src.deqn.agent import DecQNAgent
 from src.plotting.plotting_utils import *
 from dm_control import suite
@@ -60,15 +60,14 @@ def process_pixel_observation(dm_obs, device):
         if camera_obs:
             obs = camera_obs[0]
         else:
-            raise ValueError(
-                "No pixel observations found in DM Control observation"
-            )
+            raise ValueError("No pixel observations found in DM Control observation")
 
     obs = torch.tensor(obs, dtype=torch.float32, device=device)
     if len(obs.shape) == 3:  # HWC -> CHW
         obs = obs.permute(2, 0, 1)
 
     return obs
+
 
 def process_observation(dm_obs, use_pixels, device):
     if use_pixels:
@@ -112,6 +111,7 @@ def handle_checkpoint_loading(agent, checkpoint_to_load):
             )
     return start_episode
 
+
 def get_obs_shape(use_pixels, obs_spec):
     if use_pixels:
         obs_shape = (3, 84, 84)  # RGB camera view
@@ -122,12 +122,14 @@ def get_obs_shape(use_pixels, obs_spec):
         obs_shape = (state_dim,)
     return obs_shape
 
+
 def get_numpy_action(action):
     if isinstance(action, torch.Tensor):
         action_np = action.cpu().numpy()
     else:
         action_np = action
     return action_np
+
 
 def optimize_gpu_usage(device):
     if device == "cuda":
@@ -162,7 +164,9 @@ def train_decqn():
     metrics_tracker = MetricsTracker(save_dir="output/metrics")
     if start_episode > 0:
         metrics_tracker.load_metrics()
-    print(f"Agent setup - decouple: {agent.config.decouple}, action_dim: {agent.action_discretizer.action_dim}")
+    print(
+        f"Agent setup - decouple: {agent.config.decouple}, action_dim: {agent.action_discretizer.action_dim}"
+    )
     print("Starting training...")
     print(f"Environment task: {config.task}")
     start_time = time.time()
@@ -170,11 +174,10 @@ def train_decqn():
     for episode in range(start_episode, config.num_episodes):
         episode_start_time = time.time()
         episode_reward = 0
-        loss_window_size = 20
-        q_mean_window_size = 20
-        recent_losses = deque(maxlen=loss_window_size)
-        recent_q_means = deque(maxlen=q_mean_window_size)
-
+        recent_losses = deque(maxlen=20)
+        recent_q1_means = deque(maxlen=20)
+        recent_mean_abs_td_errors = deque(maxlen=20)
+        recent_squared_td_errors = deque(maxlen=20)
 
         time_step = env.reset()
         obs = process_observation(time_step.observation, config.use_pixels, device)
@@ -185,29 +188,35 @@ def train_decqn():
             action = agent.select_action(obs)
             action_np = get_numpy_action(action)
             time_step = env.step(action_np)
-            next_obs = process_observation(time_step.observation, config.use_pixels, device)
+            next_obs = process_observation(
+                time_step.observation, config.use_pixels, device
+            )
             reward = time_step.reward if time_step.reward is not None else 0.0
             done = time_step.last()
             agent.observe(action, reward, next_obs, done)
 
-            # Update agent
             if len(agent.replay_buffer) > config.min_replay_size:
                 metrics = agent.update()
-                recent_q_means.append(metrics["q1_mean"])
+                recent_q1_means.append(metrics["q1_mean"])
+                recent_mean_abs_td_errors.append(metrics["mean_abs_td_error"])
+                recent_squared_td_errors.append(metrics["squared_td_error"])
                 if metrics and "loss" in metrics and metrics["loss"] is not None:
                     recent_losses.append(metrics["loss"])
-
 
             obs = next_obs
             episode_reward += reward
             step += 1
-
             if step > 1000:
                 break
 
-        # Calculate averages
         avg_recent_loss = np.mean(recent_losses) if recent_losses else 0.0
-        avg_recent_q_means = np.mean(recent_q_means) if recent_q_means else 0.0
+        avg_recent_q_means = np.mean(recent_q1_means) if recent_q1_means else 0.0
+        avg_recent_mean_td_error = (
+            np.mean(recent_mean_abs_td_errors) if recent_mean_abs_td_errors else 0.0
+        )
+        avg_recent_squared_td_error = (
+            np.mean(recent_squared_td_errors) if recent_squared_td_errors else 0.0
+        )
 
         # Log metrics
         metrics_tracker.log_episode(
@@ -215,7 +224,9 @@ def train_decqn():
             reward=episode_reward,
             length=step,
             loss=avg_recent_loss if recent_losses else None,
-            q_mean=avg_recent_q_means if recent_q_means else None,
+            mean_abs_td_error=avg_recent_mean_td_error,
+            mean_squared_td_error=avg_recent_squared_td_error,
+            q_mean=avg_recent_q_means if recent_q1_means else None,
             epsilon=agent.epsilon,
         )
 
@@ -224,13 +235,14 @@ def train_decqn():
         if device == "cuda":
             torch.cuda.synchronize()
 
-        # Enhanced progress logging
         episode_time = time.time() - episode_start_time
         if episode % args.log_interval == 0:
             print(
                 f"Episode {episode:4d} | "
                 f"Reward: {episode_reward:7.2f} | "
                 f"Loss: {avg_recent_loss:8.6f} | "
+                f"Mean abs TD Error: {avg_recent_mean_td_error:8.6f} | "
+                f"Mean squared TD Error: {avg_recent_squared_td_error:8.6f} | "
                 f"Q-mean: {avg_recent_q_means:6.3f} | "
                 f"Time: {episode_time:.2f}s | "
                 f"Buffer: {len(agent.replay_buffer):6d}"
@@ -253,19 +265,21 @@ def train_decqn():
             )
             print("-" * 35)
 
-        # Clear GPU cache periodically
         if episode % 10 == 0 and device == "cuda":
             torch.cuda.empty_cache()
 
         # Save checkpoints
         if episode % args.checkpoint_interval == 0:
             import shutil
+
             metrics_tracker.save_metrics()
             if os.path.exists("output/checkpoints"):
                 shutil.rmtree("output/checkpoints")
             os.makedirs("output/checkpoints", exist_ok=True)
 
-            checkpoint_path = f"output/checkpoints/decqn_episode_{config.task}_{episode}.pth"
+            checkpoint_path = (
+                f"output/checkpoints/decqn_episode_{config.task}_{episode}.pth"
+            )
             save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
 

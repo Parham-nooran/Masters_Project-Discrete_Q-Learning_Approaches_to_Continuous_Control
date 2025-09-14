@@ -1,7 +1,7 @@
+from typing import Dict, List, Tuple, Optional
+
 import torch
 import torch.nn as nn
-from typing import Dict, List, Tuple, Optional
-import math
 
 
 def _build_network(layer_sizes: List[int]) -> nn.Module:
@@ -21,30 +21,27 @@ def _build_network(layer_sizes: List[int]) -> nn.Module:
 def _init_weights(m):
     """Conservative weight initialization for Q-networks."""
     if isinstance(m, nn.Linear):
-        # Use smaller initialization to prevent exploding Q-values
         nn.init.xavier_uniform_(m.weight, gain=1.0)
         if m.bias is not None:
             nn.init.zeros_(m.bias)
 
 
-def apply_action_mask_optimized(q_values: torch.Tensor,
-                                action_mask: torch.Tensor) -> torch.Tensor:
+def apply_action_mask_optimized(
+    q_values: torch.Tensor, action_mask: torch.Tensor
+) -> torch.Tensor:
     """JIT-compiled action masking for speed."""
-    # FIXED: Use smaller negative value to prevent numerical issues
-    mask_value = -1e6  # Changed from -1e8
-    return torch.where(action_mask.unsqueeze(0), q_values,
-                       torch.full_like(q_values, mask_value))
+    mask_value = -1e6
+    return torch.where(
+        action_mask.unsqueeze(0), q_values, torch.full_like(q_values, mask_value)
+    )
 
 
 def _init_final_layer(layer):
-    # Small initialization for final layer to prevent exploding Q-values
     nn.init.uniform_(layer.weight, -0.003, 0.003)
     nn.init.zeros_(layer.bias)
 
 
 class GrowingQCritic(nn.Module):
-    """Fixed Growing Q-Networks Critic with proper initialization and scaling."""
-
     def __init__(self, config, input_size: int, action_spec: Dict):
         super().__init__()
         self.config = config
@@ -53,16 +50,13 @@ class GrowingQCritic(nn.Module):
         self.action_dim = len(action_spec["low"])
         self.max_bins = config.max_bins
 
-        # Calculate output dimensions
         if self.decouple:
             self.max_output_dim = self.max_bins * self.action_dim
         else:
-            self.max_output_dim = self.max_bins ** self.action_dim
+            self.max_output_dim = self.max_bins**self.action_dim
 
-        # FIXED: Build smaller networks for stability
         layer_sizes = [input_size] + config.layer_size_network + [self.max_output_dim]
 
-        # Build Q-networks
         self.q1_network = _build_network(layer_sizes)
         self.q1_network.apply(_init_weights)
 
@@ -76,7 +70,9 @@ class GrowingQCritic(nn.Module):
         if self.use_double_q:
             _init_final_layer(self.q2_network[-1])
 
-    def forward(self, x: torch.Tensor, action_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, action_mask: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass with optional action masking and output scaling.
         """
@@ -85,15 +81,18 @@ class GrowingQCritic(nn.Module):
 
         if self.decouple:
             q1 = q1.view(q1.shape[0], self.action_dim, self.max_bins)
-            q2 = q2.view(q2.shape[0], self.action_dim, self.max_bins) if self.use_double_q else q1
+            q2 = (
+                q2.view(q2.shape[0], self.action_dim, self.max_bins)
+                if self.use_double_q
+                else q1
+            )
 
             if action_mask is not None:
                 q1 = apply_action_mask_optimized(q1, action_mask)
                 q2 = apply_action_mask_optimized(q2, action_mask)
         else:
-            # For joint discretization
             if action_mask is not None:
-                mask_value = -1e6  # Changed from -1e8
+                mask_value = -1e6
                 expanded_mask = action_mask.unsqueeze(0).expand(q1.shape[0], -1)
                 q1 = torch.where(expanded_mask, q1, torch.full_like(q1, mask_value))
                 q2 = torch.where(expanded_mask, q2, torch.full_like(q2, mask_value))

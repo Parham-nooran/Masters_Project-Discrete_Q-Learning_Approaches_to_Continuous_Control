@@ -1,6 +1,6 @@
 import torch.optim as optim
 
-from src.deqn.actors import CustomDiscreteFeedForwardActor
+from src.common.actors import CustomDiscreteFeedForwardActor
 from src.deqn.critic import *
 from src.common.encoder import *
 from src.common.replay_buffer import PrioritizedReplayBuffer
@@ -55,11 +55,10 @@ class DecQNAgent:
             policy_network=self.q_network,
             encoder=self.encoder,
             action_discretizer=self.action_discretizer,
-            epsilon=0.0,  # No exploration during evaluation
+            epsilon=0.0,
             decouple=config.decouple,
         )
 
-        # Training state
         self.training_step = 0
         self.epsilon = config.epsilon
 
@@ -81,7 +80,9 @@ class DecQNAgent:
         if hasattr(self, "last_obs"):
             # Keep everything as tensors, only convert to discrete for storage
             if isinstance(action, torch.Tensor):
-                discrete_action = continuous_to_discrete_action(self.config, self.action_discretizer, action)
+                discrete_action = continuous_to_discrete_action(
+                    self.config, self.action_discretizer, action
+                )
             else:
                 discrete_action = action
 
@@ -94,7 +95,6 @@ class DecQNAgent:
             self.last_obs = next_obs.detach()
         else:
             self.last_obs = next_obs
-
 
     def store_transition(self, obs, action, reward, next_obs, done):
         """Store transition in replay buffer."""
@@ -156,7 +156,6 @@ class DecQNAgent:
 
         return checkpoint["episode"]
 
-
     def make_epsilon_greedy_policy(self, q_values, epsilon, decouple=False):
         """Create epsilon-greedy policy from Q-values."""
         batch_size = q_values[0].shape[0]
@@ -173,7 +172,8 @@ class DecQNAgent:
             num_bins = q_max.shape[2]
 
             return get_combined_random_and_greedy_actions(
-                q_max, num_dims, num_bins, batch_size, epsilon, self.device)
+                q_max, num_dims, num_bins, batch_size, epsilon, self.device
+            )
         else:
             # Standard epsilon-greedy
             if torch.rand(1).item() < epsilon:
@@ -230,7 +230,7 @@ class DecQNAgent:
                 )
 
                 q_next_online = 0.5 * (
-                        q1_next_online_reshaped + q2_next_online_reshaped
+                    q1_next_online_reshaped + q2_next_online_reshaped
                 )
                 next_actions = q_next_online.argmax(dim=2)
 
@@ -257,7 +257,7 @@ class DecQNAgent:
 
                 q_target_per_dim = 0.5 * (q1_selected + q2_selected)
                 q_target_values = (
-                        q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+                    q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
                 )
 
                 targets = rewards + discounts * q_target_values * (~dones).float()
@@ -316,10 +316,12 @@ class DecQNAgent:
             else torch.zeros_like(loss1)
         )
 
-        # Apply importance sampling weights properly
-        # Apply importance sampling weights properly
         loss1 = (loss1 * weights).mean()
-        loss2 = (loss2 * weights).mean() if self.config.use_double_q else torch.zeros_like(loss1)
+        loss2 = (
+            (loss2 * weights).mean()
+            if self.config.use_double_q
+            else torch.zeros_like(loss1)
+        )
 
         total_loss = loss1 + loss2
 
@@ -343,7 +345,6 @@ class DecQNAgent:
         if self.encoder:
             self.encoder_optimizer.step()
 
-        # Update priorities in replay buffer
         priorities1 = torch.abs(td_error1).detach().cpu().numpy()
         priorities2 = torch.abs(td_error2).detach().cpu().numpy()
         priorities = (
@@ -353,13 +354,18 @@ class DecQNAgent:
         )
         self.replay_buffer.update_priorities(indices, priorities)
 
-        # Update target network
         self.training_step += 1
         if self.training_step % self.config.target_update_period == 0:
             self.target_q_network.load_state_dict(self.q_network.state_dict())
 
+        mean_abs_td_error = torch.abs(td_error1).mean().item()
+        mean_squared_td_error = (td_error1**2).mean().item()
+        print("mean_abs_td_error: ", mean_abs_td_error)
+        print("mean_squared_td_error: ", mean_squared_td_error)
         return {
             "loss": total_loss.item(),
+            "mean_abs_td_error": mean_abs_td_error,
+            "mean_squared_td_error": mean_squared_td_error,
             "q1_mean": q1_selected.mean().item(),
             "q2_mean": q2_selected.mean().item() if self.config.use_double_q else 0,
         }

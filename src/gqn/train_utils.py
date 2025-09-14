@@ -51,10 +51,10 @@ def apply_action_penalty(rewards, actions, penalty_coeff):
 
     # Calculate L2 norm of actions
     if len(actions.shape) == 1:
-        action_norm_squared = np.sum(actions ** 2)
+        action_norm_squared = np.sum(actions**2)
         M = len(actions)
     else:
-        action_norm_squared = np.sum(actions ** 2, axis=-1)
+        action_norm_squared = np.sum(actions**2, axis=-1)
         M = actions.shape[-1] if len(actions.shape) > 1 else 1
 
     # FIXED: Proper penalty calculation from paper
@@ -62,7 +62,9 @@ def apply_action_penalty(rewards, actions, penalty_coeff):
     penalties = penalty_coeff * action_norm_squared / M
 
     # FIXED: Ensure penalty doesn't dominate the reward signal
-    penalties = np.clip(penalties, 0, abs(rewards) * 0.1)  # Limit penalty to 10% of reward magnitude
+    penalties = np.clip(
+        penalties, 0, abs(rewards) * 0.1
+    )  # Limit penalty to 10% of reward magnitude
 
     return rewards - penalties
 

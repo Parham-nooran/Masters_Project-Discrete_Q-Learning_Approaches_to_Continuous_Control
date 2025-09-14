@@ -8,7 +8,9 @@ from src.gqn.agent import GrowingQNAgent
 from src.gqn.train_utils import *
 
 
-def load_gqn_checkpoint(checkpoint_path, env, device="cuda" if torch.cuda.is_available() else "cpu"):
+def load_gqn_checkpoint(
+    checkpoint_path, env, device="cuda" if torch.cuda.is_available() else "cpu"
+):
     """Load GQN checkpoint with proper state restoration."""
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -23,7 +25,9 @@ def load_gqn_checkpoint(checkpoint_path, env, device="cuda" if torch.cuda.is_ava
     if config.use_pixels:
         obs_shape = (3, 84, 84)
     else:
-        state_dim = sum(spec.shape[0] if len(spec.shape) > 0 else 1 for spec in obs_spec.values())
+        state_dim = sum(
+            spec.shape[0] if len(spec.shape) > 0 else 1 for spec in obs_spec.values()
+        )
         obs_shape = (state_dim,)
 
     action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
@@ -45,17 +49,23 @@ def load_gqn_checkpoint(checkpoint_path, env, device="cuda" if torch.cuda.is_ava
     if "growth_history" in checkpoint:
         agent.growth_history = checkpoint["growth_history"]
     if "action_discretizer_current_bins" in checkpoint:
-        agent.action_discretizer.current_bins = checkpoint["action_discretizer_current_bins"]
+        agent.action_discretizer.current_bins = checkpoint[
+            "action_discretizer_current_bins"
+        ]
         agent.action_discretizer.action_bins = agent.action_discretizer.all_action_bins[
             agent.action_discretizer.current_bins
         ]
     if "action_discretizer_current_growth_idx" in checkpoint:
-        agent.action_discretizer.current_growth_idx = checkpoint["action_discretizer_current_growth_idx"]
+        agent.action_discretizer.current_growth_idx = checkpoint[
+            "action_discretizer_current_growth_idx"
+        ]
 
     # Load encoder if present
     if agent.encoder and "encoder_state_dict" in checkpoint:
         agent.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-        agent.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer_state_dict"])
+        agent.encoder_optimizer.load_state_dict(
+            checkpoint["encoder_optimizer_state_dict"]
+        )
 
     print(f"Loaded GQN checkpoint from episode {checkpoint['episode']}")
     print(f"Final resolution: {agent.action_discretizer.current_bins} bins")
@@ -63,15 +73,16 @@ def load_gqn_checkpoint(checkpoint_path, env, device="cuda" if torch.cuda.is_ava
 
     return agent
 
+
 def demonstrate_gqn(
-        checkpoint_path,
-        num_episodes=5,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        save_video=False,
-        video_path=None,
-        show_display=True,
-        fps=30,
-        task="walker_walk"
+    checkpoint_path,
+    num_episodes=5,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    save_video=False,
+    video_path=None,
+    show_display=True,
+    fps=30,
+    task="walker_walk",
 ):
     """Demonstrate trained Growing Q-Networks agent."""
     print(f"Loading GQN checkpoint: {checkpoint_path}")
@@ -95,10 +106,13 @@ def demonstrate_gqn(
             video_path = f"./output/videos/gqn_demo_{timestamp}.mp4"
 
         # Create output directory
-        os.makedirs(os.path.dirname(video_path) if os.path.dirname(video_path) else '.', exist_ok=True)
+        os.makedirs(
+            os.path.dirname(video_path) if os.path.dirname(video_path) else ".",
+            exist_ok=True,
+        )
 
         # Initialize video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video_writer = cv2.VideoWriter(video_path, fourcc, fps, (640, 480))
         print(f"Recording video to: {video_path}")
 
@@ -112,7 +126,9 @@ def demonstrate_gqn(
         episode_action_changes = []
 
         time_step = env.reset()
-        obs = process_observation(time_step.observation, agent.config.use_pixels, device)
+        obs = process_observation(
+            time_step.observation, agent.config.use_pixels, device
+        )
         agent.observe_first(obs)
 
         print(f"\nEpisode {episode + 1}:")
@@ -134,7 +150,9 @@ def demonstrate_gqn(
 
             # Get action from agent (no exploration)
             action = agent.select_action(obs, evaluate=True)
-            action_np = action.cpu().numpy() if isinstance(action, torch.Tensor) else action
+            action_np = (
+                action.cpu().numpy() if isinstance(action, torch.Tensor) else action
+            )
 
             # Calculate action metrics
             action_mag = np.linalg.norm(action_np)
@@ -155,14 +173,21 @@ def demonstrate_gqn(
                 f"Current Bins: {growth_info['current_bins']}",
                 f"Growth History: {growth_info['growth_history']}",
                 f"Action: [{', '.join([f'{x:.3f}' for x in action_np])}]",
-                f"Action Mag: {action_mag:.3f}"
+                f"Action Mag: {action_mag:.3f}",
             ]
 
             for i, text in enumerate(info_text):
                 # Use smaller font for more info
                 font_scale = 0.5 if i >= 4 else 0.6
-                cv2.putText(frame, text, (10, 25 + i * 20),
-                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 2)
+                cv2.putText(
+                    frame,
+                    text,
+                    (10, 25 + i * 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale,
+                    (255, 255, 255),
+                    2,
+                )
 
             # Save frame to video if recording
             if save_video and video_writer is not None:
@@ -170,15 +195,17 @@ def demonstrate_gqn(
 
             # Display frame if requested
             if show_display:
-                cv2.imshow('Growing Q-Networks Demo', frame)
+                cv2.imshow("Growing Q-Networks Demo", frame)
                 key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
+                if key == ord("q"):
                     print("Demo terminated by user")
                     break
 
             # Take environment step
             time_step = env.step(action_np)
-            obs = process_observation(time_step.observation, agent.config.use_pixels, device)
+            obs = process_observation(
+                time_step.observation, agent.config.use_pixels, device
+            )
 
             reward = time_step.reward if time_step.reward is not None else 0.0
             episode_reward += reward
@@ -186,13 +213,17 @@ def demonstrate_gqn(
 
         # Episode summary
         avg_action_mag = episode_action_magnitude / max(step, 1)
-        avg_action_change = np.mean(episode_action_changes) if episode_action_changes else 0.0
+        avg_action_change = (
+            np.mean(episode_action_changes) if episode_action_changes else 0.0
+        )
 
         total_rewards.append(episode_reward)
         action_magnitudes.append(avg_action_mag)
         action_changes.append(avg_action_change)
 
-        print(f"  Episode {episode + 1} total reward: {episode_reward:.3f} ({step} steps)")
+        print(
+            f"  Episode {episode + 1} total reward: {episode_reward:.3f} ({step} steps)"
+        )
         print(f"  Average action magnitude: {avg_action_mag:.3f}")
         print(f"  Average action change: {avg_action_change:.3f}")
 
@@ -227,7 +258,9 @@ def demonstrate_gqn(
 
 def main():
     """Main demonstration function."""
-    parser = argparse.ArgumentParser(description="Demonstrate trained Growing Q-Networks agent")
+    parser = argparse.ArgumentParser(
+        description="Demonstrate trained Growing Q-Networks agent"
+    )
     parser.add_argument(
         "--checkpoint",
         type=str,
@@ -243,11 +276,12 @@ def main():
     parser.add_argument(
         "--device", type=str, default="auto", help="Device to use (cpu, cuda, or auto)"
     )
+    parser.add_argument("--save-video", action="store_true", help="Save video to file")
     parser.add_argument(
-        "--save-video", action="store_true", help="Save video to file"
-    )
-    parser.add_argument(
-        "--video-path", type=str, default=None, help="Path to save video (default: auto-generated)"
+        "--video-path",
+        type=str,
+        default=None,
+        help="Path to save video (default: auto-generated)",
     )
     parser.add_argument(
         "--no-display", action="store_true", help="Don't show video display window"
@@ -275,11 +309,12 @@ def main():
             video_path=args.video_path,
             show_display=not args.no_display,
             fps=args.fps,
-            task=args.task
+            task=args.task,
         )
     except Exception as e:
         print(f"Error during demonstration: {e}")
         import traceback
+
         traceback.print_exc()
 
 

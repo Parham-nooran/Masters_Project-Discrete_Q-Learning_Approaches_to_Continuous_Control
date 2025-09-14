@@ -1,15 +1,21 @@
 import torch
 import numpy as np
 
-def huber_loss(td_error: torch.Tensor, huber_loss_parameter: float = 1.0) -> torch.Tensor:
+
+def huber_loss(
+    td_error: torch.Tensor, huber_loss_parameter: float = 1.0
+) -> torch.Tensor:
     abs_error = torch.abs(td_error)
     quadratic = torch.minimum(
         abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device)
     )
     linear = abs_error - quadratic
-    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
+    return 0.5 * quadratic**2 + huber_loss_parameter * linear
 
-def get_combined_random_and_greedy_actions(q_max, num_dims, num_bins, batch_size, epsilon, device):
+
+def get_combined_random_and_greedy_actions(
+    q_max, num_dims, num_bins, batch_size, epsilon, device
+):
     random_mask = torch.rand(batch_size, num_dims, device=device) < epsilon
 
     # Random actions for exploration
@@ -23,7 +29,9 @@ def get_combined_random_and_greedy_actions(q_max, num_dims, num_bins, batch_size
     return actions
 
 
-def continuous_to_discrete_action(config, action_discretizer, continuous_action: torch.Tensor) -> np.ndarray:
+def continuous_to_discrete_action(
+    config, action_discretizer, continuous_action: torch.Tensor
+) -> np.ndarray:
     if isinstance(continuous_action, torch.Tensor):
         continuous_action = continuous_action.cpu().numpy()
 
