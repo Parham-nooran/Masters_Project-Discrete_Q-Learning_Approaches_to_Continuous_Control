@@ -143,7 +143,7 @@ def save_checkpoint(agent, episode, path):
         "epsilon": agent.epsilon,
         "episode_count": agent.episode_count,
         "growth_history": agent.growth_history,
-        "action_discretizer_current_bins": agent.action_discretizer.current_bins,
+        "action_discretizer_current_bins": agent.action_discretizer.num_bins,
         "action_discretizer_current_growth_idx": agent.action_discretizer.current_growth_idx,
         "replay_buffer_buffer": agent.replay_buffer.buffer,
         "replay_buffer_position": agent.replay_buffer.position,
@@ -298,7 +298,7 @@ def train_growing_qn():
     print(f"  Action dimensions: {agent.action_discretizer.action_dim}")
     print(f"  Growing schedule: {config.growing_schedule}")
     print(f"  Growth sequence: {agent.action_discretizer.growth_sequence}")
-    print(f"  Current bins: {agent.action_discretizer.current_bins}")
+    print(f"  Current bins: {agent.action_discretizer.num_bins}")
     print(f"  Action penalty: {config.action_penalty}")
     print(f"Starting training from episode {start_episode}...")
     step_count = 0

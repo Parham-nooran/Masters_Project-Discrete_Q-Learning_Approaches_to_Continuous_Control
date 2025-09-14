@@ -141,8 +141,6 @@ def optimize_gpu_usage(device):
 def train_decqn():
     args = parse_args()
     config = create_config_from_args(args)
-
-    # Device selection
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
     optimize_gpu_usage(device)
@@ -199,7 +197,7 @@ def train_decqn():
                 metrics = agent.update()
                 recent_q1_means.append(metrics["q1_mean"])
                 recent_mean_abs_td_errors.append(metrics["mean_abs_td_error"])
-                recent_squared_td_errors.append(metrics["squared_td_error"])
+                recent_squared_td_errors.append(metrics["mean_squared_td_error"])
                 if metrics and "loss" in metrics and metrics["loss"] is not None:
                     recent_losses.append(metrics["loss"])
 

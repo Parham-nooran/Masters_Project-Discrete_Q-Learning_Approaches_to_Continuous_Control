@@ -17,14 +17,8 @@ def get_combined_random_and_greedy_actions(
     q_max, num_dims, num_bins, batch_size, epsilon, device
 ):
     random_mask = torch.rand(batch_size, num_dims, device=device) < epsilon
-
-    # Random actions for exploration
     random_actions = torch.randint(0, num_bins, (batch_size, num_dims), device=device)
-
-    # Greedy actions for exploitation
     greedy_actions = q_max.argmax(dim=2)
-
-    # Combine using the mask
     actions = torch.where(random_mask, random_actions, greedy_actions)
     return actions
 

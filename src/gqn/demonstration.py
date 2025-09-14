@@ -21,7 +21,6 @@ def load_gqn_checkpoint(
     action_spec = env.action_spec()
     obs_spec = env.observation_spec()
 
-    # Determine observation shape
     if config.use_pixels:
         obs_shape = (3, 84, 84)
     else:
@@ -31,19 +30,15 @@ def load_gqn_checkpoint(
         obs_shape = (state_dim,)
 
     action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
-
-    # Create agent
     agent = GrowingQNAgent(config, obs_shape, action_spec_dict)
-
-    # Load network states
     agent.q_network.load_state_dict(checkpoint["q_network_state_dict"])
     agent.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
     agent.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
     agent.training_step = checkpoint.get("training_step", 0)
-    agent.epsilon = checkpoint.get("epsilon", 0.0)  # No exploration in demo
+    agent.epsilon = checkpoint.get("epsilon", 0.0)
     agent.episode_count = checkpoint.get("episode_count", 0)
 
-    # Load GQN specific state
+
     if "current_resolution_level" in checkpoint:
         agent.current_resolution_level = checkpoint["current_resolution_level"]
     if "growth_history" in checkpoint:
@@ -60,7 +55,6 @@ def load_gqn_checkpoint(
             "action_discretizer_current_growth_idx"
         ]
 
-    # Load encoder if present
     if agent.encoder and "encoder_state_dict" in checkpoint:
         agent.encoder.load_state_dict(checkpoint["encoder_state_dict"])
         agent.encoder_optimizer.load_state_dict(
@@ -89,11 +83,9 @@ def demonstrate_gqn(
     print(f"Using device: {device}")
     print(f"Task: {task}")
 
-    # Create environment
     domain_name, task_name = task.split("_", 1)
     env = suite.load(domain_name, task_name)
 
-    # Load agent
     agent = load_gqn_checkpoint(checkpoint_path, env, device)
 
     print(f"\nRunning {num_episodes} demonstration episodes...")

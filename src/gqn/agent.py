@@ -63,11 +63,11 @@ class GrowingQNAgent:
         self.training_step = 0
         self.episode_count = 0
         self.epsilon = config.epsilon
-        self.growth_history = [self.action_discretizer.current_bins]
+        self.growth_history = [self.action_discretizer.num_bins]
 
     def get_current_action_mask(self):
         """Get action mask for current resolution level - simplified approach."""
-        current_bins = self.action_discretizer.current_bins
+        current_bins = self.action_discretizer.num_bins
         max_bins = self.config.max_bins
 
         if self.config.decouple:
@@ -90,7 +90,7 @@ class GrowingQNAgent:
             mask[:total_actions] = True
             return mask
 
-    def select_action(self, obs, evaluate=False):
+    def select_action(self, obs):
         """Select action - same as DecQN but with action masking."""
         return self.actor.select_action(obs)
 
@@ -264,15 +264,13 @@ class GrowingQNAgent:
 
         mean_abs_td_error = torch.abs(td_error1).mean().item()
         mean_squared_td_error = (td_error1**2).mean().item()
-        print("mean_abs_td_error: ", mean_abs_td_error)
-        print("mean_squared_td_error: ", mean_squared_td_error)
         return {
             "loss": total_loss.item(),
             "mean_abs_td_error": mean_abs_td_error,
             "mean_squared_td_error": mean_squared_td_error,
             "q1_mean": q1_selected.mean().item(),
             "q2_mean": q2_selected.mean().item() if self.config.use_double_q else 0,
-            "current_bins": self.action_discretizer.current_bins,
+            "current_bins": self.action_discretizer.num_bins,
         }
 
     def end_episode(self, episode_return):
@@ -288,7 +286,7 @@ class GrowingQNAgent:
     def get_growth_info(self):
         """Get information about current growth state."""
         return {
-            "current_bins": self.action_discretizer.current_bins,
+            "current_bins": self.action_discretizer.num_bins,
             "growth_history": self.growth_history,
             "max_bins": self.config.max_bins,
         }

@@ -58,7 +58,6 @@ class DecQNAgent:
             epsilon=0.0,
             decouple=config.decouple,
         )
-
         self.training_step = 0
         self.epsilon = config.epsilon
 
@@ -160,13 +159,12 @@ class DecQNAgent:
         """Create epsilon-greedy policy from Q-values."""
         batch_size = q_values[0].shape[0]
 
-        if isinstance(q_values, tuple):  # Double Q
+        if isinstance(q_values, tuple):
             q_max = torch.max(q_values[0], q_values[1])
         else:
             q_max = q_values
 
         if decouple:
-            # For decoupled actions, sample each dimension independently
 
             num_dims = q_max.shape[1]
             num_bins = q_max.shape[2]
@@ -175,7 +173,6 @@ class DecQNAgent:
                 q_max, num_dims, num_bins, batch_size, epsilon, self.device
             )
         else:
-            # Standard epsilon-greedy
             if torch.rand(1).item() < epsilon:
                 return torch.randint(
                     0, q_max.shape[1], (batch_size,), device=self.device
@@ -187,14 +184,11 @@ class DecQNAgent:
         if len(self.replay_buffer) < self.config.min_replay_size:
             return {}
 
-        # Sample batch
         batch = self.replay_buffer.sample(self.config.batch_size)
         if batch is None:
             return {}
 
         obs, actions, rewards, next_obs, dones, discounts, weights, indices = batch
-
-        # Move to device
         obs = obs.to(self.device)
         actions = actions.to(self.device)
         rewards = rewards.to(self.device)
@@ -203,7 +197,6 @@ class DecQNAgent:
         discounts = discounts.to(self.device)
         weights = weights.to(self.device)
 
-        # Encode observations
         if self.encoder:
             obs_encoded = self.encoder(obs)
             with torch.no_grad():
@@ -212,35 +205,29 @@ class DecQNAgent:
             obs_encoded = obs.flatten(1)
             next_obs_encoded = next_obs.flatten(1)
 
-        # Current Q-values
         q1_current, q2_current = self.q_network(obs_encoded)
 
-        # Next Q-values for target
         with torch.no_grad():
             q1_next_target, q2_next_target = self.target_q_network(next_obs_encoded)
             q1_next_online, q2_next_online = self.q_network(next_obs_encoded)
 
             if self.config.decouple:
-                # Double DQN: select with online, evaluate with target
                 q1_next_online_reshaped = q1_next_online.view(
                     q1_next_online.shape[0], self.action_discretizer.action_dim, -1
                 )
                 q2_next_online_reshaped = q2_next_online.view(
                     q2_next_online.shape[0], self.action_discretizer.action_dim, -1
                 )
-
                 q_next_online = 0.5 * (
                     q1_next_online_reshaped + q2_next_online_reshaped
                 )
                 next_actions = q_next_online.argmax(dim=2)
-
                 q1_target_reshaped = q1_next_target.view(
                     q1_next_target.shape[0], self.action_discretizer.action_dim, -1
                 )
                 q2_target_reshaped = q2_next_target.view(
                     q2_next_target.shape[0], self.action_discretizer.action_dim, -1
                 )
-
                 batch_indices = torch.arange(
                     q1_target_reshaped.shape[0], device=self.device
                 )
@@ -254,12 +241,10 @@ class DecQNAgent:
                 q2_selected = q2_target_reshaped[
                     batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions
                 ]
-
                 q_target_per_dim = 0.5 * (q1_selected + q2_selected)
                 q_target_values = (
                     q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
                 )
-
                 targets = rewards + discounts * q_target_values * (~dones).float()
             else:
                 # Standard case
@@ -272,7 +257,6 @@ class DecQNAgent:
                 ).squeeze(1)
                 targets = rewards + discounts * q_target_values * ~dones
 
-        # Handle action shape for decoupled case
         if self.config.decouple:
             # For decoupled case: implement Equation 2 from paper
             # Q(st, at) = (Σⱼ Qⱼ(st, aⱼₜ)) / M
@@ -357,11 +341,8 @@ class DecQNAgent:
         self.training_step += 1
         if self.training_step % self.config.target_update_period == 0:
             self.target_q_network.load_state_dict(self.q_network.state_dict())
-
         mean_abs_td_error = torch.abs(td_error1).mean().item()
         mean_squared_td_error = (td_error1**2).mean().item()
-        print("mean_abs_td_error: ", mean_abs_td_error)
-        print("mean_squared_td_error: ", mean_squared_td_error)
         return {
             "loss": total_loss.item(),
             "mean_abs_td_error": mean_abs_td_error,
