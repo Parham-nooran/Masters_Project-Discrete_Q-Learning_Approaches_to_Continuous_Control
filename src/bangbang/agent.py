@@ -10,6 +10,7 @@ import logging
 
 class BangBangAgent:
     """Bang-Bang Control Agent implementing the paper's core ideas."""
+
     def __init__(self, config, obs_shape: tuple, action_spec: dict):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -17,12 +18,10 @@ class BangBangAgent:
         self.action_spec = action_spec
         self.action_dim = len(action_spec["low"])
         self.action_scale = torch.tensor(
-            (action_spec["high"] - action_spec["low"]) / 2.0,
-            device=self.device
+            (action_spec["high"] - action_spec["low"]) / 2.0, device=self.device
         )
         self.action_bias = torch.tensor(
-            (action_spec["high"] + action_spec["low"]) / 2.0,
-            device=self.device
+            (action_spec["high"] + action_spec["low"]) / 2.0, device=self.device
         )
         if config.use_pixels:
             self.encoder = VisionEncoder(config, config.num_pixels).to(self.device)
@@ -44,9 +43,7 @@ class BangBangAgent:
         self.training_step = 0
         self.last_obs = None
         self.policy = BernoulliPolicy(
-            self.encoder_output_size,
-            self.action_dim,
-            config.layer_size_network
+            self.encoder_output_size, self.action_dim, config.layer_size_network
         ).to(self.device)
 
         self.policy_optimizer = optim.Adam(
@@ -64,7 +61,9 @@ class BangBangAgent:
         """Store first observation."""
         self.last_obs = obs
 
-    def select_action(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+    def select_action(
+        self, obs: torch.Tensor, deterministic: bool = False
+    ) -> torch.Tensor:
         """Select bang-bang action."""
         if isinstance(obs, np.ndarray):
             obs = torch.from_numpy(obs).float().to(self.device)
@@ -84,7 +83,9 @@ class BangBangAgent:
 
         return scaled_action.squeeze(0)
 
-    def observe(self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool):
+    def observe(
+        self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool
+    ):
         """Store transition in replay buffer."""
         if self.last_obs is not None:
             normalized_action = (action - self.action_bias) / self.action_scale
@@ -92,7 +93,9 @@ class BangBangAgent:
 
             self.replay_buffer.add(self.last_obs, binary_action, reward, next_obs, done)
 
-        self.last_obs = next_obs.detach() if isinstance(next_obs, torch.Tensor) else next_obs
+        self.last_obs = (
+            next_obs.detach() if isinstance(next_obs, torch.Tensor) else next_obs
+        )
 
     def update(self) -> Dict[str, float]:
         """Update policy using importance-weighted policy gradient."""
@@ -150,7 +153,7 @@ class BangBangAgent:
         return {
             "policy_loss": policy_loss.item(),
             "mean_return": returns.mean().item(),
-            "mean_prob": probs.mean().item()
+            "mean_prob": probs.mean().item(),
         }
 
     def save_checkpoint(self, path: str, episode: int):
@@ -167,7 +170,9 @@ class BangBangAgent:
 
         if self.encoder:
             checkpoint["encoder_state_dict"] = self.encoder.state_dict()
-            checkpoint["encoder_optimizer_state_dict"] = self.encoder_optimizer.state_dict()
+            checkpoint["encoder_optimizer_state_dict"] = (
+                self.encoder_optimizer.state_dict()
+            )
 
         torch.save(checkpoint, path)
         self.logger.info(f"Checkpoint saved: {path}")
@@ -182,7 +187,9 @@ class BangBangAgent:
 
         if self.encoder and "encoder_state_dict" in checkpoint:
             self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-            self.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer_state_dict"])
+            self.encoder_optimizer.load_state_dict(
+                checkpoint["encoder_optimizer_state_dict"]
+            )
 
         self.action_scale = checkpoint["action_scale"].to(self.device)
         self.action_bias = checkpoint["action_bias"].to(self.device)

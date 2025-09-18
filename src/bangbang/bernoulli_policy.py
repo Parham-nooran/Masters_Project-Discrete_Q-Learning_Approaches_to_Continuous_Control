@@ -17,7 +17,9 @@ from src.common.networks import LayerNormMLP
 class BernoulliPolicy(nn.Module):
     """Bernoulli policy for bang-bang control as described in the paper."""
 
-    def __init__(self, input_size: int, action_dim: int, hidden_sizes: list = [512, 512]):
+    def __init__(
+        self, input_size: int, action_dim: int, hidden_sizes: list = [512, 512]
+    ):
         super().__init__()
         self.action_dim = action_dim
         sizes = [input_size] + hidden_sizes + [action_dim]
@@ -27,7 +29,9 @@ class BernoulliPolicy(nn.Module):
         """Returns logits for Bernoulli distribution."""
         return self.network(obs)
 
-    def get_action(self, obs: torch.Tensor, deterministic: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_action(
+        self, obs: torch.Tensor, deterministic: bool = False
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Sample action from Bernoulli policy."""
         logits = self.forward(obs)
         probs = torch.sigmoid(logits)
@@ -43,5 +47,3 @@ class BernoulliPolicy(nn.Module):
         log_probs = torch.distributions.Bernoulli(probs).log_prob(actions).sum(dim=-1)
 
         return bang_bang_actions, log_probs
-
-

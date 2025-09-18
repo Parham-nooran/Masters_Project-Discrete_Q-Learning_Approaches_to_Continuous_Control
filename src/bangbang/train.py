@@ -20,13 +20,15 @@ class BangBangTrainer:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
         self.logger.info(f"Using device: {self.device}")
 
     def train(self):
         """Main training loop."""
-        if self.config.task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
+        if self.config.task not in [
+            f"{domain}_{task}" for domain, task in suite.ALL_TASKS
+        ]:
             self.logger.warn(f"Task {self.config.task} not found, using walker_walk")
             self.config.task = "walker_walk"
 
@@ -54,7 +56,9 @@ class BangBangTrainer:
             recent_losses = deque(maxlen=20)
 
             time_step = env.reset()
-            obs = self.process_observation(time_step.observation, self.config.use_pixels)
+            obs = self.process_observation(
+                time_step.observation, self.config.use_pixels
+            )
             agent.observe_first(obs)
 
             step = 0
@@ -93,7 +97,7 @@ class BangBangTrainer:
                 mean_abs_td_error=0.0,
                 mean_squared_td_error=0.0,
                 q_mean=0.0,
-                epsilon=0.0
+                epsilon=0.0,
             )
 
             episode_time = time.time() - episode_start_time
@@ -114,12 +118,16 @@ class BangBangTrainer:
 
                 self.logger.info(f"Episode {episode} Summary:")
                 self.logger.info(f"Reward: {episode_reward:.2f}")
-                recent_rewards = metrics_tracker.episode_rewards[-self.config.detailed_log_interval:]
+                recent_rewards = metrics_tracker.episode_rewards[
+                    -self.config.detailed_log_interval :
+                ]
                 self.logger.info(f"Recent avg reward: {np.mean(recent_rewards):.2f}")
                 self.logger.info(f"ETA: {eta / 60:.1f} min")
 
             if episode % self.config.checkpoint_interval == 0:
-                checkpoint_path = f"output/checkpoints/bangbang_{self.config.task}_{episode}.pth"
+                checkpoint_path = (
+                    f"output/checkpoints/bangbang_{self.config.task}_{episode}.pth"
+                )
                 agent.save_checkpoint(checkpoint_path, episode)
                 metrics_tracker.save_metrics()
 
@@ -163,12 +171,20 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Train Bang-Bang Control Agent")
-    parser.add_argument("--task", type=str, default="walker_walk", help="Environment task")
-    parser.add_argument("--num-episodes", type=int, default=1000, help="Number of episodes")
+    parser.add_argument(
+        "--task", type=str, default="walker_walk", help="Environment task"
+    )
+    parser.add_argument(
+        "--num-episodes", type=int, default=1000, help="Number of episodes"
+    )
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--log-interval", type=int, default=10, help="Log interval")
-    parser.add_argument("--detailed-log-interval", type=int, default=50, help="Detailed log interval")
-    parser.add_argument("--checkpoint-interval", type=int, default=100, help="Checkpoint interval")
+    parser.add_argument(
+        "--detailed-log-interval", type=int, default=50, help="Detailed log interval"
+    )
+    parser.add_argument(
+        "--checkpoint-interval", type=int, default=100, help="Checkpoint interval"
+    )
 
     args = parser.parse_args()
     config = create_bangbang_config(args)
