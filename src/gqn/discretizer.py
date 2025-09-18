@@ -7,14 +7,18 @@ class GrowingActionDiscretizer(Discretizer):
     """Growing action discretizer - minimal implementation matching 2024 paper."""
 
     def __init__(self, action_spec, max_bins, decouple=True):
-        super().__init__(decouple, action_spec)
-        self.action_spec = action_spec
-        self.max_bins = max_bins
         self.growth_sequence = [2, 4, 8, 16] if max_bins >= 16 else [2, 3, 5, 9]
         self.num_bins = self.growth_sequence[0]
+        self.action_bins = self.all_action_bins[self.num_bins]
+        super().__init__(
+            decouple,
+            action_spec=action_spec,
+            action_bins=self.action_bins,
+            num_bins=self.num_bins,
+        )
+        self.max_bins = max_bins
         self.current_growth_idx = 0
         self._precompute_action_bins()
-        self.action_bins = self.all_action_bins[self.num_bins]
 
     def _precompute_action_bins(self):
         """Pre-compute action bins for all resolution levels."""

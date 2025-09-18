@@ -2,10 +2,12 @@ import torch
 
 
 class Discretizer:
-    def __init__(self, decouple, action_spec):
+    def __init__(self, decouple, action_spec, action_bins, num_bins):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.decouple = decouple
         self.action_spec = action_spec
+        self.action_bins = action_bins
+        self.num_bins = num_bins
         self.action_min = torch.tensor(
             action_spec["low"], dtype=torch.float32, device=self.device
         )

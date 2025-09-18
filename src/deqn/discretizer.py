@@ -5,8 +5,13 @@ from src.common.replay_buffer import *
 class ActionDiscretizer(Discretizer):
     """Handles continuous to discrete action conversion."""
 
-    def __init__(self, num_bins, action_dim, action_bins, decouple=False):
-        super().__init__(decouple, action_dim, action_bins)
+    def __init__(self, num_bins, action_spec, action_bins, decouple=False):
+        super().__init__(
+            decouple,
+            action_spec=action_spec,
+            action_bins=action_bins,
+            num_bins=num_bins,
+        )
         self.num_bins = num_bins
         self.decouple = decouple
 
