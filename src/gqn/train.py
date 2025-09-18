@@ -406,18 +406,15 @@ def train_growing_qn():
             print(f"Elapsed: {elapsed_time / 60:.1f}min | ETA: {eta / 60:.1f}min")
             print("-" * 40)
 
-
         if episode % 100 == 0 and device == "cuda":
             torch.cuda.empty_cache()
             gc.collect()
-
 
         if episode % args.checkpoint_interval == 0:
             metrics_tracker.save_metrics()
             checkpoint_path = f"output/checkpoints/gqn_episode_{episode}.pth"
             save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
-
 
     metrics_tracker.save_metrics()
     final_checkpoint = "output/checkpoints/gqn_final.pth"
@@ -427,13 +424,11 @@ def train_growing_qn():
     total_time = time.time() - start_time
     print(f"\nTraining completed in {total_time / 60:.1f} minutes!")
 
-
     growth_info = agent.get_growth_info()
     print(f"\nGrowing Q-Networks Summary:")
     print(f"  Final resolution: {growth_info['current_bins']} bins")
     print(f"  Growth sequence achieved: {growth_info['growth_history']}")
     print(f"  Total resolution levels: {len(growth_info['growth_history'])}")
-
 
     print("\nGenerating plots...")
     plotter = PlottingUtils(metrics_tracker, save_dir="output/plots")

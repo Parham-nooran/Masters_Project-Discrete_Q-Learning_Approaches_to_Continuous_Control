@@ -93,9 +93,7 @@ class BangBangAgent:
 
             self.replay_buffer.add(self.last_obs, binary_action, reward, next_obs, done)
 
-        self.last_obs = (
-            next_obs.detach()
-        )
+        self.last_obs = next_obs.detach()
 
     def update(self) -> Dict[str, float]:
         """Update policy using importance-weighted policy gradient."""

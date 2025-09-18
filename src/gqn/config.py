@@ -1,8 +1,10 @@
 from types import SimpleNamespace
 from src.deqn.config import create_config_from_args
 
+
 class GQNConfig:
     """Simple GQN config that extends DecQN config minimally."""
+
     @staticmethod
     def from_decqn_config(decqn_config):
         """Create GQN config from existing DecQN config."""
