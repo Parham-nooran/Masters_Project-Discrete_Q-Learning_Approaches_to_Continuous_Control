@@ -248,7 +248,6 @@ def train_decqn():
             torch.cuda.empty_cache()
             gc.collect()
 
-        # Detailed logging every N episodes
         if episode % args.detailed_log_interval == 0 and episode > 0:
             elapsed_time = time.time() - start_time
             avg_episode_time = elapsed_time / (episode - start_episode + 1)
@@ -266,7 +265,7 @@ def train_decqn():
         if episode % 10 == 0 and device == "cuda":
             torch.cuda.empty_cache()
 
-        # Save checkpoints
+
         if episode % args.checkpoint_interval == 0:
             import shutil
 
@@ -281,10 +280,10 @@ def train_decqn():
             save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
 
-    # Save final checkpoints
+
     import shutil
 
-    metrics_tracker.save_metrics()  # Save metrics first
+    metrics_tracker.save_metrics()
     if os.path.exists("output/checkpoints"):
         shutil.rmtree("output/checkpoints")
     os.makedirs("output/checkpoints", exist_ok=True)
@@ -298,7 +297,6 @@ def train_decqn():
 
     print("Training completed!")
 
-    # Create and save plots
     print("Plotting ...")
     plotter = PlottingUtils(metrics_tracker)
     plotter.plot_training_curves(save=True)
