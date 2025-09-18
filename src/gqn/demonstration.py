@@ -1,11 +1,12 @@
+import torch
 import argparse
 import os
 from datetime import datetime
 import cv2
 from dm_control import suite
-
+import numpy as np
 from src.gqn.agent import GrowingQNAgent
-from src.gqn.train_utils import *
+from src.common.utils import process_observation
 
 
 def load_gqn_checkpoint(
@@ -37,7 +38,6 @@ def load_gqn_checkpoint(
     agent.training_step = checkpoint.get("training_step", 0)
     agent.epsilon = checkpoint.get("epsilon", 0.0)
     agent.episode_count = checkpoint.get("episode_count", 0)
-
 
     if "current_resolution_level" in checkpoint:
         agent.current_resolution_level = checkpoint["current_resolution_level"]
@@ -97,13 +97,10 @@ def demonstrate_gqn(
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             video_path = f"./output/videos/gqn_demo_{timestamp}.mp4"
 
-        # Create output directory
         os.makedirs(
             os.path.dirname(video_path) if os.path.dirname(video_path) else ".",
             exist_ok=True,
         )
-
-        # Initialize video writer
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video_writer = cv2.VideoWriter(video_path, fourcc, fps, (640, 480))
         print(f"Recording video to: {video_path}")

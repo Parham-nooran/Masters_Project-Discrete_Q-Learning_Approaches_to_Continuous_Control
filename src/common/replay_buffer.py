@@ -22,9 +22,7 @@ def stack_actions(actions_list):
 
             padded_actions = []
             for action in actions_list:
-                # Flatten to 1D
                 flat_action = action.flatten()
-                # Pad if necessary
                 if flat_action.numel() < max_len:
                     padding = max_len - flat_action.numel()
                     flat_action = torch.nn.functional.pad(flat_action, (0, padding))
@@ -33,7 +31,6 @@ def stack_actions(actions_list):
             return torch.stack(padded_actions)
 
         else:
-            # Handle multi-dimensional case - pad to largest shape in each dimension
             max_shape = list(shapes[0])
             for shape in shapes[1:]:
                 for i, dim_size in enumerate(shape):
@@ -46,12 +43,10 @@ def stack_actions(actions_list):
             for action in actions_list:
                 current_shape = list(action.shape)
 
-                # Add missing dimensions
                 while len(current_shape) < len(max_shape):
                     action = action.unsqueeze(-1)
                     current_shape.append(1)
 
-                # Pad existing dimensions
                 pad_sizes = []
                 for i in range(len(max_shape)):
                     pad_size = max_shape[-(i + 1)] - current_shape[-(i + 1)]
@@ -282,3 +277,22 @@ class PrioritizedReplayBuffer:
 
     def __len__(self):
         return len(self.buffer)
+
+
+class OptimizedObsBuffer:
+    """Optimized observation buffer for tensor operations."""
+
+    def __init__(self, obs_shape, device):
+        self.device = device
+        if len(obs_shape) == 1:  # State-based
+            self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
+        else:
+            self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
+
+    def update(self, new_obs):
+        """Update buffer with new observation."""
+        if isinstance(new_obs, np.ndarray):
+            self.obs_buffer.copy_(torch.from_numpy(new_obs))
+        else:
+            self.obs_buffer.copy_(new_obs)
+        return self.obs_buffer

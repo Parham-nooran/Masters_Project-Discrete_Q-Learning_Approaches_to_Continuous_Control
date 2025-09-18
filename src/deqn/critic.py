@@ -4,6 +4,7 @@ from src.common.networks import LayerNormAndResidualMLP, LayerNormMLP
 
 class CriticDQN(nn.Module):
     """Double Q-network critic for DecQN."""
+
     def __init__(self, config, input_size, action_spec):
         super().__init__()
         self.use_double_q = config.use_double_q

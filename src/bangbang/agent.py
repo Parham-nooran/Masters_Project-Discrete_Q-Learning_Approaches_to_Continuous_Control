@@ -94,7 +94,7 @@ class BangBangAgent:
             self.replay_buffer.add(self.last_obs, binary_action, reward, next_obs, done)
 
         self.last_obs = (
-            next_obs.detach() if isinstance(next_obs, torch.Tensor) else next_obs
+            next_obs.detach()
         )
 
     def update(self) -> Dict[str, float]:

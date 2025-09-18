@@ -14,16 +14,22 @@ class ActionDiscretizer(Discretizer):
             self.action_bins = []
             for dim in range(self.action_dim):
                 bins = torch.linspace(
-                    self.action_min[dim], self.action_max[dim], num_bins, device=self.device,
+                    self.action_min[dim],
+                    self.action_max[dim],
+                    num_bins,
+                    device=self.device,
                 )
                 self.action_bins.append(bins)
-            self.action_bins = torch.stack(
-                self.action_bins
-            )
+            self.action_bins = torch.stack(self.action_bins)
         else:
             bins_per_dim = torch.stack(
                 [
-                    torch.linspace(self.action_min[i], self.action_max[i], num_bins, device=self.device)
+                    torch.linspace(
+                        self.action_min[i],
+                        self.action_max[i],
+                        num_bins,
+                        device=self.device,
+                    )
                     for i in range(self.action_dim)
                 ]
             )

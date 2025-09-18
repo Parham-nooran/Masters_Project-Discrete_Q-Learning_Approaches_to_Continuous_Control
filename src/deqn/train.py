@@ -9,6 +9,7 @@ from src.deqn.agent import DecQNAgent
 from src.plotting.plotting_utils import *
 from dm_control import suite
 import numpy as np
+from src.common.utils import process_observation
 
 
 def find_latest_checkpoint(checkpoint_dir="checkpoints"):
@@ -50,39 +51,6 @@ def save_checkpoint(agent, episode, path):
         )
 
     torch.save(checkpoint, path)
-
-
-def process_pixel_observation(dm_obs, device):
-    if "pixels" in dm_obs:
-        obs = dm_obs["pixels"]
-    else:
-        camera_obs = [v for k, v in dm_obs.items() if "camera" in k or "rgb" in k]
-        if camera_obs:
-            obs = camera_obs[0]
-        else:
-            raise ValueError("No pixel observations found in DM Control observation")
-
-    obs = torch.tensor(obs, dtype=torch.float32, device=device)
-    if len(obs.shape) == 3:  # HWC -> CHW
-        obs = obs.permute(2, 0, 1)
-
-    return obs
-
-
-def process_observation(dm_obs, use_pixels, device):
-    if use_pixels:
-        return process_pixel_observation(dm_obs, device)
-    else:
-        state_parts = []
-        for key in sorted(dm_obs.keys()):
-            val = dm_obs[key]
-            if isinstance(val, np.ndarray):
-                state_parts.append(val.astype(np.float32).flatten())
-            else:
-                state_parts.append(np.array([float(val)], dtype=np.float32))
-
-        state_vector = np.concatenate(state_parts, dtype=np.float32)
-        return torch.from_numpy(state_vector).to(device)
 
 
 def handle_checkpoint_loading(agent, checkpoint_to_load):
@@ -265,7 +233,6 @@ def train_decqn():
         if episode % 10 == 0 and device == "cuda":
             torch.cuda.empty_cache()
 
-
         if episode % args.checkpoint_interval == 0:
             import shutil
 
@@ -279,7 +246,6 @@ def train_decqn():
             )
             save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
-
 
     import shutil
 

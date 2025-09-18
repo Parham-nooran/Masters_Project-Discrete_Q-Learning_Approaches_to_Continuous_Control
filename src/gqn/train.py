@@ -1,16 +1,18 @@
-import time
+import argparse
 import gc
+import os
+import time
+from collections import deque
 
+import numpy as np
 import torch.cuda
 from dm_control import suite
-import os
-import argparse
-from src.gqn.config import GQNConfig
-from collections import deque
-from src.gqn.agent import GrowingQNAgent
-from src.plotting.plotting_utils import PlottingUtils
+
 from src.common.metrics_tracker import MetricsTracker
-from src.gqn.train_utils import *
+from src.common.utils import process_observation
+from src.gqn.agent import GrowingQNAgent
+from src.gqn.config import GQNConfig
+from src.plotting.plotting_utils import PlottingUtils
 
 
 def parse_gqn_args():
@@ -94,9 +96,9 @@ def parse_gqn_args():
 class OptimizedObsBuffer:
     def __init__(self, obs_shape, device):
         self.device = device
-        if len(obs_shape) == 1:  # State-based
+        if len(obs_shape) == 1:
             self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
-        else:  # Pixel-based
+        else:
             self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
 
     def update(self, new_obs):
@@ -105,30 +107,6 @@ class OptimizedObsBuffer:
         else:
             self.obs_buffer.copy_(new_obs)
         return self.obs_buffer
-
-
-def apply_action_penalty(rewards, actions, penalty_coeff):
-    """Apply action penalty as used in paper experiments."""
-    if penalty_coeff <= 0:
-        return rewards
-
-    if isinstance(actions, torch.Tensor):
-        actions = actions.cpu().numpy()
-
-    actions = np.array(actions)
-
-    if len(actions.shape) == 1:
-        action_norm_squared = np.sum(actions**2)
-        M = len(actions)
-    else:
-        action_norm_squared = np.sum(actions**2, axis=-1)
-        M = actions.shape[-1]
-
-    penalties = penalty_coeff * action_norm_squared / M
-
-    penalties = np.clip(penalties, 0, abs(rewards) * 0.1)
-
-    return rewards - penalties
 
 
 def save_checkpoint(agent, episode, path):
@@ -406,7 +384,6 @@ def train_growing_qn():
                 f"Time: {episode_time:.2f}s"
             )
 
-        # Detailed logging
         if episode % args.detailed_log_interval == 0 and episode > 0:
             elapsed_time = time.time() - start_time
             avg_episode_time = elapsed_time / (episode - start_episode + 1)
@@ -429,19 +406,19 @@ def train_growing_qn():
             print(f"Elapsed: {elapsed_time / 60:.1f}min | ETA: {eta / 60:.1f}min")
             print("-" * 40)
 
-        # Memory cleanup
+
         if episode % 100 == 0 and device == "cuda":
             torch.cuda.empty_cache()
             gc.collect()
 
-        # Save checkpoints
+
         if episode % args.checkpoint_interval == 0:
             metrics_tracker.save_metrics()
             checkpoint_path = f"output/checkpoints/gqn_episode_{episode}.pth"
             save_checkpoint(agent, episode, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
 
-    # Final save
+
     metrics_tracker.save_metrics()
     final_checkpoint = "output/checkpoints/gqn_final.pth"
     save_checkpoint(agent, config.num_episodes, final_checkpoint)
@@ -450,14 +427,14 @@ def train_growing_qn():
     total_time = time.time() - start_time
     print(f"\nTraining completed in {total_time / 60:.1f} minutes!")
 
-    # Final growth summary
+
     growth_info = agent.get_growth_info()
     print(f"\nGrowing Q-Networks Summary:")
     print(f"  Final resolution: {growth_info['current_bins']} bins")
     print(f"  Growth sequence achieved: {growth_info['growth_history']}")
     print(f"  Total resolution levels: {len(growth_info['growth_history'])}")
 
-    # Create and save plots
+
     print("\nGenerating plots...")
     plotter = PlottingUtils(metrics_tracker, save_dir="output/plots")
     plotter.plot_training_curves(save=True)
