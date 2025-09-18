@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from src.deqn.networks import LayerNormMLP
+from src.common.networks import LayerNormMLP
 
 
 class VisionEncoder(nn.Module):

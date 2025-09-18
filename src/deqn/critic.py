@@ -1,5 +1,5 @@
 import torch.nn as nn
-from src.deqn.networks import LayerNormAndResidualMLP, LayerNormMLP
+from src.common.networks import LayerNormAndResidualMLP, LayerNormMLP
 
 
 class CriticDQN(nn.Module):
