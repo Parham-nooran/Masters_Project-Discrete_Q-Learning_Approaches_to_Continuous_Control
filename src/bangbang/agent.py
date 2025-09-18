@@ -7,6 +7,7 @@ from typing import Dict
 from bernoulli_policy import BernoulliPolicy
 import logging
 
+
 class BangBangAgent:
     """Bang-Bang Control Agent implementing the paper's core ideas."""
     def __init__(self, config, obs_shape: tuple, action_spec: dict):
@@ -23,7 +24,6 @@ class BangBangAgent:
             (action_spec["high"] + action_spec["low"]) / 2.0,
             device=self.device
         )
-
         if config.use_pixels:
             self.encoder = VisionEncoder(config, config.num_pixels).to(self.device)
             self.encoder_output_size = config.layer_size_bottleneck
@@ -41,7 +41,6 @@ class BangBangAgent:
             discount=config.discount,
         )
         self.replay_buffer.device = self.device
-
         self.training_step = 0
         self.last_obs = None
         self.policy = BernoulliPolicy(
