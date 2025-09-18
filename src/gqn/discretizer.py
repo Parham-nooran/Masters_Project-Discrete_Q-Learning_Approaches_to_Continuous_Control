@@ -13,9 +13,9 @@ class GrowingActionDiscretizer(Discretizer):
         self.action_spec = action_spec
         self.growth_sequence = [2, 4, 8, 16] if max_bins >= 16 else [2, 3, 5, 9]
         self.num_bins = self.growth_sequence[0]
+        super().__init__(decouple, action_spec, self.num_bins)
         self._precompute_action_bins()
         self.action_bins = self.all_action_bins[self.num_bins]
-        super().__init__(decouple, action_spec, self.action_bins, self.num_bins)
 
     def _precompute_action_bins(self):
         """Pre-compute action bins for all resolution levels."""
@@ -23,7 +23,7 @@ class GrowingActionDiscretizer(Discretizer):
         for num_bins in self.growth_sequence:
             if self.decouple:
                 bins_per_dim = []
-                for dim in range(self.action_spec):
+                for dim in range(self.action_dim):
                     bins = torch.linspace(
                         self.action_min[dim],
                         self.action_max[dim],
@@ -40,7 +40,7 @@ class GrowingActionDiscretizer(Discretizer):
                         num_bins,
                         device=self.device,
                     )
-                    for i in range(self.action_spec)
+                    for i in range(self.action_dim)
                 ]
                 mesh = torch.meshgrid(*bins_per_dim, indexing="ij")
                 self.all_action_bins[num_bins] = torch.stack(
