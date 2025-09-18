@@ -116,25 +116,17 @@ class BangBangAgent:
         # Encode observations
         if self.encoder:
             obs_encoded = self.encoder(obs)
-            with torch.no_grad():
-                next_obs_encoded = self.encoder(next_obs)
         else:
             obs_encoded = obs.flatten(1)
-            next_obs_encoded = next_obs.flatten(1)
 
         # Policy evaluation
         logits = self.policy(obs_encoded)
         probs = torch.sigmoid(logits)
         dist = torch.distributions.Bernoulli(probs)
         log_probs = dist.log_prob(actions).sum(dim=-1)
-
-        # Compute returns (simple Monte Carlo for now)
-        returns = rewards  # Simplified - in practice you'd compute n-step returns
-
-        # Policy gradient loss with importance weighting
+        returns = rewards
         policy_loss = -(log_probs * returns * weights).mean()
 
-        # Optimize
         self.policy_optimizer.zero_grad()
         if self.encoder:
             self.encoder_optimizer.zero_grad()
@@ -151,7 +143,6 @@ class BangBangAgent:
         if self.encoder:
             self.encoder_optimizer.step()
 
-        # Update priorities (use policy loss as priority signal)
         priorities = torch.abs(returns).detach().cpu().numpy()
         self.replay_buffer.update_priorities(indices, priorities)
 
