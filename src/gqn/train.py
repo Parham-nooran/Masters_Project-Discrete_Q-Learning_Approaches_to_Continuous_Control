@@ -13,7 +13,7 @@ from src.common.utils import process_observation
 from src.gqn.agent import GrowingQNAgent
 from src.gqn.config import GQNConfig
 from src.plotting.plotting_utils import PlottingUtils
-
+from src.common.replay_buffer import OptimizedObsBuffer
 
 def parse_gqn_args():
     """Parse arguments specific to Growing Q-Networks."""
@@ -91,22 +91,6 @@ def parse_gqn_args():
     )
 
     return parser.parse_args()
-
-
-class OptimizedObsBuffer:
-    def __init__(self, obs_shape, device):
-        self.device = device
-        if len(obs_shape) == 1:
-            self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
-        else:
-            self.obs_buffer = torch.zeros(obs_shape, dtype=torch.float32, device=device)
-
-    def update(self, new_obs):
-        if isinstance(new_obs, np.ndarray):
-            self.obs_buffer.copy_(torch.from_numpy(new_obs))
-        else:
-            self.obs_buffer.copy_(new_obs)
-        return self.obs_buffer
 
 
 def save_checkpoint(agent, episode, path):

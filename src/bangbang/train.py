@@ -1,28 +1,22 @@
-import logging
 import os
 import time
 from collections import deque
 
-import numpy as np
 from dm_control import suite
 
 from agent import BangBangAgent
+from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.utils import *
 
 
-class BangBangTrainer:
+class BangBangTrainer(Logger):
     """Trainer for Bang-Bang Control Agent."""
 
-    def __init__(self, config):
+    def __init__(self, config, working_dir):
+        super().__init__(working_dir)
         self.config = config
-        self.logger = logging.getLogger(__name__)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
-        self.logger.info(f"Using device: {self.device}")
 
     def train(self):
         """Main training loop."""
@@ -56,8 +50,8 @@ class BangBangTrainer:
             recent_losses = deque(maxlen=20)
 
             time_step = env.reset()
-            obs = self.process_observation(
-                time_step.observation, self.config.use_pixels
+            obs = process_observation(
+                time_step.observation, self.config.use_pixels, self.device
             )
             agent.observe_first(obs)
 
@@ -67,8 +61,8 @@ class BangBangTrainer:
                 action_np = action.cpu().numpy()
 
                 time_step = env.step(action_np)
-                next_obs = self.process_observation(
-                    time_step.observation, self.config.use_pixels
+                next_obs = process_observation(
+                    time_step.observation, self.config.use_pixels, device=self.device
                 )
                 reward = time_step.reward if time_step.reward is not None else 0.0
                 done = time_step.last()
@@ -119,7 +113,7 @@ class BangBangTrainer:
                 self.logger.info(f"Episode {episode} Summary:")
                 self.logger.info(f"Reward: {episode_reward:.2f}")
                 recent_rewards = metrics_tracker.episode_rewards[
-                    -self.config.detailed_log_interval :
+                    -self.config.detailed_log_interval:
                 ]
                 self.logger.info(f"Recent avg reward: {np.mean(recent_rewards):.2f}")
                 self.logger.info(f"ETA: {eta / 60:.1f} min")
