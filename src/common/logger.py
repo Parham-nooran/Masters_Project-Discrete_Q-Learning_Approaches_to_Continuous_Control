@@ -6,17 +6,19 @@ from utils import get_path
 
 
 class Logger:
-    def __init__(self,
-                 working_dir,
-                 specific_excel_file_name=None,
-                 max_log_size_mb=10,
-                 backup_count=5,
-                 stream_to_stdout=True,
-                 log_level=logging.INFO,
-                 enable_logging=True,
-                 log_to_file=True,
-                 log_to_console=True,
-                 logging_dir="output/logs"):
+    def __init__(
+        self,
+        working_dir,
+        specific_excel_file_name=None,
+        max_log_size_mb=10,
+        backup_count=5,
+        stream_to_stdout=True,
+        log_level=logging.INFO,
+        enable_logging=True,
+        log_to_file=True,
+        log_to_console=True,
+        logging_dir="output/logs",
+    ):
         self.specific_excel_file_name = specific_excel_file_name
         self.max_log_size_mb = max_log_size_mb
         self.backup_count = backup_count
@@ -40,26 +42,28 @@ class Logger:
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
 
-
         formatter = logging.Formatter(
             fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
 
         handlers = []
         config_info = []
-        if self.log_info_to_file(formatter, handlers, config_info) \
-                and self.specific_excel_file_name is not None:
+        if (
+            self.log_info_to_file(formatter, handlers, config_info)
+            and self.specific_excel_file_name is not None
+        ):
             self.log_info_to_file(formatter, handlers, config_info)
         if self.log_info_to_console(formatter, handlers, config_info):
             self.log_info_to_console(formatter, handlers, config_info)
 
         logging.basicConfig(level=self.log_level, handlers=handlers, force=True)
-        self.logger.info(f"#Logging configured at level {logging.getLevelName(self.log_level)}")
+        self.logger.info(
+            f"#Logging configured at level {logging.getLevelName(self.log_level)}"
+        )
 
         for info in config_info:
             self.logger.info(info)
-
 
     def log_info_to_file(self, formatter, handlers, config_info):
         log_file = get_path(
@@ -84,7 +88,6 @@ class Logger:
             f"File logging: {log_file} (max {self.max_log_size_mb}MB, {self.backup_count} backups)"
         )
         return True
-
 
     def log_info_to_console(self, formatter, handlers, config_info):
         stream = sys.stdout if self.stream_to_stdout else sys.stderr

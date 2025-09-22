@@ -15,6 +15,7 @@ from src.gqn.config import GQNConfig
 from src.plotting.plotting_utils import PlottingUtils
 from src.common.replay_buffer import OptimizedObsBuffer
 
+
 def parse_gqn_args():
     """Parse arguments specific to Growing Q-Networks."""
     parser = argparse.ArgumentParser(description="Train Growing Q-Networks Agent")
