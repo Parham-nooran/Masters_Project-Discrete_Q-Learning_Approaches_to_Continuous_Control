@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-
+from pathlib import Path
 
 def random_shift(images, pad_size=4):
     """Apply random shift augmentation to images."""
@@ -85,3 +85,12 @@ def apply_action_penalty(rewards, actions, penalty_coeff):
     penalties = np.clip(penalties, 0, abs(rewards) * 0.1)
 
     return rewards - penalties
+
+
+def get_path(base_path, filename="", middle_path="", logger=None, create=False):
+    path = Path(__file__).parents[2] / base_path / middle_path / filename
+    if create:
+        path.parent.mkdir(exist_ok=True, parents=True)
+        if logger:
+            logger.info(f"Created directory {path}")
+    return path
