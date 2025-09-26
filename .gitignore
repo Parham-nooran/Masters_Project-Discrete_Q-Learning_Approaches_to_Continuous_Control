@@ -2,3 +2,7 @@
 __pycache__
 src/gqn/output/
 src/deqn/output/
+output/
+logs/
+src/bangbang/output/checkpoints
+src/bangbang/output/metrics/

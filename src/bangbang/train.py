@@ -4,7 +4,7 @@ from collections import deque
 
 from dm_control import suite
 
-from agent import BangBangAgent
+from src.bangbang.agent import BangBangAgent
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.utils import *

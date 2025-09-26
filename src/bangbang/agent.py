@@ -4,7 +4,7 @@ import torch.optim as optim
 from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.encoder import VisionEncoder
 from typing import Dict
-from bernoulli_policy import BernoulliPolicy
+from src.bangbang.bernoulli_policy import BernoulliPolicy
 from src.common.logger import Logger
 
 
@@ -105,20 +105,16 @@ class BangBangAgent(Logger):
 
         obs, actions, rewards, next_obs, dones, discounts, weights, indices = batch
 
-        # Move to device
         obs = obs.to(self.device)
-        actions = actions.to(self.device)  # Binary actions (0, 1)
+        actions = actions.to(self.device)
         rewards = rewards.to(self.device)
-        next_obs = next_obs.to(self.device)
         weights = weights.to(self.device)
 
-        # Encode observations
         if self.encoder:
             obs_encoded = self.encoder(obs)
         else:
             obs_encoded = obs.flatten(1)
 
-        # Policy evaluation
         logits = self.policy(obs_encoded)
         probs = torch.sigmoid(logits)
         dist = torch.distributions.Bernoulli(probs)
