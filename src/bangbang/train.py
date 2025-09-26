@@ -13,7 +13,7 @@ from src.common.utils import *
 class BangBangTrainer(Logger):
     """Trainer for Bang-Bang Control Agent."""
 
-    def __init__(self, config, working_dir):
+    def __init__(self, config, working_dir="."):
         super().__init__(working_dir)
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"

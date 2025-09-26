@@ -5,16 +5,16 @@ from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.encoder import VisionEncoder
 from typing import Dict
 from bernoulli_policy import BernoulliPolicy
-import logging
+from src.common.logger import Logger
 
 
-class BangBangAgent:
+class BangBangAgent(Logger):
     """Bang-Bang Control Agent implementing the paper's core ideas."""
 
-    def __init__(self, config, obs_shape: tuple, action_spec: dict):
+    def __init__(self, config, obs_shape: tuple, action_spec: dict, working_dir="."):
+        super().__init__(working_dir)
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.logger = logging.getLogger(__name__)
         self.action_spec = action_spec
         self.action_dim = len(action_spec["low"])
         self.action_scale = torch.tensor(
@@ -45,7 +45,6 @@ class BangBangAgent:
         self.policy = BernoulliPolicy(
             self.encoder_output_size, self.action_dim, config.layer_size_network
         ).to(self.device)
-
         self.policy_optimizer = optim.Adam(
             self.policy.parameters(), lr=config.learning_rate
         )

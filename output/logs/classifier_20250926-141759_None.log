@@ -1,0 +1,12 @@
+2025-09-26 14:17:59 - src.common.logger - INFO - #Logging configured at level INFO
+2025-09-26 14:17:59 - src.common.logger - INFO - File logging: C:\Users\parha\Downloads\Masters Project\Project\output\logs\classifier_20250926-141759_None.log (max 10MB, 5 backups)
+2025-09-26 14:17:59 - src.common.logger - INFO - Console Logging: stdout
+2025-09-26 14:17:59 - src.common.logger - INFO - Console Logging: stdout
+2025-09-26 14:17:59 - src.common.logger - INFO - #Logging configured at level INFO
+2025-09-26 14:17:59 - src.common.logger - INFO - File logging: C:\Users\parha\Downloads\Masters Project\Project\output\logs\classifier_20250926-141759_None.log (max 10MB, 5 backups)
+2025-09-26 14:17:59 - src.common.logger - INFO - Console Logging: stdout
+2025-09-26 14:17:59 - src.common.logger - INFO - Console Logging: stdout
+2025-09-26 14:18:02 - src.common.logger - INFO - Starting Bang-Bang training on walker_walk
+2025-09-26 14:18:02 - src.common.logger - INFO - Action dimension: 6
+2025-09-26 14:18:04 - src.common.logger - INFO - Episode    0 | Reward:   47.95 | Loss: 0.000000 | Time: 1.68s | Buffer:   1000
+2025-09-26 14:18:04 - src.common.logger - INFO - Checkpoint saved: output/checkpoints/bangbang_walker_walk_0.pth
