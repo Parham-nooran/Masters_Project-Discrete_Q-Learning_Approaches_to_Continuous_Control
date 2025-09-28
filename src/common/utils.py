@@ -1,7 +1,7 @@
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
-import numpy as np
-from pathlib import Path
 
 
 def random_shift(images, pad_size=4):
@@ -13,7 +13,7 @@ def random_shift(images, pad_size=4):
 
     shifted_images = torch.zeros_like(images)
     for i in range(n):
-        shifted_images[i] = padded[i, :, top[i] : top[i] + h, left[i] : left[i] + w]
+        shifted_images[i] = padded[i, :, top[i]: top[i] + h, left[i]: left[i] + w]
 
     return shifted_images
 
@@ -75,10 +75,10 @@ def apply_action_penalty(rewards, actions, penalty_coeff):
         actions = actions.cpu().numpy()
     actions = np.array(actions)
     if len(actions.shape) == 1:
-        action_norm_squared = np.sum(actions**2)
+        action_norm_squared = np.sum(actions ** 2)
         M = len(actions)
     else:
-        action_norm_squared = np.sum(actions**2, axis=-1)
+        action_norm_squared = np.sum(actions ** 2, axis=-1)
         M = actions.shape[-1] if len(actions.shape) > 1 else 1
 
     # Penalty = ca * ||a||² / M, where ca is penalty coefficient, M is action dimension
@@ -95,3 +95,49 @@ def get_path(base_path, filename="", middle_path="", logger=None, create=False):
         if logger:
             logger.info(f"Created directory {path}")
     return path
+
+
+import torch
+import numpy as np
+
+
+def huber_loss(
+        td_error: torch.Tensor, huber_loss_parameter: float = 1.0
+) -> torch.Tensor:
+    abs_error = torch.abs(td_error)
+    quadratic = torch.minimum(
+        abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device)
+    )
+    linear = abs_error - quadratic
+    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
+
+
+def get_combined_random_and_greedy_actions(
+        q_max, num_dims, num_bins, batch_size, epsilon, device
+):
+    random_mask = torch.rand(batch_size, num_dims, device=device) < epsilon
+    random_actions = torch.randint(0, num_bins, (batch_size, num_dims), device=device)
+    greedy_actions = q_max.argmax(dim=2)
+    actions = torch.where(random_mask, random_actions, greedy_actions)
+    return actions
+
+
+def continuous_to_discrete_action(
+        config, action_discretizer, continuous_action: torch.Tensor
+) -> np.ndarray:
+    if isinstance(continuous_action, torch.Tensor):
+        continuous_action = continuous_action.cpu().numpy()
+
+    continuous_action = np.array(continuous_action)
+
+    if config.decouple:
+        discrete_action = []
+        for dim in range(len(continuous_action)):
+            bins = action_discretizer.action_bins[dim].cpu().numpy()
+            closest_idx = np.argmin(np.abs(bins - continuous_action[dim]))
+            discrete_action.append(closest_idx)
+        return np.array(discrete_action, dtype=np.int64)
+    else:
+        action_bins_cpu = action_discretizer.action_bins.cpu().numpy()
+        distances = np.linalg.norm(action_bins_cpu - continuous_action, axis=1)
+        return np.argmin(distances)

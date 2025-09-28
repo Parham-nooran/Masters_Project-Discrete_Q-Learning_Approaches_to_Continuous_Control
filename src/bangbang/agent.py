@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 import torch.optim as optim
+
+from src.common.networks import LayerNormMLP
 from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.encoder import VisionEncoder
 from typing import Dict
@@ -47,6 +49,13 @@ class BangBangAgent(Logger):
         ).to(self.device)
         self.policy_optimizer = optim.Adam(
             self.policy.parameters(), lr=config.learning_rate
+        )
+        self.value_function = LayerNormMLP(
+            [self.encoder_output_size] + config.layer_size_network + [1],
+            activate_final=False
+        ).to(self.device)
+        self.value_optimizer = optim.Adam(
+            self.value_function.parameters(), lr=config.learning_rate
         )
 
     def _encode_obs(self, obs: torch.Tensor) -> torch.Tensor:
