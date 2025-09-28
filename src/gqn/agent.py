@@ -6,7 +6,7 @@ from src.common.actors import CustomDiscreteFeedForwardActor
 from src.gqn.critic import GrowingQCritic
 from src.common.encoder import VisionEncoder
 from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.agent_utils import huber_loss, continuous_to_discrete_action
+from src.common.utils import huber_loss, continuous_to_discrete_action
 from src.gqn.scheduler import GrowingScheduler
 from src.gqn.discretizer import GrowingActionDiscretizer
 

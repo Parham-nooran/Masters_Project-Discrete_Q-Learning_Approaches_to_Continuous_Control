@@ -4,7 +4,7 @@ from src.common.actors import CustomDiscreteFeedForwardActor
 from src.deqn.critic import *
 from src.common.encoder import *
 from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.agent_utils import *
+from src.common.utils import *
 from src.gqn.discretizer import GrowingActionDiscretizer
 
 
