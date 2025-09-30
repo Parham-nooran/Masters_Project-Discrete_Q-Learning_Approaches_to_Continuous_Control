@@ -297,7 +297,6 @@ class DecQNAgent:
 
         total_loss = loss1 + loss2
 
-        # Optimize
         self.q_optimizer.zero_grad()
         if self.encoder:
             self.encoder_optimizer.zero_grad()
