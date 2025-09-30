@@ -82,13 +82,11 @@ class PrioritizedReplayBuffer:
 
     def __init__(self, capacity, alpha=0.6, beta=0.4, n_step=1, discount=0.99):
         self.capacity = capacity
-        self.alpha = alpha  # priority exponent
-        self.beta = beta  # importance sampling exponent
+        self.alpha = alpha
+        self.beta = beta
         self.n_step = n_step
         self.discount = discount
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # Storage
         self.buffer = []
         self.position = 0
         self.priorities = np.zeros(capacity, dtype=np.float32)
