@@ -271,6 +271,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-episodes", type=int, default=1000, help="Number of episodes to train"
     )
+    parser.add_argument(
+        "--num-bins", type=int, default=2, help="Number of bins"
+    )
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument(
         "--learning-rate", type=float, default=1e-4, help="Learning rate"
