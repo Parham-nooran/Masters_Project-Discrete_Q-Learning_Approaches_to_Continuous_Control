@@ -1,15 +1,13 @@
 import argparse
-import os
 
-import gym
 import numpy as np
 import torch
+from dm_control import suite
 
-from src.common.logger import Logger
-from src.common.metrics_tracker import MetricsTracker
 from agent import CQNAgent
 from config import CQNConfig
-
+from src.common.logger import Logger
+from src.common.metrics_tracker import MetricsTracker
 
 class CQNTrainer(Logger):
     """Trainer for CQN agent that handles the training loop and evaluation."""
@@ -26,46 +24,65 @@ class CQNTrainer(Logger):
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Create environment
-        self.env = self.create_environment(config.env_name, config.seed)
+        domain_name, task_name = self.config.task.split("_", 1)
+        self.env = suite.load(domain_name, task_name, task_kwargs={'random': config.seed})
 
-        # Create agent
-        obs_shape = self.env.observation_space.shape
+        action_spec_dm = self.env.action_spec()
         action_spec = {
-            "low": self.env.action_space.low,
-            "high": self.env.action_space.high
+            'low': action_spec_dm.minimum,
+            'high': action_spec_dm.maximum
         }
-        self.agent = CQNAgent(config, obs_shape, action_spec, self.logger)
 
+        obs_spec = self.env.observation_spec()
+        if isinstance(obs_spec, dict):
+            obs_dims = []
+            for key, spec in obs_spec.items():
+                if hasattr(spec, 'shape'):
+                    obs_dims.append(spec.shape)
+
+        total_obs_dim = 0
+        self.obs_keys = []
+        for key, spec in obs_spec.items():
+            self.obs_keys.append(key)
+            if hasattr(spec, 'shape') and len(spec.shape) > 0:
+                total_obs_dim += spec.shape[0]
+            else:
+                total_obs_dim += 1
+
+        obs_shape = (total_obs_dim,)
+
+        self.agent = CQNAgent(config, obs_shape, action_spec, working_dir)
         self.metrics_tracker = MetricsTracker(save_dir=config.save_dir)
 
-    def create_environment(self, env_name, seed):
-        """Create and configure environment."""
-        env = gym.make(env_name)
-        env.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(seed)
-        return env
+    def _get_observation(self, time_step):
+        """Extract and flatten observation from dm_control TimeStep."""
+        obs_list = []
+        for key in self.obs_keys:
+            obs_value = time_step.observation[key]
+            if hasattr(obs_value, 'flatten'):
+                obs_list.append(obs_value.flatten())
+            else:
+                obs_list.append([obs_value])
+        return np.concatenate(obs_list)
 
     def evaluate(self, num_episodes=5):
         """Evaluate the agent."""
         total_reward = 0
 
         for _ in range(num_episodes):
-            obs = self.env.reset()
+            time_step = self.env.reset()
+            obs = self._get_observation(time_step)
             episode_reward = 0
-            done = False
 
-            while not done:
+            while not time_step.last():
                 with torch.no_grad():
                     action = self.agent.select_action(
                         torch.from_numpy(obs).float(),
                         evaluate=True
                     )
-                obs, reward, done, _ = self.env.step(action.numpy())
-                episode_reward += reward
+                time_step = self.env.step(action.numpy())
+                obs = self._get_observation(time_step)
+                episode_reward += time_step.reward
 
             total_reward += episode_reward
 
@@ -74,24 +91,25 @@ class CQNTrainer(Logger):
     def train(self):
         """Main training loop."""
         self.logger.info("Starting CQN training...")
-        self.logger.info(f"Environment: {self.config.env_name}")
-        self.logger.info(f"Observation space: {self.env.observation_space}")
-        self.logger.info(f"Action space: {self.env.action_space}")
+        self.logger.info(f"Task: {self.config.task}")
 
         episode = 0
         total_steps = 0
 
         try:
             while episode < self.config.max_episodes:
-                obs = self.env.reset()
+                time_step = self.env.reset()
+                obs = self._get_observation(time_step)
                 episode_reward = 0
                 episode_length = 0
-                done = False
                 metrics = {}
 
-                while not done:
+                while not time_step.last():
                     action = self.agent.select_action(torch.from_numpy(obs).float())
-                    next_obs, reward, done, info = self.env.step(action.numpy())
+                    time_step = self.env.step(action.numpy())
+                    next_obs = self._get_observation(time_step)
+                    reward = time_step.reward
+                    done = time_step.last()
 
                     self.agent.store_transition(obs, action.numpy(), reward, next_obs, done)
 
@@ -111,7 +129,6 @@ class CQNTrainer(Logger):
                     episode_length += 1
                     total_steps += 1
 
-                # Log episode metrics
                 log_dict = {
                     "episode": episode,
                     "reward": episode_reward,
@@ -127,12 +144,10 @@ class CQNTrainer(Logger):
                     f"Length: {episode_length}, Steps: {total_steps}"
                 )
 
-                # Evaluation
                 if episode % self.config.eval_frequency == 0 and episode > 0:
                     eval_reward = self.evaluate()
                     self.logger.info(f"Evaluation at episode {episode}: {eval_reward:.2f}")
 
-                # Save checkpoint
                 if episode % self.config.save_frequency == 0 and episode > 0:
                     save_path = f"{self.config.save_dir}/cqn_agent_episode_{episode}.pth"
                     self.agent.save(save_path)
@@ -141,7 +156,6 @@ class CQNTrainer(Logger):
 
                 episode += 1
 
-            # Final save
             self.agent.save(f"{self.config.save_dir}/cqn_agent_final.pth")
             self.metrics_tracker.save_metrics()
             self.logger.info("Training completed!")
@@ -165,14 +179,14 @@ def create_cqn_config(args):
     config = CQNConfig()
 
     # Override with command line arguments
-    if hasattr(args, 'env_name') and args.env_name:
-        config.env_name = args.env_name
+    if hasattr(args, 'task') and args.task:
+        config.task = args.task
     if hasattr(args, 'max_episodes') and args.max_episodes:
         config.max_episodes = args.max_episodes
     if hasattr(args, 'seed') and args.seed is not None:
         config.seed = args.seed
     if hasattr(args, 'learning_rate') and args.learning_rate:
-        config.learning_rate = args.learning_rate
+        config.lr = args.learning_rate
     if hasattr(args, 'batch_size') and args.batch_size:
         config.batch_size = args.batch_size
     if hasattr(args, 'eval_frequency') and args.eval_frequency:
@@ -188,10 +202,10 @@ def create_cqn_config(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train CQN Agent")
     parser.add_argument(
-        "--env-name",
+        "--task",
         type=str,
-        default="HalfCheetah-v2",
-        help="Gym environment name"
+        default="walker_run",
+        help="DMControl task name (format: domain_task, e.g., walker_run)"
     )
     parser.add_argument(
         "--max-episodes",
@@ -199,11 +213,11 @@ if __name__ == "__main__":
         default=1000,
         help="Maximum number of episodes"
     )
-    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=3e-4,
+        default=1e-3,
         help="Learning rate"
     )
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size")

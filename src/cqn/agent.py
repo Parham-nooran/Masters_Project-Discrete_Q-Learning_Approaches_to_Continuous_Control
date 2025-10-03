@@ -9,21 +9,19 @@ from src.common.metrics_tracker import MetricsTracker
 from src.common.utils import huber_loss
 
 
-class CQNAgent:
+class CQNAgent(Logger):
     """
     Coarse-to-fine Q-Network Agent
     """
-    def __init__(self, config, obs_shape: Tuple, action_spec: Dict, logger: Logger):
+    def __init__(self, config, obs_shape: Tuple, action_spec: Dict, working_dir):
+        super().__init__(working_dir)
         self.config = config
         self.obs_shape = obs_shape
         self.action_spec = action_spec
-        self.logger = logger
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         self.num_levels = config.num_levels
         self.num_bins = config.num_bins
         self.action_dim = len(action_spec["low"])
-
         self.network = CQNNetwork(
             config, obs_shape, self.action_dim, self.num_levels, self.num_bins
         ).to(self.device)
@@ -42,7 +40,7 @@ class CQNAgent:
         self.min_epsilon = config.min_epsilon
         self.target_update_freq = config.target_update_freq
         self.training_steps = 0
-        self.logger.logger.info("CQN Agent initialized")
+        self.logger.info("CQN Agent initialized")
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
         """Select action using coarse-to-fine strategy."""
@@ -186,7 +184,7 @@ class CQNAgent:
             'epsilon': self.epsilon,
             'config': self.config
         }, filepath)
-        self.logger.logger.info(f"Agent saved to {filepath}")
+        self.logger.info(f"Agent saved to {filepath}")
 
     def load(self, filepath: str):
         """Load the agent"""
@@ -195,4 +193,4 @@ class CQNAgent:
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.training_steps = checkpoint['training_steps']
         self.epsilon = checkpoint['epsilon']
-        self.logger.logger.info(f"Agent loaded from {filepath}")
+        self.logger.info(f"Agent loaded from {filepath}")
