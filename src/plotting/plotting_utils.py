@@ -2,10 +2,11 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from src.common.logger import Logger
 
-
-class PlottingUtils:
-    def __init__(self, metrics_tracker, save_dir="./output/plots"):
+class PlottingUtils(Logger):
+    def __init__(self, metrics_tracker, working_dir, save_dir="./output/plots"):
+        super().__init__(working_dir)
         self.metrics = metrics_tracker
         self.save_dir = save_dir
         Path(save_dir).mkdir(parents=True, exist_ok=True)
@@ -14,10 +15,8 @@ class PlottingUtils:
         if save_dir is None:
             save_dir = self.save_dir
 
-        # Create a larger figure with more subplots
         fig, axes = plt.subplots(4, 2, figsize=(15, 20))
 
-        # 1. Episode Rewards
         axes[0, 0].plot(self.metrics.episodes, self.metrics.episode_rewards)
         axes[0, 0].set_title("Episode Rewards")
         axes[0, 0].set_xlabel("Episode")
@@ -40,7 +39,7 @@ class PlottingUtils:
         valid_losses = [
             (ep, loss)
             for ep, loss in zip(self.metrics.episodes, self.metrics.episode_losses)
-            if loss is not None and loss >= 0
+            if loss is not None
         ]
         if valid_losses:
             episodes, losses = zip(*valid_losses)
@@ -54,7 +53,7 @@ class PlottingUtils:
         valid_mse = [
             (ep, mse)
             for ep, mse in zip(self.metrics.episodes, self.metrics.episode_mse_losses)
-            if mse is not None and mse >= 0
+            if mse is not None
         ]
         if valid_mse:
             episodes, mse_losses = zip(*valid_mse)
@@ -68,7 +67,7 @@ class PlottingUtils:
         valid_td_abs = [
             (ep, td)
             for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_abs_td_error)
-            if td is not None and td >= 0
+            if td is not None
         ]
         if valid_td_abs:
             episodes, td_errors = zip(*valid_td_abs)
@@ -82,7 +81,7 @@ class PlottingUtils:
         valid_td_sq = [
             (ep, td)
             for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_squared_td_error)
-            if td is not None and td >= 0
+            if td is not None
         ]
         if valid_td_sq:
             episodes, td_squared = zip(*valid_td_sq)
@@ -96,7 +95,7 @@ class PlottingUtils:
         valid_q_means = [
             (ep, q_mean)
             for ep, q_mean in zip(self.metrics.episodes, self.metrics.episode_q_means)
-            if q_mean is not None and q_mean >= 0
+            if q_mean is not None
         ]
         if valid_q_means:
             episodes, q_means = zip(*valid_q_means)
@@ -121,7 +120,7 @@ class PlottingUtils:
                 dpi=150,
                 bbox_inches="tight",
             )
-        plt.close()
+
 
     def plot_loss_comparison(self, window=50, save=False, save_dir=None):
         """Plot Huber loss vs MSE loss for comparison"""
@@ -134,7 +133,7 @@ class PlottingUtils:
         valid_losses = [
             (ep, loss)
             for ep, loss in zip(self.metrics.episodes, self.metrics.episode_losses)
-            if loss is not None and loss >= 0
+            if loss is not None
         ]
         if valid_losses:
             episodes, losses = zip(*valid_losses)
@@ -157,7 +156,7 @@ class PlottingUtils:
         valid_mse = [
             (ep, mse)
             for ep, mse in zip(self.metrics.episodes, self.metrics.episode_mse_losses)
-            if mse is not None and mse >= 0
+            if mse is not None
         ]
         if valid_mse:
             episodes, mse_losses = zip(*valid_mse)
@@ -184,7 +183,7 @@ class PlottingUtils:
                 dpi=150,
                 bbox_inches="tight",
             )
-        plt.close()
+
 
     def plot_td_error_analysis(self, window=50, save=False, save_dir=None):
         """Detailed TD error analysis"""
@@ -197,7 +196,7 @@ class PlottingUtils:
         valid_td_abs = [
             (ep, td)
             for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_abs_td_error)
-            if td is not None and td >= 0
+            if td is not None
         ]
         if valid_td_abs:
             episodes, td_errors = zip(*valid_td_abs)
@@ -220,7 +219,7 @@ class PlottingUtils:
         valid_td_sq = [
             (ep, td)
             for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_squared_td_error)
-            if td is not None and td >= 0
+            if td is not None
         ]
         if valid_td_sq:
             episodes, td_squared = zip(*valid_td_sq)
@@ -247,7 +246,7 @@ class PlottingUtils:
                 dpi=150,
                 bbox_inches="tight",
             )
-        plt.close()
+
 
     def plot_reward_distribution(self, save=False, save_dir=None):
         if save_dir is None:
@@ -266,7 +265,7 @@ class PlottingUtils:
                 dpi=150,
                 bbox_inches="tight",
             )
-        plt.close()
+
 
     def print_summary_stats(self):
         if not self.metrics.episode_rewards:
@@ -287,7 +286,7 @@ class PlottingUtils:
         print(f"Min episode length: {lengths.min()}")
 
 
-        valid_q_means = [q for q in self.metrics.episode_q_means if q is not None and q >= 0]
+        valid_q_means = [q for q in self.metrics.episode_q_means if q is not None]
         if valid_q_means:
             q_means = np.array(valid_q_means)
             print(f"\nAverage Q-mean: {q_means.mean():.4f}")
@@ -295,26 +294,26 @@ class PlottingUtils:
             print(f"Min Q-mean: {q_means.min():.4f}")
 
 
-        valid_losses = [loss for loss in self.metrics.episode_losses if loss is not None and loss >= 0]
+        valid_losses = [loss for loss in self.metrics.episode_losses if loss is not None ]
         if valid_losses:
             losses = np.array(valid_losses)
             print(f"\nAverage Huber loss: {losses.mean():.6f}")
             print(f"Final Huber loss: {losses[-1]:.6f}")
 
-        valid_mse = [mse for mse in self.metrics.episode_mse_losses if mse is not None and mse >= 0]
+        valid_mse = [mse for mse in self.metrics.episode_mse_losses if mse is not None ]
         if valid_mse:
             mse_losses = np.array(valid_mse)
             print(f"Average MSE loss: {mse_losses.mean():.6f}")
             print(f"Final MSE loss: {mse_losses[-1]:.6f}")
 
 
-        valid_td_abs = [td for td in self.metrics.episode_mean_abs_td_error if td is not None and td >= 0]
+        valid_td_abs = [td for td in self.metrics.episode_mean_abs_td_error if td is not None]
         if valid_td_abs:
             td_abs = np.array(valid_td_abs)
             print(f"\nAverage absolute TD error: {td_abs.mean():.6f}")
             print(f"Final absolute TD error: {td_abs[-1]:.6f}")
 
-        valid_td_sq = [td for td in self.metrics.episode_mean_squared_td_error if td is not None and td >= 0]
+        valid_td_sq = [td for td in self.metrics.episode_mean_squared_td_error if td is not None]
         if valid_td_sq:
             td_sq = np.array(valid_td_sq)
             print(f"Average squared TD error: {td_sq.mean():.6f}")
