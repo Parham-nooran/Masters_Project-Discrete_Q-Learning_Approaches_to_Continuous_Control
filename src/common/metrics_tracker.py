@@ -12,6 +12,7 @@ class MetricsTracker:
         self.episode_mean_squared_td_error = []
         self.episode_q_means = []
         self.episode_epsilons = []
+        self.episode_mse_losses = []
         self.episodes = []
 
         os.makedirs(save_dir, exist_ok=True)
@@ -21,6 +22,7 @@ class MetricsTracker:
         episode,
         reward,
         length,
+        mse_loss=0.0,
         loss=0.0,
         mean_abs_td_error=0.0,
         mean_squared_td_error=0.0,
@@ -35,6 +37,7 @@ class MetricsTracker:
         self.episode_mean_squared_td_error.append(mean_squared_td_error)
         self.episode_q_means.append(q_mean)
         self.episode_epsilons.append(epsilon)
+        self.episode_mse_losses.append(mse_loss)
 
     def save_metrics(self):
         metrics_data = {
@@ -42,6 +45,7 @@ class MetricsTracker:
             "episode_rewards": self.episode_rewards,
             "episode_lengths": self.episode_lengths,
             "episode_losses": self.episode_losses,
+            "episode_mse_losses": self.episode_mse_losses,
             "episode_mean_abs_td_error": self.episode_mean_abs_td_error,
             "episode_mean_squared_td_error": self.episode_mean_squared_td_error,
             "episode_epsilons": self.episode_epsilons,
@@ -64,6 +68,7 @@ class MetricsTracker:
                 self.episodes = metrics_data.get("episodes", [])
                 self.episode_rewards = metrics_data.get("episode_rewards", [])
                 self.episode_lengths = metrics_data.get("episode_lengths", [])
+                self.episode_mse_losses = metrics_data.get("episode_mse_losses", [])
                 self.episode_losses = metrics_data.get("episode_losses", [])
                 self.episode_mean_abs_td_error = metrics_data.get(
                     "episode_mean_abs_td_error", []

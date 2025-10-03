@@ -132,6 +132,7 @@ class DecQNTrainer(Logger):
         recent_q1_means = deque(maxlen=20)
         recent_mean_abs_td_errors = deque(maxlen=20)
         recent_squared_td_errors = deque(maxlen=20)
+        recent_mse_losses = deque(maxlen=20)
 
         start_time = time.time()
 
@@ -161,6 +162,7 @@ class DecQNTrainer(Logger):
                     metrics = agent.update()
                     if metrics:
                         recent_q1_means.append(metrics["q1_mean"])
+                        recent_mse_losses.append(metrics["mse_loss1"])
                         recent_mean_abs_td_errors.append(metrics["mean_abs_td_error"])
                         recent_squared_td_errors.append(metrics["mean_squared_td_error"])
                         if "loss" in metrics and metrics["loss"] is not None:
@@ -181,7 +183,7 @@ class DecQNTrainer(Logger):
             avg_recent_squared_td_error = (
                 np.mean(recent_squared_td_errors) if recent_squared_td_errors else 0.0
             )
-
+            avg_recent_mse_loss = np.mean(recent_mse_losses) if recent_mse_losses else 0.0
             metrics_tracker.log_episode(
                 episode=episode,
                 reward=episode_reward,
@@ -191,6 +193,7 @@ class DecQNTrainer(Logger):
                 mean_squared_td_error=avg_recent_squared_td_error,
                 q_mean=avg_recent_q_means if recent_q1_means else None,
                 epsilon=agent.epsilon,
+                mse_loss=avg_recent_mse_loss if recent_mse_losses else None
             )
 
             agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
@@ -205,6 +208,7 @@ class DecQNTrainer(Logger):
                     f"Episode {episode:4d} | "
                     f"Reward: {episode_reward:7.2f} | "
                     f"Loss: {avg_recent_loss:8.6f} | "
+                    f"MSE Loss: {avg_recent_mse_loss:8.6f} | "
                     f"Mean abs TD Error: {avg_recent_mean_td_error:8.6f} | "
                     f"Mean squared TD Error: {avg_recent_squared_td_error:8.6f} | "
                     f"Q-mean: {avg_recent_q_means:6.3f} | "

@@ -276,11 +276,12 @@ class DecQNAgent:
             q1_selected = q1_current.gather(1, actions.unsqueeze(1)).squeeze(1)
             q2_selected = q2_current.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # Compute losses
+
         td_error1 = targets - q1_selected
         td_error2 = targets - q2_selected
+        mse_loss1 = (td_error1 ** 2).mean()
+        mse_loss2 = (td_error2 ** 2).mean() if self.config.decouple else torch.zeros_like(mse_loss1)
 
-        # Huber loss
         loss1 = huber_loss(td_error1, getattr(self.config, "huber_loss_parameter", 1.0))
         loss2 = (
             huber_loss(td_error2, getattr(self.config, "huber_loss_parameter", 1.0))
@@ -303,11 +304,10 @@ class DecQNAgent:
 
         total_loss.backward()
 
-        # Gradient clipping as specified in paper (40.0)
         if getattr(self.config, "clip_gradients", False):
             clip_norm = getattr(
                 self.config, "clip_gradients_norm", 40.0
-            )  # Paper uses 40.0
+            )
             torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), clip_norm)
             if self.encoder:
                 torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), clip_norm)
@@ -336,4 +336,6 @@ class DecQNAgent:
             "mean_squared_td_error": mean_squared_td_error,
             "q1_mean": q1_selected.mean().item(),
             "q2_mean": q2_selected.mean().item() if self.config.use_double_q else 0,
+            "mse_loss1":mse_loss1.item(),
+            "mse_loss2":mse_loss2.item() if self.config.use_double_q else 0
         }
