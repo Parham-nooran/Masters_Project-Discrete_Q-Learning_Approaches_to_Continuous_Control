@@ -9,12 +9,13 @@ from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.utils import huber_loss, continuous_to_discrete_action
 from src.gqn.scheduler import GrowingScheduler
 from src.gqn.discretizer import GrowingActionDiscretizer
+from src.common.logger import Logger
 
-
-class GrowingQNAgent:
+class GrowingQNAgent(Logger):
     """Growing Q-Networks Agent - minimal implementation using DecQN as base."""
 
-    def __init__(self, config, obs_shape, action_spec):
+    def __init__(self, config, obs_shape, action_spec, working_dir):
+        super().__init__(working_dir)
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.obs_shape = obs_shape
@@ -127,7 +128,7 @@ class GrowingQNAgent:
                 if growth_occurred:
                     current_bins = self.action_discretizer.current_bins
                     self.growth_history.append(current_bins)
-                    print(
+                    self.logger.info(
                         f"Episode {self.episode_count}: Growing to {current_bins} bins"
                     )
                     return True
