@@ -10,8 +10,8 @@ Usage:
 
 import argparse
 
-from src.plotting.plotting_utils import MetricsTracker, PlottingUtils
-
+from src.plotting.plotting_utils import PlottingUtils
+from src.common.metrics_tracker import MetricsTracker
 
 def main():
     parser = argparse.ArgumentParser(description="Plot DecQN training results")
@@ -48,14 +48,16 @@ def main():
         # Create plotter and generate all plots
         plotter = PlottingUtils(tracker, save_dir=args.output_dir)
 
-        print("\n📊 Generating plots...")
+        print("\nGenerating plots...")
         plotter.plot_training_curves(window=args.window, save=True)
+        plotter.plot_loss_comparison(window=args.window, save=True)
+        plotter.plot_td_error_analysis(window=args.window, save=True)
         plotter.plot_reward_distribution(save=True)
 
-        print("\n📈 Training Summary:")
+        print("\nTraining Summary:")
         plotter.print_summary_stats()
 
-        print(f"\n✅ All plots saved to {args.output_dir}/")
+        print(f"\nAll plots saved to {args.output_dir}/")
 
     except Exception as e:
         print(f"❌ Error loading metrics: {e}")
