@@ -269,63 +269,63 @@ class PlottingUtils(Logger):
 
     def print_summary_stats(self):
         if not self.metrics.episode_rewards:
-            print("No metrics to summarize")
+            self.logger.warn("No metrics to summarize")
             return
 
         rewards = np.array(self.metrics.episode_rewards)
         lengths = np.array(self.metrics.episode_lengths)
 
-        print("\n=== Training Summary ===")
-        print(f"Episodes completed: {len(rewards)}")
-        print(f"Average reward: {rewards.mean():.2f}")
-        print(f"Best reward: {rewards.max():.2f}")
-        print(f"Worst reward: {rewards.min():.2f}")
-        print(f"Reward std: {rewards.std():.2f}")
-        print(f"Average episode length: {lengths.mean():.1f}")
-        print(f"Max episode length: {lengths.max()}")
-        print(f"Min episode length: {lengths.min()}")
+        self.logger.info("\n=== Training Summary ===")
+        self.logger.info(f"Episodes completed: {len(rewards)}")
+        self.logger.info(f"Average reward: {rewards.mean():.2f}")
+        self.logger.info(f"Best reward: {rewards.max():.2f}")
+        self.logger.info(f"Worst reward: {rewards.min():.2f}")
+        self.logger.info(f"Reward std: {rewards.std():.2f}")
+        self.logger.info(f"Average episode length: {lengths.mean():.1f}")
+        self.logger.info(f"Max episode length: {lengths.max()}")
+        self.logger.info(f"Min episode length: {lengths.min()}")
 
 
         valid_q_means = [q for q in self.metrics.episode_q_means if q is not None]
         if valid_q_means:
             q_means = np.array(valid_q_means)
-            print(f"\nAverage Q-mean: {q_means.mean():.4f}")
-            print(f"Max Q-mean: {q_means.max():.4f}")
-            print(f"Min Q-mean: {q_means.min():.4f}")
+            self.logger.info(f"\nAverage Q-mean: {q_means.mean():.4f}")
+            self.logger.info(f"Max Q-mean: {q_means.max():.4f}")
+            self.logger.info(f"Min Q-mean: {q_means.min():.4f}")
 
 
         valid_losses = [loss for loss in self.metrics.episode_losses if loss is not None ]
         if valid_losses:
             losses = np.array(valid_losses)
-            print(f"\nAverage Huber loss: {losses.mean():.6f}")
-            print(f"Final Huber loss: {losses[-1]:.6f}")
+            self.logger.info(f"\nAverage Huber loss: {losses.mean():.6f}")
+            self.logger.info(f"Final Huber loss: {losses[-1]:.6f}")
 
         valid_mse = [mse for mse in self.metrics.episode_mse_losses if mse is not None ]
         if valid_mse:
             mse_losses = np.array(valid_mse)
-            print(f"Average MSE loss: {mse_losses.mean():.6f}")
-            print(f"Final MSE loss: {mse_losses[-1]:.6f}")
+            self.logger.info(f"Average MSE loss: {mse_losses.mean():.6f}")
+            self.logger.info(f"Final MSE loss: {mse_losses[-1]:.6f}")
 
 
         valid_td_abs = [td for td in self.metrics.episode_mean_abs_td_error if td is not None]
         if valid_td_abs:
             td_abs = np.array(valid_td_abs)
-            print(f"\nAverage absolute TD error: {td_abs.mean():.6f}")
-            print(f"Final absolute TD error: {td_abs[-1]:.6f}")
+            self.logger.info(f"\nAverage absolute TD error: {td_abs.mean():.6f}")
+            self.logger.info(f"Final absolute TD error: {td_abs[-1]:.6f}")
 
         valid_td_sq = [td for td in self.metrics.episode_mean_squared_td_error if td is not None]
         if valid_td_sq:
             td_sq = np.array(valid_td_sq)
-            print(f"Average squared TD error: {td_sq.mean():.6f}")
-            print(f"Final squared TD error: {td_sq[-1]:.6f}")
+            self.logger.info(f"Average squared TD error: {td_sq.mean():.6f}")
+            self.logger.info(f"Final squared TD error: {td_sq[-1]:.6f}")
 
 
         if self.metrics.episode_epsilons:
-            print(f"\nFinal epsilon: {self.metrics.episode_epsilons[-1]:.4f}")
+            self.logger.info(f"\nFinal epsilon: {self.metrics.episode_epsilons[-1]:.4f}")
 
 
         if len(rewards) > 100:
             recent_rewards = rewards[-100:]
-            print(f"\nRecent 100 episodes avg reward: {recent_rewards.mean():.2f}")
+            self.logger.info(f"\nRecent 100 episodes avg reward: {recent_rewards.mean():.2f}")
             recent_lengths = lengths[-100:]
-            print(f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}")
+            self.logger.info(f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}")

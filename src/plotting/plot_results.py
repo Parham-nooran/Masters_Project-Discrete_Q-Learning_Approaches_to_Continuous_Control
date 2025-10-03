@@ -33,7 +33,6 @@ def main():
     print(f"Smoothing window: {args.window}")
     print(f"Output directory: {args.output_dir}")
 
-    # Load and plot
     tracker = MetricsTracker()
     try:
         tracker.load_metrics(args.metrics_file)
@@ -45,7 +44,6 @@ def main():
 
         print(f"✅ Loaded {len(tracker.episode_rewards)} episodes of data")
 
-        # Create plotter and generate all plots
         plotter = PlottingUtils(tracker, save_dir=args.output_dir)
 
         print("\nGenerating plots...")
