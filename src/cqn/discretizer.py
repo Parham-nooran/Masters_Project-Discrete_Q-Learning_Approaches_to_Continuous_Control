@@ -7,6 +7,7 @@ class CoarseToFineDiscretizer:
     Discretizer that creates a hierarchical coarse-to-fine action space.
     Each level has progressively finer discretization.
     """
+
     def __init__(self, action_spec: Dict, num_levels: int = 3, num_bins: int = 5):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.action_spec = action_spec
@@ -32,11 +33,13 @@ class CoarseToFineDiscretizer:
                     self.action_min[dim],
                     self.action_max[dim],
                     num_bins_at_level,
-                    device=self.device
+                    device=self.device,
                 )
                 self.action_bins[level][dim] = bins
 
-    def get_action_range_for_level(self, level: int, parent_actions: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def get_action_range_for_level(
+        self, level: int, parent_actions: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """
         Get the action range for a specific level.
         If parent_actions is provided, refine the range based on parent selections.
@@ -48,27 +51,36 @@ class CoarseToFineDiscretizer:
         for dim in range(self.action_dim):
             parent_bin_idx = parent_actions[dim].long()
             parent_bins = self.action_bins[level - 1][dim]
-            bin_width = (self.action_max[dim] - self.action_min[dim]) / (self.num_bins ** level)
+            bin_width = (self.action_max[dim] - self.action_min[dim]) / (
+                self.num_bins**level
+            )
             parent_center = parent_bins[parent_bin_idx]
             range_min = parent_center - bin_width / 2
             range_max = parent_center + bin_width / 2
-            range_min = torch.clamp(range_min, self.action_min[dim], self.action_max[dim])
-            range_max = torch.clamp(range_max, self.action_min[dim], self.action_max[dim])
+            range_min = torch.clamp(
+                range_min, self.action_min[dim], self.action_max[dim]
+            )
+            range_max = torch.clamp(
+                range_max, self.action_min[dim], self.action_max[dim]
+            )
 
             ranges.append(torch.stack([range_min, range_max]))
         return torch.stack(ranges, dim=1)
 
-    def discrete_to_continuous(self, discrete_actions: torch.Tensor, level: int) -> torch.Tensor:
+    def discrete_to_continuous(
+        self, discrete_actions: torch.Tensor, level: int
+    ) -> torch.Tensor:
         """Convert discrete actions to continuous actions for a specific level"""
         if discrete_actions.device != self.device:
             discrete_actions = discrete_actions.to(self.device)
         if len(discrete_actions.shape) == 1:
             discrete_actions = discrete_actions.unsqueeze(0)
         batch_size = discrete_actions.shape[0]
-        continuous_actions = torch.zeros(batch_size, self.action_dim, device=self.device)
+        continuous_actions = torch.zeros(
+            batch_size, self.action_dim, device=self.device
+        )
         for dim in range(self.action_dim):
             bin_indices = discrete_actions[:, dim].long()
             bin_indices = torch.clamp(bin_indices, 0, self.num_bins - 1)
             continuous_actions[:, dim] = self.action_bins[level][dim][bin_indices]
         return continuous_actions
-

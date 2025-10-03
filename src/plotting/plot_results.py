@@ -13,6 +13,7 @@ import argparse
 from src.plotting.plotting_utils import PlottingUtils
 from src.common.metrics_tracker import MetricsTracker
 
+
 def main():
     parser = argparse.ArgumentParser(description="Plot DecQN training results")
     parser.add_argument(

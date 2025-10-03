@@ -5,6 +5,7 @@ from dataclasses import dataclass
 @dataclass
 class CQNConfig:
     """Configuration for CQN agent"""
+
     env_name: str = "walker_run"
     seed: int = 42
 

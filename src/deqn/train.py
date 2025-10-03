@@ -42,7 +42,9 @@ class DecQNTrainer(Logger):
 
         if agent.encoder:
             checkpoint["encoder_state_dict"] = agent.encoder.state_dict()
-            checkpoint["encoder_optimizer_state_dict"] = agent.encoder_optimizer.state_dict()
+            checkpoint["encoder_optimizer_state_dict"] = (
+                agent.encoder_optimizer.state_dict()
+            )
 
         torch.save(checkpoint, path)
 
@@ -56,7 +58,8 @@ class DecQNTrainer(Logger):
             return None
 
         checkpoint_files.sort(
-            key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)), reverse=True
+            key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)),
+            reverse=True,
         )
         latest_file = checkpoint_files[0]
 
@@ -68,7 +71,9 @@ class DecQNTrainer(Logger):
             try:
                 loaded_episode = agent.load_checkpoint(checkpoint_path)
                 start_episode = loaded_episode + 1
-                self.logger.info(f"Resumed from episode {loaded_episode}, starting at {start_episode}")
+                self.logger.info(
+                    f"Resumed from episode {loaded_episode}, starting at {start_episode}"
+                )
                 return start_episode
             except Exception as e:
                 self.logger.error(f"Failed to load checkpoint: {e}")
@@ -76,7 +81,9 @@ class DecQNTrainer(Logger):
                 return 0
         else:
             if checkpoint_path:
-                self.logger.warn(f"Checkpoint {checkpoint_path} not found. Starting fresh...")
+                self.logger.warn(
+                    f"Checkpoint {checkpoint_path} not found. Starting fresh..."
+                )
             return 0
 
     def train(self):
@@ -91,7 +98,9 @@ class DecQNTrainer(Logger):
             torch.backends.cudnn.benchmark = True
             torch.backends.cuda.matmul.allow_tf32 = True
 
-        if self.config.task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
+        if self.config.task not in [
+            f"{domain}_{task}" for domain, task in suite.ALL_TASKS
+        ]:
             self.logger.warn(f"Task {self.config.task} not found, using walker_walk")
             self.config.task = "walker_walk"
 
@@ -141,13 +150,17 @@ class DecQNTrainer(Logger):
             episode_reward = 0
 
             time_step = env.reset()
-            obs = process_observation(time_step.observation, self.config.use_pixels, self.device)
+            obs = process_observation(
+                time_step.observation, self.config.use_pixels, self.device
+            )
             agent.observe_first(obs)
 
             step = 0
             while not time_step.last():
                 action = agent.select_action(obs)
-                action_np = action.cpu().numpy() if isinstance(action, torch.Tensor) else action
+                action_np = (
+                    action.cpu().numpy() if isinstance(action, torch.Tensor) else action
+                )
 
                 time_step = env.step(action_np)
                 next_obs = process_observation(
@@ -164,7 +177,9 @@ class DecQNTrainer(Logger):
                         recent_q1_means.append(metrics["q1_mean"])
                         recent_mse_losses.append(metrics["mse_loss1"])
                         recent_mean_abs_td_errors.append(metrics["mean_abs_td_error"])
-                        recent_squared_td_errors.append(metrics["mean_squared_td_error"])
+                        recent_squared_td_errors.append(
+                            metrics["mean_squared_td_error"]
+                        )
                         if "loss" in metrics and metrics["loss"] is not None:
                             recent_losses.append(metrics["loss"])
 
@@ -183,7 +198,9 @@ class DecQNTrainer(Logger):
             avg_recent_squared_td_error = (
                 np.mean(recent_squared_td_errors) if recent_squared_td_errors else 0.0
             )
-            avg_recent_mse_loss = np.mean(recent_mse_losses) if recent_mse_losses else 0.0
+            avg_recent_mse_loss = (
+                np.mean(recent_mse_losses) if recent_mse_losses else 0.0
+            )
             metrics_tracker.log_episode(
                 episode=episode,
                 reward=episode_reward,
@@ -193,7 +210,7 @@ class DecQNTrainer(Logger):
                 mean_squared_td_error=avg_recent_squared_td_error,
                 q_mean=avg_recent_q_means if recent_q1_means else None,
                 epsilon=agent.epsilon,
-                mse_loss=avg_recent_mse_loss if recent_mse_losses else None
+                mse_loss=avg_recent_mse_loss if recent_mse_losses else None,
             )
 
             agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
@@ -221,14 +238,18 @@ class DecQNTrainer(Logger):
                 avg_episode_time = elapsed_time / (episode - start_episode + 1)
                 eta = avg_episode_time * (self.config.num_episodes - episode - 1)
 
-                recent_rewards = metrics_tracker.episode_rewards[-self.config.detailed_log_interval:]
+                recent_rewards = metrics_tracker.episode_rewards[
+                    -self.config.detailed_log_interval :
+                ]
 
                 self.logger.info(f"Episode {episode} Summary:")
                 self.logger.info(f"Cumulative Reward: {episode_reward:.2f}")
                 self.logger.info(
                     f"Recent {self.config.detailed_log_interval} episodes avg reward: {np.mean(recent_rewards):.2f}"
                 )
-                self.logger.info(f"Elapsed: {elapsed_time / 60:.1f}min | ETA: {eta / 60:.1f}min")
+                self.logger.info(
+                    f"Elapsed: {elapsed_time / 60:.1f}min | ETA: {eta / 60:.1f}min"
+                )
 
             if episode % 10 == 0 and self.device == "cuda":
                 torch.cuda.empty_cache()
@@ -236,7 +257,9 @@ class DecQNTrainer(Logger):
 
             if episode % self.config.checkpoint_interval == 0:
                 metrics_tracker.save_metrics()
-                checkpoint_path = f"output/checkpoints/decqn_{self.config.task}_{episode}.pth"
+                checkpoint_path = (
+                    f"output/checkpoints/decqn_{self.config.task}_{episode}.pth"
+                )
                 self.save_checkpoint(agent, episode, checkpoint_path)
                 self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
@@ -271,18 +294,20 @@ if __name__ == "__main__":
         default=None,
         help="Path to checkpoint file to resume from",
     )
-    parser.add_argument("--task", type=str, default="walker_walk", help="Environment task")
+    parser.add_argument(
+        "--task", type=str, default="walker_walk", help="Environment task"
+    )
     parser.add_argument(
         "--num-episodes", type=int, default=1000, help="Number of episodes to train"
     )
-    parser.add_argument(
-        "--num-bins", type=int, default=2, help="Number of bins"
-    )
+    parser.add_argument("--num-bins", type=int, default=2, help="Number of bins")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument(
         "--learning-rate", type=float, default=1e-4, help="Learning rate"
     )
-    parser.add_argument("--epsilon", type=float, default=0.1, help="Epsilon for exploration")
+    parser.add_argument(
+        "--epsilon", type=float, default=0.1, help="Epsilon for exploration"
+    )
     parser.add_argument("--discount", type=float, default=0.99, help="Discount factor")
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
     parser.add_argument(

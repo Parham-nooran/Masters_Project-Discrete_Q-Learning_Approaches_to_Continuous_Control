@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from src.common.logger import Logger
 
+
 class PlottingUtils(Logger):
     def __init__(self, metrics_tracker, working_dir, save_dir="./output/plots"):
         super().__init__(working_dir)
@@ -27,9 +28,11 @@ class PlottingUtils(Logger):
         if len(self.metrics.episode_rewards) > 10:
             window_size = min(window, len(self.metrics.episode_rewards) // 10)
             moving_avg = np.convolve(
-                self.metrics.episode_rewards, np.ones(window_size) / window_size, mode="valid"
+                self.metrics.episode_rewards,
+                np.ones(window_size) / window_size,
+                mode="valid",
             )
-            axes[0, 1].plot(self.metrics.episodes[window_size - 1:], moving_avg)
+            axes[0, 1].plot(self.metrics.episodes[window_size - 1 :], moving_avg)
             axes[0, 1].set_title(f"Moving Average Rewards (window={window_size})")
             axes[0, 1].set_xlabel("Episode")
             axes[0, 1].set_ylabel("Average Reward")
@@ -66,12 +69,14 @@ class PlottingUtils(Logger):
         # 5. Mean Absolute TD Error
         valid_td_abs = [
             (ep, td)
-            for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_abs_td_error)
+            for ep, td in zip(
+                self.metrics.episodes, self.metrics.episode_mean_abs_td_error
+            )
             if td is not None
         ]
         if valid_td_abs:
             episodes, td_errors = zip(*valid_td_abs)
-            axes[2, 0].plot(episodes, td_errors, color='orange')
+            axes[2, 0].plot(episodes, td_errors, color="orange")
             axes[2, 0].set_title("Mean Absolute TD Error")
             axes[2, 0].set_xlabel("Episode")
             axes[2, 0].set_ylabel("TD Error")
@@ -80,12 +85,14 @@ class PlottingUtils(Logger):
         # 6. Mean Squared TD Error
         valid_td_sq = [
             (ep, td)
-            for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_squared_td_error)
+            for ep, td in zip(
+                self.metrics.episodes, self.metrics.episode_mean_squared_td_error
+            )
             if td is not None
         ]
         if valid_td_sq:
             episodes, td_squared = zip(*valid_td_sq)
-            axes[2, 1].plot(episodes, td_squared, color='red')
+            axes[2, 1].plot(episodes, td_squared, color="red")
             axes[2, 1].set_title("Mean Squared TD Error")
             axes[2, 1].set_xlabel("Episode")
             axes[2, 1].set_ylabel("Squared TD Error")
@@ -99,14 +106,16 @@ class PlottingUtils(Logger):
         ]
         if valid_q_means:
             episodes, q_means = zip(*valid_q_means)
-            axes[3, 0].plot(episodes, q_means, color='green')
+            axes[3, 0].plot(episodes, q_means, color="green")
             axes[3, 0].set_title("Q-value Means")
             axes[3, 0].set_xlabel("Episode")
             axes[3, 0].set_ylabel("Q-mean")
             axes[3, 0].grid(True)
 
         # 8. Epsilon Decay
-        axes[3, 1].plot(self.metrics.episodes, self.metrics.episode_epsilons, color='purple')
+        axes[3, 1].plot(
+            self.metrics.episodes, self.metrics.episode_epsilons, color="purple"
+        )
         axes[3, 1].set_title("Epsilon Decay")
         axes[3, 1].set_xlabel("Episode")
         axes[3, 1].set_ylabel("Epsilon")
@@ -120,7 +129,6 @@ class PlottingUtils(Logger):
                 dpi=150,
                 bbox_inches="tight",
             )
-
 
     def plot_loss_comparison(self, window=50, save=False, save_dir=None):
         """Plot Huber loss vs MSE loss for comparison"""
@@ -146,7 +154,7 @@ class PlottingUtils(Logger):
             # Smoothed
             if len(losses) > window:
                 smoothed = np.convolve(losses, np.ones(window) / window, mode="valid")
-                axes[0, 1].plot(episodes[window - 1:], smoothed)
+                axes[0, 1].plot(episodes[window - 1 :], smoothed)
                 axes[0, 1].set_title(f"Huber Loss (Smoothed, window={window})")
                 axes[0, 1].set_xlabel("Episode")
                 axes[0, 1].set_ylabel("Loss")
@@ -160,7 +168,7 @@ class PlottingUtils(Logger):
         ]
         if valid_mse:
             episodes, mse_losses = zip(*valid_mse)
-            axes[1, 0].plot(episodes, mse_losses, color='red')
+            axes[1, 0].plot(episodes, mse_losses, color="red")
             axes[1, 0].set_title("MSE Loss (Raw)")
             axes[1, 0].set_xlabel("Episode")
             axes[1, 0].set_ylabel("MSE")
@@ -168,8 +176,10 @@ class PlottingUtils(Logger):
 
             # Smoothed
             if len(mse_losses) > window:
-                smoothed = np.convolve(mse_losses, np.ones(window) / window, mode="valid")
-                axes[1, 1].plot(episodes[window - 1:], smoothed, color='red')
+                smoothed = np.convolve(
+                    mse_losses, np.ones(window) / window, mode="valid"
+                )
+                axes[1, 1].plot(episodes[window - 1 :], smoothed, color="red")
                 axes[1, 1].set_title(f"MSE Loss (Smoothed, window={window})")
                 axes[1, 1].set_xlabel("Episode")
                 axes[1, 1].set_ylabel("MSE")
@@ -184,7 +194,6 @@ class PlottingUtils(Logger):
                 bbox_inches="tight",
             )
 
-
     def plot_td_error_analysis(self, window=50, save=False, save_dir=None):
         """Detailed TD error analysis"""
         if save_dir is None:
@@ -192,47 +201,51 @@ class PlottingUtils(Logger):
 
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
-
         valid_td_abs = [
             (ep, td)
-            for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_abs_td_error)
+            for ep, td in zip(
+                self.metrics.episodes, self.metrics.episode_mean_abs_td_error
+            )
             if td is not None
         ]
         if valid_td_abs:
             episodes, td_errors = zip(*valid_td_abs)
-            axes[0, 0].plot(episodes, td_errors, color='orange')
+            axes[0, 0].plot(episodes, td_errors, color="orange")
             axes[0, 0].set_title("Mean Absolute TD Error")
             axes[0, 0].set_xlabel("Episode")
             axes[0, 0].set_ylabel("Absolute TD Error")
             axes[0, 0].grid(True)
 
-
             if len(td_errors) > window:
-                smoothed = np.convolve(td_errors, np.ones(window) / window, mode="valid")
-                axes[0, 1].plot(episodes[window - 1:], smoothed, color='orange')
+                smoothed = np.convolve(
+                    td_errors, np.ones(window) / window, mode="valid"
+                )
+                axes[0, 1].plot(episodes[window - 1 :], smoothed, color="orange")
                 axes[0, 1].set_title(f"Mean Abs TD Error (Smoothed, window={window})")
                 axes[0, 1].set_xlabel("Episode")
                 axes[0, 1].set_ylabel("Absolute TD Error")
                 axes[0, 1].grid(True)
 
-
         valid_td_sq = [
             (ep, td)
-            for ep, td in zip(self.metrics.episodes, self.metrics.episode_mean_squared_td_error)
+            for ep, td in zip(
+                self.metrics.episodes, self.metrics.episode_mean_squared_td_error
+            )
             if td is not None
         ]
         if valid_td_sq:
             episodes, td_squared = zip(*valid_td_sq)
-            axes[1, 0].plot(episodes, td_squared, color='red')
+            axes[1, 0].plot(episodes, td_squared, color="red")
             axes[1, 0].set_title("Mean Squared TD Error")
             axes[1, 0].set_xlabel("Episode")
             axes[1, 0].set_ylabel("Squared TD Error")
             axes[1, 0].grid(True)
 
-
             if len(td_squared) > window:
-                smoothed = np.convolve(td_squared, np.ones(window) / window, mode="valid")
-                axes[1, 1].plot(episodes[window - 1:], smoothed, color='red')
+                smoothed = np.convolve(
+                    td_squared, np.ones(window) / window, mode="valid"
+                )
+                axes[1, 1].plot(episodes[window - 1 :], smoothed, color="red")
                 axes[1, 1].set_title(f"Mean Sq TD Error (Smoothed, window={window})")
                 axes[1, 1].set_xlabel("Episode")
                 axes[1, 1].set_ylabel("Squared TD Error")
@@ -246,7 +259,6 @@ class PlottingUtils(Logger):
                 dpi=150,
                 bbox_inches="tight",
             )
-
 
     def plot_reward_distribution(self, save=False, save_dir=None):
         if save_dir is None:
@@ -266,7 +278,6 @@ class PlottingUtils(Logger):
                 bbox_inches="tight",
             )
 
-
     def print_summary_stats(self):
         if not self.metrics.episode_rewards:
             self.logger.warn("No metrics to summarize")
@@ -285,7 +296,6 @@ class PlottingUtils(Logger):
         self.logger.info(f"Max episode length: {lengths.max()}")
         self.logger.info(f"Min episode length: {lengths.min()}")
 
-
         valid_q_means = [q for q in self.metrics.episode_q_means if q is not None]
         if valid_q_means:
             q_means = np.array(valid_q_means)
@@ -293,39 +303,47 @@ class PlottingUtils(Logger):
             self.logger.info(f"Max Q-mean: {q_means.max():.4f}")
             self.logger.info(f"Min Q-mean: {q_means.min():.4f}")
 
-
-        valid_losses = [loss for loss in self.metrics.episode_losses if loss is not None ]
+        valid_losses = [
+            loss for loss in self.metrics.episode_losses if loss is not None
+        ]
         if valid_losses:
             losses = np.array(valid_losses)
             self.logger.info(f"\nAverage Huber loss: {losses.mean():.6f}")
             self.logger.info(f"Final Huber loss: {losses[-1]:.6f}")
 
-        valid_mse = [mse for mse in self.metrics.episode_mse_losses if mse is not None ]
+        valid_mse = [mse for mse in self.metrics.episode_mse_losses if mse is not None]
         if valid_mse:
             mse_losses = np.array(valid_mse)
             self.logger.info(f"Average MSE loss: {mse_losses.mean():.6f}")
             self.logger.info(f"Final MSE loss: {mse_losses[-1]:.6f}")
 
-
-        valid_td_abs = [td for td in self.metrics.episode_mean_abs_td_error if td is not None]
+        valid_td_abs = [
+            td for td in self.metrics.episode_mean_abs_td_error if td is not None
+        ]
         if valid_td_abs:
             td_abs = np.array(valid_td_abs)
             self.logger.info(f"\nAverage absolute TD error: {td_abs.mean():.6f}")
             self.logger.info(f"Final absolute TD error: {td_abs[-1]:.6f}")
 
-        valid_td_sq = [td for td in self.metrics.episode_mean_squared_td_error if td is not None]
+        valid_td_sq = [
+            td for td in self.metrics.episode_mean_squared_td_error if td is not None
+        ]
         if valid_td_sq:
             td_sq = np.array(valid_td_sq)
             self.logger.info(f"Average squared TD error: {td_sq.mean():.6f}")
             self.logger.info(f"Final squared TD error: {td_sq[-1]:.6f}")
 
-
         if self.metrics.episode_epsilons:
-            self.logger.info(f"\nFinal epsilon: {self.metrics.episode_epsilons[-1]:.4f}")
-
+            self.logger.info(
+                f"\nFinal epsilon: {self.metrics.episode_epsilons[-1]:.4f}"
+            )
 
         if len(rewards) > 100:
             recent_rewards = rewards[-100:]
-            self.logger.info(f"\nRecent 100 episodes avg reward: {recent_rewards.mean():.2f}")
+            self.logger.info(
+                f"\nRecent 100 episodes avg reward: {recent_rewards.mean():.2f}"
+            )
             recent_lengths = lengths[-100:]
-            self.logger.info(f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}")
+            self.logger.info(
+                f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}"
+            )

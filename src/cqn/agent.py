@@ -13,6 +13,7 @@ class CQNAgent(Logger):
     """
     Coarse-to-fine Q-Network Agent
     """
+
     def __init__(self, config, obs_shape: Tuple, action_spec: Dict, working_dir):
         super().__init__(working_dir)
         self.config = config
@@ -25,14 +26,16 @@ class CQNAgent(Logger):
         self.network = CQNNetwork(
             config, obs_shape, self.action_dim, self.num_levels, self.num_bins
         ).to(self.device)
-        self.discretizer = CoarseToFineDiscretizer(action_spec, self.num_levels, self.num_bins)
+        self.discretizer = CoarseToFineDiscretizer(
+            action_spec, self.num_levels, self.num_bins
+        )
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=config.lr)
         self.replay_buffer = PrioritizedReplayBuffer(
             capacity=config.replay_buffer_size,
             alpha=config.per_alpha,
             beta=config.per_beta,
             n_step=config.n_step,
-            discount=config.discount
+            discount=config.discount,
         ).to_device(self.device)
         self.metrics_tracker = MetricsTracker(save_dir=config.save_dir)
         self.epsilon = config.initial_epsilon
@@ -55,7 +58,9 @@ class CQNAgent(Logger):
 
             for level in range(self.num_levels):
                 if level > 0:
-                    action_range = self.discretizer.get_action_range_for_level(level, prev_action.squeeze(0))
+                    action_range = self.discretizer.get_action_range_for_level(
+                        level, prev_action.squeeze(0)
+                    )
 
                 q1, q2 = self.network(obs, level, prev_action)
                 q_combined = torch.max(q1, q2)
@@ -63,7 +68,9 @@ class CQNAgent(Logger):
 
                 for dim in range(self.action_dim):
                     if not evaluate and np.random.random() < self.epsilon:
-                        level_actions[dim] = torch.randint(0, self.num_bins, (1,), device=self.device)
+                        level_actions[dim] = torch.randint(
+                            0, self.num_bins, (1,), device=self.device
+                        )
                     else:
                         level_actions[dim] = q_combined[0, dim].argmax()
 
@@ -75,12 +82,16 @@ class CQNAgent(Logger):
                     level_continuous = torch.zeros(self.action_dim, device=self.device)
                     for dim in range(self.action_dim):
                         bin_idx = level_actions[dim].long()
-                        range_min, range_max = action_range[0, dim], action_range[1, dim]
+                        range_min, range_max = (
+                            action_range[0, dim],
+                            action_range[1, dim],
+                        )
                         bin_size = (range_max - range_min) / self.num_bins
-                        level_continuous[dim] = range_min + bin_idx * bin_size + bin_size / 2
+                        level_continuous[dim] = (
+                            range_min + bin_idx * bin_size + bin_size / 2
+                        )
                 prev_action = level_continuous.unsqueeze(0)
             return level_continuous.cpu()
-
 
     def update(self, batch_size: int = 256) -> Dict[str, float]:
         """Update the agent using a batch from replay buffer"""
@@ -106,17 +117,27 @@ class CQNAgent(Logger):
 
                 next_actions = q_next_combined.argmax(dim=2)  # [batch_size, action_dim]
 
-                target_q1 = torch.gather(q1_next, 2, next_actions.unsqueeze(2)).squeeze(2)
-                target_q2 = torch.gather(q2_next, 2, next_actions.unsqueeze(2)).squeeze(2)
+                target_q1 = torch.gather(q1_next, 2, next_actions.unsqueeze(2)).squeeze(
+                    2
+                )
+                target_q2 = torch.gather(q2_next, 2, next_actions.unsqueeze(2)).squeeze(
+                    2
+                )
                 target_q = torch.min(target_q1, target_q2)
 
-                td_target = rewards + (1 - dones.float()) * discounts * target_q.mean(dim=1)
+                td_target = rewards + (1 - dones.float()) * discounts * target_q.mean(
+                    dim=1
+                )
                 td_target = td_target.unsqueeze(1).expand(-1, self.action_dim)
 
             discrete_actions = self._continuous_to_discrete_for_level(actions, level)
 
-            current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
-            current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
+            current_q1 = torch.gather(
+                q1_current, 2, discrete_actions.unsqueeze(2)
+            ).squeeze(2)
+            current_q2 = torch.gather(
+                q2_current, 2, discrete_actions.unsqueeze(2)
+            ).squeeze(2)
 
             td_error1 = td_target - current_q1
             td_error2 = td_target - current_q2
@@ -127,70 +148,93 @@ class CQNAgent(Logger):
             level_loss = ((loss1 + loss2) * weights.unsqueeze(1)).mean()
             total_loss += level_loss
 
-            td_errors.append(torch.abs(td_error1).mean(dim=1) + torch.abs(td_error2).mean(dim=1))
+            td_errors.append(
+                torch.abs(td_error1).mean(dim=1) + torch.abs(td_error2).mean(dim=1)
+            )
 
             if level < self.num_levels - 1:
                 with torch.no_grad():
-                    prev_action = self.discretizer.discrete_to_continuous(discrete_actions, level)
+                    prev_action = self.discretizer.discrete_to_continuous(
+                        discrete_actions, level
+                    )
         self.optimizer.zero_grad()
         total_loss.backward()
 
-        if hasattr(self.config, 'max_grad_norm'):
-            torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.config.max_grad_norm)
+        if hasattr(self.config, "max_grad_norm"):
+            torch.nn.utils.clip_grad_norm_(
+                self.network.parameters(), self.config.max_grad_norm
+            )
 
         self.optimizer.step()
         if self.training_steps % self.target_update_freq == 0:
             self.network.update_target_networks()
 
         avg_td_error = torch.stack(td_errors).mean(dim=0)
-        self.replay_buffer.update_priorities(indices, avg_td_error.detach().cpu().numpy())
+        self.replay_buffer.update_priorities(
+            indices, avg_td_error.detach().cpu().numpy()
+        )
 
         self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
 
         self.training_steps += 1
 
         metrics = {
-            'loss': total_loss.item(),
-            'epsilon': self.epsilon,
-            'q_mean': (q1_current.mean() + q2_current.mean()).item() / 2,
-            'td_error_mean': avg_td_error.mean().item()
+            "loss": total_loss.item(),
+            "epsilon": self.epsilon,
+            "q_mean": (q1_current.mean() + q2_current.mean()).item() / 2,
+            "td_error_mean": avg_td_error.mean().item(),
         }
 
         return metrics
 
-    def _continuous_to_discrete_for_level(self, continuous_actions: torch.Tensor, level: int) -> torch.Tensor:
+    def _continuous_to_discrete_for_level(
+        self, continuous_actions: torch.Tensor, level: int
+    ) -> torch.Tensor:
         """Convert continuous actions to discrete indices for a specific level"""
         batch_size = continuous_actions.shape[0]
-        discrete_actions = torch.zeros(batch_size, self.action_dim, dtype=torch.long, device=self.device)
+        discrete_actions = torch.zeros(
+            batch_size, self.action_dim, dtype=torch.long, device=self.device
+        )
 
         for dim in range(self.action_dim):
             bins = self.discretizer.action_bins[level][dim]
-            distances = torch.abs(continuous_actions[:, dim].unsqueeze(1) - bins.unsqueeze(0))
+            distances = torch.abs(
+                continuous_actions[:, dim].unsqueeze(1) - bins.unsqueeze(0)
+            )
             discrete_actions[:, dim] = distances.argmin(dim=1)
 
         return discrete_actions
 
-    def store_transition(self, obs: np.ndarray, action: np.ndarray, reward: float,
-                         next_obs: np.ndarray, done: bool):
+    def store_transition(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_obs: np.ndarray,
+        done: bool,
+    ):
         """Store a transition in the replay buffer"""
         self.replay_buffer.add(obs, action, reward, next_obs, done)
 
     def save(self, filepath: str):
         """Save the agent"""
-        torch.save({
-            'network_state_dict': self.network.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'training_steps': self.training_steps,
-            'epsilon': self.epsilon,
-            'config': self.config
-        }, filepath)
+        torch.save(
+            {
+                "network_state_dict": self.network.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "training_steps": self.training_steps,
+                "epsilon": self.epsilon,
+                "config": self.config,
+            },
+            filepath,
+        )
         self.logger.info(f"Agent saved to {filepath}")
 
     def load(self, filepath: str):
         """Load the agent"""
         checkpoint = torch.load(filepath, map_location=self.device)
-        self.network.load_state_dict(checkpoint['network_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.training_steps = checkpoint['training_steps']
-        self.epsilon = checkpoint['epsilon']
+        self.network.load_state_dict(checkpoint["network_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.training_steps = checkpoint["training_steps"]
+        self.epsilon = checkpoint["epsilon"]
         self.logger.info(f"Agent loaded from {filepath}")

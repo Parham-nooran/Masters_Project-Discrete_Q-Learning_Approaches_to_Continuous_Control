@@ -50,7 +50,9 @@ class GQNTrainer(Logger):
 
         if agent.encoder:
             checkpoint["encoder_state_dict"] = agent.encoder.state_dict()
-            checkpoint["encoder_optimizer_state_dict"] = agent.encoder_optimizer.state_dict()
+            checkpoint["encoder_optimizer_state_dict"] = (
+                agent.encoder_optimizer.state_dict()
+            )
 
         torch.save(checkpoint, path)
 
@@ -64,7 +66,9 @@ class GQNTrainer(Logger):
                 checkpoint_path, map_location=agent.device, weights_only=False
             )
             agent.q_network.load_state_dict(checkpoint["q_network_state_dict"])
-            agent.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
+            agent.target_q_network.load_state_dict(
+                checkpoint["target_q_network_state_dict"]
+            )
             agent.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
             agent.training_step = checkpoint.get("training_step", 0)
             agent.epsilon = checkpoint.get("epsilon", agent.config.epsilon)
@@ -74,19 +78,27 @@ class GQNTrainer(Logger):
                 agent.growth_history = checkpoint["growth_history"]
 
             if "action_discretizer_current_bins" in checkpoint:
-                agent.action_discretizer.current_bins = checkpoint["action_discretizer_current_bins"]
+                agent.action_discretizer.current_bins = checkpoint[
+                    "action_discretizer_current_bins"
+                ]
 
             if "action_discretizer_current_growth_idx" in checkpoint:
-                agent.action_discretizer.current_growth_idx = checkpoint["action_discretizer_current_growth_idx"]
+                agent.action_discretizer.current_growth_idx = checkpoint[
+                    "action_discretizer_current_growth_idx"
+                ]
                 agent.action_discretizer.action_bins = (
-                    agent.action_discretizer.all_action_bins[agent.action_discretizer.current_bins]
+                    agent.action_discretizer.all_action_bins[
+                        agent.action_discretizer.current_bins
+                    ]
                 )
 
             if "replay_buffer_buffer" in checkpoint:
                 agent.replay_buffer.buffer = checkpoint["replay_buffer_buffer"]
                 agent.replay_buffer.position = checkpoint["replay_buffer_position"]
                 agent.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
-                agent.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
+                agent.replay_buffer.max_priority = checkpoint[
+                    "replay_buffer_max_priority"
+                ]
                 agent.replay_buffer.to_device(agent.device)
 
             if "scheduler_returns_history" in checkpoint:
@@ -94,14 +106,20 @@ class GQNTrainer(Logger):
                     checkpoint["scheduler_returns_history"],
                     maxlen=agent.scheduler.window_size,
                 )
-                agent.scheduler.last_growth_episode = checkpoint.get("scheduler_last_growth_episode", 0)
+                agent.scheduler.last_growth_episode = checkpoint.get(
+                    "scheduler_last_growth_episode", 0
+                )
 
             if agent.encoder and "encoder_state_dict" in checkpoint:
                 agent.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-                agent.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer_state_dict"])
+                agent.encoder_optimizer.load_state_dict(
+                    checkpoint["encoder_optimizer_state_dict"]
+                )
 
             self.logger.info(f"Loaded checkpoint from episode {checkpoint['episode']}")
-            self.logger.info(f"Current resolution: {agent.action_discretizer.current_bins} bins")
+            self.logger.info(
+                f"Current resolution: {agent.action_discretizer.current_bins} bins"
+            )
             self.logger.info(f"Growth history: {agent.growth_history}")
 
             if hasattr(agent.replay_buffer, "to_device"):
@@ -124,7 +142,9 @@ class GQNTrainer(Logger):
             torch.backends.cudnn.benchmark = True
             torch.backends.cuda.matmul.allow_tf32 = True
 
-        if self.config.task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
+        if self.config.task not in [
+            f"{domain}_{task}" for domain, task in suite.ALL_TASKS
+        ]:
             self.logger.warn(f"Task {self.config.task} not found, using walker_walk")
             self.config.task = "walker_walk"
 
@@ -156,7 +176,9 @@ class GQNTrainer(Logger):
         self.logger.info(f"  Decouple: {agent.config.decouple}")
         self.logger.info(f"  Action dimensions: {agent.action_discretizer.action_dim}")
         self.logger.info(f"  Growing schedule: {self.config.growing_schedule}")
-        self.logger.info(f"  Growth sequence: {agent.action_discretizer.growth_sequence}")
+        self.logger.info(
+            f"  Growth sequence: {agent.action_discretizer.growth_sequence}"
+        )
         self.logger.info(f"  Current bins: {agent.action_discretizer.num_bins}")
         self.logger.info(f"  Action penalty: {self.config.action_penalty}")
         self.logger.info(f"Starting training from episode {start_episode}...")
@@ -189,12 +211,21 @@ class GQNTrainer(Logger):
                 action_np = action.cpu().numpy()
                 time_step = env.step(action_np)
                 next_obs = process_observation(
-                    time_step.observation, self.config.use_pixels, self.device, obs_buffer
+                    time_step.observation,
+                    self.config.use_pixels,
+                    self.device,
+                    obs_buffer,
                 )
-                original_reward = time_step.reward if time_step.reward is not None else 0.0
+                original_reward = (
+                    time_step.reward if time_step.reward is not None else 0.0
+                )
 
                 if self.config.action_penalty > 0:
-                    penalty = self.config.action_penalty * np.sum(action_np ** 2) / len(action_np)
+                    penalty = (
+                        self.config.action_penalty
+                        * np.sum(action_np**2)
+                        / len(action_np)
+                    )
                     penalty = min(penalty, abs(original_reward) * 0.1)
                     reward = original_reward - penalty
                 else:
@@ -209,8 +240,14 @@ class GQNTrainer(Logger):
                     if metrics and isinstance(metrics, dict):
                         recent_q1_means.append(metrics["q1_mean"])
                         recent_mean_abs_td_errors.append(metrics["mean_abs_td_error"])
-                        recent_mean_squared_td_errors.append(metrics["mean_squared_td_error"])
-                        if "loss" in metrics and metrics["loss"] is not None and not np.isnan(metrics["loss"]):
+                        recent_mean_squared_td_errors.append(
+                            metrics["mean_squared_td_error"]
+                        )
+                        if (
+                            "loss" in metrics
+                            and metrics["loss"] is not None
+                            and not np.isnan(metrics["loss"])
+                        ):
                             recent_losses.append(metrics["loss"])
 
                 obs = next_obs
@@ -233,7 +270,9 @@ class GQNTrainer(Logger):
                 np.mean(recent_mean_abs_td_errors) if recent_mean_abs_td_errors else 0.0
             )
             avg_recent_mean_squared_td_error = (
-                np.mean(recent_mean_squared_td_errors) if recent_mean_squared_td_errors else 0.0
+                np.mean(recent_mean_squared_td_errors)
+                if recent_mean_squared_td_errors
+                else 0.0
             )
             avg_action_magnitude = action_magnitude_sum / max(step, 1)
 
@@ -273,7 +312,9 @@ class GQNTrainer(Logger):
                 eta = avg_episode_time * (self.config.num_episodes - episode - 1)
 
                 growth_info = agent.get_growth_info()
-                recent_rewards = metrics_tracker.episode_rewards[-self.config.detailed_log_interval:]
+                recent_rewards = metrics_tracker.episode_rewards[
+                    -self.config.detailed_log_interval :
+                ]
 
                 self.logger.info(f"Episode {episode} Detailed Summary:")
                 self.logger.info(f"Penalized Reward: {episode_reward:.2f}")
@@ -281,10 +322,14 @@ class GQNTrainer(Logger):
                 self.logger.info(
                     f"Recent {self.config.detailed_log_interval} episodes avg reward: {np.mean(recent_rewards):.2f}"
                 )
-                self.logger.info(f"Current resolution: {growth_info['current_bins']} bins")
+                self.logger.info(
+                    f"Current resolution: {growth_info['current_bins']} bins"
+                )
                 self.logger.info(f"Growth history: {growth_info['growth_history']}")
                 self.logger.info(f"Buffer size: {len(agent.replay_buffer)}")
-                self.logger.info(f"Elapsed: {elapsed_time / 60:.1f}min | ETA: {eta / 60:.1f}min")
+                self.logger.info(
+                    f"Elapsed: {elapsed_time / 60:.1f}min | ETA: {eta / 60:.1f}min"
+                )
 
             if episode % 100 == 0 and self.device == "cuda":
                 torch.cuda.empty_cache()
@@ -308,7 +353,9 @@ class GQNTrainer(Logger):
         self.logger.info("Growing Q-Networks Summary:")
         self.logger.info(f"  Final resolution: {growth_info['current_bins']} bins")
         self.logger.info(f"  Growth sequence achieved: {growth_info['growth_history']}")
-        self.logger.info(f"  Total resolution levels: {len(growth_info['growth_history'])}")
+        self.logger.info(
+            f"  Total resolution levels: {len(growth_info['growth_history'])}"
+        )
 
         self.logger.info("Generating plots...")
         plotter = PlottingUtils(metrics_tracker, save_dir="output/plots")

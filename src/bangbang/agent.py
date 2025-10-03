@@ -52,7 +52,7 @@ class BangBangAgent(Logger):
         )
         self.value_function = LayerNormMLP(
             [self.encoder_output_size] + config.layer_size_network + [1],
-            activate_final=False
+            activate_final=False,
         ).to(self.device)
         self.value_optimizer = optim.Adam(
             self.value_function.parameters(), lr=config.learning_rate

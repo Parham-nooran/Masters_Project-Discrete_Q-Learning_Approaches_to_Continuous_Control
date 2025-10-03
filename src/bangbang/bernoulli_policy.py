@@ -10,7 +10,7 @@ class BernoulliPolicy(nn.Module):
     """Bernoulli policy for bang-bang control as described in the paper."""
 
     def __init__(
-            self, input_size: int, action_dim: int, hidden_sizes: list = [512, 512]
+        self, input_size: int, action_dim: int, hidden_sizes: list = [512, 512]
     ):
         super().__init__()
         self.action_dim = action_dim
@@ -22,7 +22,7 @@ class BernoulliPolicy(nn.Module):
         return self.network(obs)
 
     def get_action(
-            self, obs: torch.Tensor, deterministic: bool = False
+        self, obs: torch.Tensor, deterministic: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Sample action from Bernoulli policy."""
         logits = self.forward(obs)
