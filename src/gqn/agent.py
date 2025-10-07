@@ -11,6 +11,7 @@ from src.gqn.scheduler import GrowingScheduler
 from src.gqn.discretizer import GrowingActionDiscretizer
 from src.common.logger import Logger
 
+
 class GrowingQNAgent(Logger):
     """Growing Q-Networks Agent - minimal implementation using DecQN as base."""
 

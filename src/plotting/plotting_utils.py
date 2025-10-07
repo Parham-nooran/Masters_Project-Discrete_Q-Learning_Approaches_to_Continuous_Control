@@ -6,8 +6,8 @@ from src.common.logger import Logger
 
 
 class PlottingUtils(Logger):
-    def __init__(self, metrics_tracker, working_dir, save_dir="./output/plots"):
-        super().__init__(working_dir)
+    def __init__(self, metrics_tracker, save_dir="./output/plots"):
+        super().__init__(save_dir)
         self.metrics = metrics_tracker
         self.save_dir = save_dir
         Path(save_dir).mkdir(parents=True, exist_ok=True)

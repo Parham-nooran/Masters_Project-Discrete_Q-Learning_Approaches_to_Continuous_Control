@@ -14,6 +14,11 @@ from src.plotting.plotting_utils import PlottingUtils
 from src.common.metrics_tracker import MetricsTracker
 
 
+import os
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Plot DecQN training results")
     parser.add_argument(
