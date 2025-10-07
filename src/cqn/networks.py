@@ -70,11 +70,39 @@ class CQNNetwork(nn.Module):
             ]
         )
 
+        self.critics2 = nn.ModuleList(
+            [
+                LayerNormMLP(
+                    [
+                        critic_input_dim,
+                        config.layer_size_bottleneck,
+                        config.layer_size_bottleneck // 2,
+                        num_bins,
+                    ]
+                )
+                for _ in range(action_dim)
+            ]
+        )
+
+        self.target_critics2 = nn.ModuleList(
+            [
+                LayerNormMLP(
+                    [
+                        critic_input_dim,
+                        config.layer_size_bottleneck,
+                        config.layer_size_bottleneck // 2,
+                        num_bins,
+                    ]
+                )
+                for _ in range(action_dim)
+            ]
+        )
         self.update_target_networks(tau=1.0)
 
+
     def forward(
-        self, obs: torch.Tensor, level: int, prev_action: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+            self, obs: torch.Tensor, level: int, prev_action: Optional[torch.Tensor] = None, use_target: bool = False
+    )-> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through the network.
 
@@ -82,9 +110,10 @@ class CQNNetwork(nn.Module):
             obs: Observations [batch_size, ...]
             level: Current level (0 to num_levels-1)
             prev_action: Previous level actions [batch_size, action_dim] (None for level 0)
+            use_target: Whether to use target network
 
         Returns:
-            Tuple of Q-values from two critic networks [batch_size, action_dim, num_bins]
+            Q-values [batch_size, action_dim, num_bins]
         """
         if self.encoder:
             features = self.encoder(obs)
@@ -109,10 +138,12 @@ class CQNNetwork(nn.Module):
 
         q1_values = []
         q2_values = []
+        critics1_to_use = self.target_critics if use_target else self.critics
+        critics2_to_use = self.target_critics2 if use_target else self.critics2
 
         for dim in range(self.action_dim):
-            q1_dim = self.critics[dim](combined_features)
-            q2_dim = self.target_critics[dim](combined_features)
+            q1_dim = critics1_to_use[dim](combined_features)
+            q2_dim = critics2_to_use[dim](combined_features)
             q1_values.append(q1_dim)
             q2_values.append(q2_dim)
 
@@ -124,9 +155,9 @@ class CQNNetwork(nn.Module):
     def update_target_networks(self, tau: float = 0.005):
         """Update target networks with soft updates"""
         for critic, target_critic in zip(self.critics, self.target_critics):
-            for param, target_param in zip(
-                critic.parameters(), target_critic.parameters()
-            ):
-                target_param.data.copy_(
-                    tau * param.data + (1 - tau) * target_param.data
-                )
+            for param, target_param in zip(critic.parameters(), target_critic.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+        for critic, target_critic in zip(self.critics2, self.target_critics2):
+            for param, target_param in zip(critic.parameters(), target_critic.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)

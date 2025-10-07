@@ -43,6 +43,8 @@ class CQNAgent(Logger):
         self.min_epsilon = config.min_epsilon
         self.target_update_freq = config.target_update_freq
         self.training_steps = 0
+        self.scaler = torch.cuda.amp.GradScaler() if self.device.type == "cuda" else None
+        self.use_amp = self.device.type == "cuda"
         self.logger.info("CQN Agent initialized")
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
@@ -106,23 +108,18 @@ class CQNAgent(Logger):
 
         total_loss = 0.0
         td_errors = []
-
         prev_action = None
+
         for level in range(self.num_levels):
-            q1_current, q2_current = self.network(obs, level, prev_action)
+            q1_current, q2_current = self.network(obs, level, prev_action, use_target=False)
 
             with torch.no_grad():
-                q1_next, q2_next = self.network(next_obs, level, prev_action)
-                q_next_combined = torch.max(q1_next, q2_next)
-
-                next_actions = q_next_combined.argmax(dim=2)  # [batch_size, action_dim]
-
-                target_q1 = torch.gather(q1_next, 2, next_actions.unsqueeze(2)).squeeze(
-                    2
-                )
-                target_q2 = torch.gather(q2_next, 2, next_actions.unsqueeze(2)).squeeze(
-                    2
-                )
+                q1_next_online, q2_next_online = self.network(next_obs, level, prev_action, use_target=False)
+                q_next_online = torch.max(q1_next_online, q2_next_online)
+                next_actions = q_next_online.argmax(dim=2)
+                q1_next_target, q2_next_target = self.network(next_obs, level, prev_action, use_target=True)
+                target_q1 = torch.gather(q1_next_target, 2, next_actions.unsqueeze(2)).squeeze(2)
+                target_q2 = torch.gather(q2_next_target, 2, next_actions.unsqueeze(2)).squeeze(2)
                 target_q = torch.min(target_q1, target_q2)
 
                 td_target = rewards + (1 - dones.float()) * discounts * target_q.mean(

@@ -34,6 +34,7 @@ class CoarseToFineDiscretizer:
                     self.action_max[dim],
                     num_bins_at_level,
                     device=self.device,
+                    dtype=torch.float32
                 )
                 self.action_bins[level][dim] = bins
 

@@ -7,6 +7,7 @@ class CQNConfig:
     """Configuration for CQN agent"""
 
     env_name: str = "walker_run"
+    task: str = "walker_run"
     seed: int = 42
 
     layer_size_bottleneck: int = 512
