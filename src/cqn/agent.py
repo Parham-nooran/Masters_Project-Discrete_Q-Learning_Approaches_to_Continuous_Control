@@ -44,7 +44,9 @@ class CQNAgent(Logger):
         self.min_epsilon = config.min_epsilon
         self.target_update_freq = config.target_update_freq
         self.training_steps = 0
-        self.scaler = torch.cuda.amp.GradScaler() if self.device.type == "cuda" else None
+        self.scaler = (
+            torch.cuda.amp.GradScaler() if self.device.type == "cuda" else None
+        )
         self.use_amp = self.device.type == "cuda"
         self.logger.info("CQN Agent initialized")
 
@@ -68,7 +70,9 @@ class CQNAgent(Logger):
                 q1, q2 = self.network(obs, level, prev_action)
                 q_combined = torch.max(q1, q2)
                 if not evaluate and np.random.random() < self.epsilon:
-                    level_actions = torch.randint(0, self.num_bins, (self.action_dim,), device=self.device)
+                    level_actions = torch.randint(
+                        0, self.num_bins, (self.action_dim,), device=self.device
+                    )
                 else:
                     level_actions = q_combined[0].argmax(dim=-1)
 
@@ -154,9 +158,12 @@ class CQNAgent(Logger):
         return metrics
 
     def _compute_loss(
-            self, obs, actions, rewards, next_obs, dones, discounts, weights
+        self, obs, actions, rewards, next_obs, dones, discounts, weights
     ) -> Tuple[torch.Tensor, list, torch.Tensor, torch.Tensor]:
         """Compute loss for all levels - separated for AMP compatibility"""
+        obs = obs.float()
+        actions = actions.float()
+        next_obs = next_obs.float()
         total_loss = 0.0
         td_errors = []
         prev_action = None
@@ -165,7 +172,9 @@ class CQNAgent(Logger):
         q2_current_last = None
 
         for level in range(self.num_levels):
-            q1_current, q2_current = self.network(obs, level, prev_action, use_target=False)
+            q1_current, q2_current = self.network(
+                obs, level, prev_action, use_target=False
+            )
 
             if level == self.num_levels - 1:
                 q1_current_last = q1_current
@@ -191,10 +200,14 @@ class CQNAgent(Logger):
 
                 target_q = torch.min(target_q1, target_q2)
 
-                td_target = rewards.unsqueeze(1) + (1 - dones.float()).unsqueeze(1) * discounts.unsqueeze(1) * target_q
+                td_target = (
+                    rewards.unsqueeze(1)
+                    + (1 - dones.float()).unsqueeze(1)
+                    * discounts.unsqueeze(1)
+                    * target_q
+                )
 
             discrete_actions = self._continuous_to_discrete_for_level(actions, level)
-
 
             current_q1 = torch.gather(
                 q1_current, 2, discrete_actions.unsqueeze(2)
@@ -230,8 +243,13 @@ class CQNAgent(Logger):
         self, continuous_actions: torch.Tensor, level: int
     ) -> torch.Tensor:
         """Convert continuous actions to discrete indices for a specific level"""
-        bins_tensor = torch.stack([self.discretizer.action_bins[level][dim]
-                                   for dim in range(self.action_dim)], dim=0)
+        bins_tensor = torch.stack(
+            [
+                self.discretizer.action_bins[level][dim]
+                for dim in range(self.action_dim)
+            ],
+            dim=0,
+        )
         distance = torch.abs(continuous_actions.unsqueeze(2) - bins_tensor.unsqueeze(0))
         discrete_actions = distance.argmin(dim=2)
         return discrete_actions

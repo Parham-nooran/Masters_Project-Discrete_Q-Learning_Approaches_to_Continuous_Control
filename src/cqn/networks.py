@@ -99,10 +99,13 @@ class CQNNetwork(nn.Module):
         )
         self.update_target_networks(tau=1.0)
 
-
     def forward(
-            self, obs: torch.Tensor, level: int, prev_action: Optional[torch.Tensor] = None, use_target: bool = False
-    )-> Tuple[torch.Tensor, torch.Tensor]:
+        self,
+        obs: torch.Tensor,
+        level: int,
+        prev_action: Optional[torch.Tensor] = None,
+        use_target: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through the network.
 
@@ -155,9 +158,17 @@ class CQNNetwork(nn.Module):
     def update_target_networks(self, tau: float = 0.005):
         """Update target networks with soft updates"""
         for critic, target_critic in zip(self.critics, self.target_critics):
-            for param, target_param in zip(critic.parameters(), target_critic.parameters()):
-                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+            for param, target_param in zip(
+                critic.parameters(), target_critic.parameters()
+            ):
+                target_param.data.copy_(
+                    tau * param.data + (1 - tau) * target_param.data
+                )
 
         for critic, target_critic in zip(self.critics2, self.target_critics2):
-            for param, target_param in zip(critic.parameters(), target_critic.parameters()):
-                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+            for param, target_param in zip(
+                critic.parameters(), target_critic.parameters()
+            ):
+                target_param.data.copy_(
+                    tau * param.data + (1 - tau) * target_param.data
+                )
