@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from dm_control import suite
 
-from agent import CQNAgent
-from config import CQNConfig
+from src.cqn.agent import CQNAgent
+from src.cqn.config import CQNConfig
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 

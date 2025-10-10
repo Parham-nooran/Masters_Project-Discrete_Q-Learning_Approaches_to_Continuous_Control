@@ -1,12 +1,14 @@
+from typing import Tuple, Dict
+
 import numpy as np
 import torch
+
 from src.common.logger import Logger
-from typing import Tuple, Dict
-from networks import CQNNetwork
-from discretizer import CoarseToFineDiscretizer
-from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.metrics_tracker import MetricsTracker
+from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.utils import huber_loss
+from src.cqn.discretizer import CoarseToFineDiscretizer
+from src.cqn.networks import CQNNetwork
 
 
 class CQNAgent(Logger):

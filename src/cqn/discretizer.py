@@ -50,11 +50,6 @@ class CoarseToFineDiscretizer:
 
         ranges = []
         for dim in range(self.action_dim):
-            parent_bin_idx = parent_actions[dim].long()
-
-            # parent_bins = self.action_bins[level - 1][dim]
-            # bin_width = (parent_bins[-1] - parent_bins[0]) / (self.num_bins - 1)
-            # parent_center = parent_bins[parent_bin_idx]
             full_range = self.action_max[dim] - self.action_min[dim]
             bin_width = full_range / self.num_bins
             for _ in range(level):
