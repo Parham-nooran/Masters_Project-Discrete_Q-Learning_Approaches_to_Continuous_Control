@@ -183,7 +183,6 @@ def create_cqn_config(args):
     """Create config for CQN agent from arguments."""
     config = CQNConfig()
 
-    # Override with command line arguments
     if hasattr(args, "task") and args.task:
         config.task = args.task
     if hasattr(args, "max_episodes") and args.max_episodes:

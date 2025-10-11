@@ -1,8 +1,7 @@
+import argparse
 import os
 import time
 from collections import deque
-
-from dm_control import suite
 
 from src.bangbang.agent import BangBangAgent
 from src.common.logger import Logger
@@ -20,23 +19,11 @@ class BangBangTrainer(Logger):
 
     def train(self):
         """Main training loop."""
-        if self.config.task not in [
-            f"{domain}_{task}" for domain, task in suite.ALL_TASKS
-        ]:
-            self.logger.warn(f"Task {self.config.task} not found, using walker_walk")
-            self.config.task = "walker_walk"
-
-        domain_name, task_name = self.config.task.split("_", 1)
-        env = suite.load(domain_name, task_name)
-        action_spec = env.action_spec()
-        obs_spec = env.observation_spec()
-
-        obs_shape = get_obs_shape(self.config.use_pixels, obs_spec)
-        action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
-
+        init_training(self.config.seed, self.device, self.logger)
+        env = get_env(self.config.task, self.logger)
+        obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
         agent = BangBangAgent(self.config, obs_shape, action_spec_dict)
 
-        os.makedirs("output/checkpoints", exist_ok=True)
         metrics_tracker = MetricsTracker(save_dir="output/metrics")
 
         self.logger.info(f"Starting Bang-Bang training on {self.config.task}")
@@ -162,8 +149,6 @@ def create_bangbang_config(args):
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Train Bang-Bang Control Agent")
     parser.add_argument(
         "--task", type=str, default="walker_walk", help="Environment task"

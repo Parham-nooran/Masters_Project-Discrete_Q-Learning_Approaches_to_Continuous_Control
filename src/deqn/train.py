@@ -6,14 +6,51 @@ from collections import deque
 
 import numpy as np
 import torch
-from dm_control import suite
 
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
-from src.common.utils import process_observation, get_obs_shape
+from src.common.utils import process_observation, get_env_specs, get_env, init_training
 from src.deqn.agent import DecQNAgent
 from src.deqn.config import create_config_from_args
 from src.plotting.plotting_utils import PlottingUtils
+
+
+def find_latest_checkpoint(checkpoint_dir="output/checkpoints"):
+    """Find the most recent checkpoint file."""
+    if not os.path.exists(checkpoint_dir):
+        return None
+
+    checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pth")]
+    if not checkpoint_files:
+        return None
+
+    checkpoint_files.sort(
+        key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)),
+        reverse=True,
+    )
+    latest_file = checkpoint_files[0]
+
+    return os.path.join(checkpoint_dir, latest_file)
+
+
+def load_checkpoint(logger, agent, checkpoint_path):
+    """Load checkpoint and return starting episode."""
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        try:
+            loaded_episode = agent.load_checkpoint(checkpoint_path)
+            start_episode = loaded_episode + 1
+            logger.info(
+                f"Resumed from episode {loaded_episode}, starting at {start_episode}"
+            )
+            return start_episode
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint: {e}")
+            logger.info("Starting fresh training...")
+            return 0
+    else:
+        if checkpoint_path:
+            logger.warn(f"Checkpoint {checkpoint_path} not found. Starting fresh...")
+        return 0
 
 
 class DecQNTrainer(Logger):
@@ -48,84 +85,23 @@ class DecQNTrainer(Logger):
 
         torch.save(checkpoint, path)
 
-    def find_latest_checkpoint(self, checkpoint_dir="output/checkpoints"):
-        """Find the most recent checkpoint file."""
-        if not os.path.exists(checkpoint_dir):
-            return None
-
-        checkpoint_files = [f for f in os.listdir(checkpoint_dir) if f.endswith(".pth")]
-        if not checkpoint_files:
-            return None
-
-        checkpoint_files.sort(
-            key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)),
-            reverse=True,
-        )
-        latest_file = checkpoint_files[0]
-
-        return os.path.join(checkpoint_dir, latest_file)
-
-    def load_checkpoint(self, agent, checkpoint_path):
-        """Load checkpoint and return starting episode."""
-        if checkpoint_path and os.path.exists(checkpoint_path):
-            try:
-                loaded_episode = agent.load_checkpoint(checkpoint_path)
-                start_episode = loaded_episode + 1
-                self.logger.info(
-                    f"Resumed from episode {loaded_episode}, starting at {start_episode}"
-                )
-                return start_episode
-            except Exception as e:
-                self.logger.error(f"Failed to load checkpoint: {e}")
-                self.logger.info("Starting fresh training...")
-                return 0
-        else:
-            if checkpoint_path:
-                self.logger.warn(
-                    f"Checkpoint {checkpoint_path} not found. Starting fresh..."
-                )
-            return 0
-
     def train(self):
         """Main training loop."""
-        torch.manual_seed(self.config.seed)
-        np.random.seed(self.config.seed)
-
-        self.logger.info(f"Using device: {self.device}")
-
-        if self.device == "cuda":
-            torch.cuda.empty_cache()
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cuda.matmul.allow_tf32 = True
-
-        if self.config.task not in [
-            f"{domain}_{task}" for domain, task in suite.ALL_TASKS
-        ]:
-            self.logger.warn(f"Task {self.config.task} not found, using walker_walk")
-            self.config.task = "walker_walk"
-
-        domain_name, task_name = self.config.task.split("_", 1)
-        env = suite.load(domain_name, task_name)
-        action_spec = env.action_spec()
-        obs_spec = env.observation_spec()
-
-        obs_shape = get_obs_shape(self.config.use_pixels, obs_spec)
-        action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
-
+        init_training(self.config.seed, self.device, self.logger)
+        env = get_env(self.config.task, self.logger)
+        obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
         agent = DecQNAgent(self.config, obs_shape, action_spec_dict)
-
-        os.makedirs("output/checkpoints", exist_ok=True)
-        os.makedirs("output/metrics", exist_ok=True)
-        os.makedirs("output/plots", exist_ok=True)
 
         start_episode = 0
         if self.config.load_checkpoints:
-            start_episode = self.load_checkpoint(agent, self.config.load_checkpoints)
+            start_episode = load_checkpoint(
+                self.logger, agent, self.config.load_checkpoints
+            )
         else:
-            latest = self.find_latest_checkpoint()
+            latest = find_latest_checkpoint()
             if latest:
                 self.logger.info(f"Found latest checkpoint: {latest}")
-                start_episode = self.load_checkpoint(agent, latest)
+                start_episode = load_checkpoint(self.logger, agent, latest)
 
         metrics_tracker = MetricsTracker(save_dir="output/metrics")
         if start_episode > 0:

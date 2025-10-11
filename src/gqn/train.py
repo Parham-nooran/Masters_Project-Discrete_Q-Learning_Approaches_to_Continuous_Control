@@ -7,15 +7,45 @@ from collections import deque
 import numpy as np
 import torch
 import torch.cuda
-from dm_control import suite
 
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
-from src.common.utils import process_observation, get_obs_shape
+from src.common.utils import process_observation, get_env, get_env_specs, init_training
 from src.gqn.agent import GrowingQNAgent
 from src.gqn.config import GQNConfig
 from src.plotting.plotting_utils import PlottingUtils
 from src.common.replay_buffer import OptimizedObsBuffer
+
+
+def save_checkpoint(agent, episode, path):
+    """Save agent checkpoint including GQN-specific state."""
+    checkpoint = {
+        "episode": episode,
+        "q_network_state_dict": agent.q_network.state_dict(),
+        "target_q_network_state_dict": agent.target_q_network.state_dict(),
+        "q_optimizer_state_dict": agent.q_optimizer.state_dict(),
+        "config": agent.config,
+        "training_step": agent.training_step,
+        "epsilon": agent.epsilon,
+        "episode_count": agent.episode_count,
+        "growth_history": agent.growth_history,
+        "action_discretizer_current_bins": agent.action_discretizer.num_bins,
+        "action_discretizer_current_growth_idx": agent.action_discretizer.current_growth_idx,
+        "replay_buffer_buffer": agent.replay_buffer.buffer,
+        "replay_buffer_position": agent.replay_buffer.position,
+        "replay_buffer_priorities": agent.replay_buffer.priorities,
+        "replay_buffer_max_priority": agent.replay_buffer.max_priority,
+        "scheduler_returns_history": list(agent.scheduler.returns_history),
+        "scheduler_last_growth_episode": agent.scheduler.last_growth_episode,
+    }
+
+    if agent.encoder:
+        checkpoint["encoder_state_dict"] = agent.encoder.state_dict()
+        checkpoint["encoder_optimizer_state_dict"] = (
+            agent.encoder_optimizer.state_dict()
+        )
+
+    torch.save(checkpoint, path)
 
 
 class GQNTrainer(Logger):
@@ -23,38 +53,9 @@ class GQNTrainer(Logger):
 
     def __init__(self, config, working_dir="."):
         super().__init__(working_dir)
+        self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    def save_checkpoint(self, agent, episode, path):
-        """Save agent checkpoint including GQN-specific state."""
-        checkpoint = {
-            "episode": episode,
-            "q_network_state_dict": agent.q_network.state_dict(),
-            "target_q_network_state_dict": agent.target_q_network.state_dict(),
-            "q_optimizer_state_dict": agent.q_optimizer.state_dict(),
-            "config": agent.config,
-            "training_step": agent.training_step,
-            "epsilon": agent.epsilon,
-            "episode_count": agent.episode_count,
-            "growth_history": agent.growth_history,
-            "action_discretizer_current_bins": agent.action_discretizer.num_bins,
-            "action_discretizer_current_growth_idx": agent.action_discretizer.current_growth_idx,
-            "replay_buffer_buffer": agent.replay_buffer.buffer,
-            "replay_buffer_position": agent.replay_buffer.position,
-            "replay_buffer_priorities": agent.replay_buffer.priorities,
-            "replay_buffer_max_priority": agent.replay_buffer.max_priority,
-            "scheduler_returns_history": list(agent.scheduler.returns_history),
-            "scheduler_last_growth_episode": agent.scheduler.last_growth_episode,
-        }
-
-        if agent.encoder:
-            checkpoint["encoder_state_dict"] = agent.encoder.state_dict()
-            checkpoint["encoder_optimizer_state_dict"] = (
-                agent.encoder_optimizer.state_dict()
-            )
-
-        torch.save(checkpoint, path)
 
     def load_checkpoint(self, agent, checkpoint_path):
         """Load checkpoint and restore GQN-specific state."""
@@ -132,35 +133,12 @@ class GQNTrainer(Logger):
 
     def train(self):
         """Main training loop."""
-        torch.manual_seed(self.config.seed)
-        np.random.seed(self.config.seed)
-
-        self.logger.info(f"Using device: {self.device}")
-
-        if self.device == "cuda":
-            torch.cuda.empty_cache()
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cuda.matmul.allow_tf32 = True
-
-        if self.config.task not in [
-            f"{domain}_{task}" for domain, task in suite.ALL_TASKS
-        ]:
-            self.logger.warn(f"Task {self.config.task} not found, using walker_walk")
-            self.config.task = "walker_walk"
-
-        domain_name, task_name = self.config.task.split("_", 1)
-        env = suite.load(domain_name, task_name)
-        action_spec = env.action_spec()
-        obs_spec = env.observation_spec()
-
-        obs_shape = get_obs_shape(self.config.use_pixels, obs_spec)
-        action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
-
-        agent = GrowingQNAgent(self.config, obs_shape, action_spec_dict)
-
-        os.makedirs("output/checkpoints", exist_ok=True)
-        os.makedirs("output/metrics", exist_ok=True)
-        os.makedirs("output/plots", exist_ok=True)
+        init_training(self.config.seed, self.device, self.logger)
+        env = get_env(self.config.task, self.logger)
+        obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
+        agent = GrowingQNAgent(
+            self.config, obs_shape, action_spec_dict, self.working_dir
+        )
 
         start_episode = 0
         if self.config.load_checkpoints:
@@ -338,12 +316,12 @@ class GQNTrainer(Logger):
             if episode % self.config.checkpoint_interval == 0:
                 metrics_tracker.save_metrics()
                 checkpoint_path = f"output/checkpoints/gqn_episode_{episode}.pth"
-                self.save_checkpoint(agent, episode, checkpoint_path)
+                save_checkpoint(agent, episode, checkpoint_path)
                 self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
         metrics_tracker.save_metrics()
         final_checkpoint = "output/checkpoints/gqn_final.pth"
-        self.save_checkpoint(agent, self.config.num_episodes, final_checkpoint)
+        save_checkpoint(agent, self.config.num_episodes, final_checkpoint)
         self.logger.info(f"Final checkpoint saved: {final_checkpoint}")
 
         total_time = time.time() - start_time
@@ -397,7 +375,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
 
-    # GQN specific parameters
     parser.add_argument(
         "--max-bins",
         type=int,

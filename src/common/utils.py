@@ -1,7 +1,8 @@
 from pathlib import Path
-
+import os
 import torch
 import torch.nn.functional as F
+from dm_control import suite
 
 
 def random_shift(images, pad_size=4):
@@ -141,3 +142,38 @@ def continuous_to_discrete_action(
         action_bins_cpu = action_discretizer.action_bins.cpu().numpy()
         distances = np.linalg.norm(action_bins_cpu - continuous_action, axis=1)
         return np.argmin(distances)
+
+
+def get_env_specs(env, use_pixels=False):
+    action_spec = env.action_spec()
+    obs_spec = env.observation_spec()
+    obs_shape = get_obs_shape(use_pixels, obs_spec)
+    action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
+    return obs_shape, action_spec_dict
+
+
+def check_task(task, logger):
+    if task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
+        logger.warn(f"Task {task} not found, using walker_walk")
+        task = "walker_walk"
+    return task
+
+
+def get_env(task, logger):
+    task = check_task(task, logger)
+    domain_name, task_name = task.split("_", 1)
+    env = suite.load(domain_name, task_name)
+    return env
+
+
+def init_training(seed, device, logger):
+    os.makedirs("output/checkpoints", exist_ok=True)
+    os.makedirs("output/metrics", exist_ok=True)
+    os.makedirs("output/plots", exist_ok=True)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    logger.info(f"Using device: {device}")
+    if device == "cuda":
+        torch.cuda.empty_cache()
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
