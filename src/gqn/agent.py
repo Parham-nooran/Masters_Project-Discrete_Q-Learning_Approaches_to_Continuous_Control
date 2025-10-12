@@ -6,11 +6,12 @@ from src.common.actors import CustomDiscreteFeedForwardActor
 from src.common.encoder import VisionEncoder
 from src.common.logger import Logger
 from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.utils import (
+from src.common.training_utils import (
     continuous_to_discrete_action,
     get_batch_components,
     encode_observation,
     calculate_losses,
+    check_and_sample_batch_from_replay_buffer,
 )
 from src.gqn.critic import GrowingQCritic
 from src.gqn.discretizer import GrowingActionDiscretizer
@@ -142,12 +143,13 @@ class GrowingQNAgent(Logger):
 
     def update(self):
         """Update networks - mostly same as DecQN with action masking."""
-        if len(self.replay_buffer) < self.config.min_replay_size:
+        batch = check_and_sample_batch_from_replay_buffer(
+            self.replay_buffer, self.config.min_replay_size, self.config.num_bins
+        )
+        if batch is None:
             return {}
         obs, actions, rewards, next_obs, dones, discounts, weights, indices = (
-            get_batch_components(
-                self.replay_buffer, self.config.batch_size, self.device
-            )
+            get_batch_components(batch, self.device)
         )
         obs_encoded, next_obs_encoded = encode_observation(self.encoder, obs, next_obs)
 
@@ -215,7 +217,7 @@ class GrowingQNAgent(Logger):
             self.config.use_double_q,
             self.q_optimizer,
             self.encoder,
-            self.encoder_optimizer,
+            self.encoder_optimizer if self.encoder else None,
             weights,
             self.config.huber_loss_parameter,
         )
