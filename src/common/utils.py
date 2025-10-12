@@ -1,5 +1,6 @@
-from pathlib import Path
 import os
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
 from dm_control import suite
@@ -14,7 +15,7 @@ def random_shift(images, pad_size=4):
 
     shifted_images = torch.zeros_like(images)
     for i in range(n):
-        shifted_images[i] = padded[i, :, top[i] : top[i] + h, left[i] : left[i] + w]
+        shifted_images[i] = padded[i, :, top[i]: top[i] + h, left[i]: left[i] + w]
 
     return shifted_images
 
@@ -76,10 +77,10 @@ def apply_action_penalty(rewards, actions, penalty_coeff):
         actions = actions.cpu().numpy()
     actions = np.array(actions)
     if len(actions.shape) == 1:
-        action_norm_squared = np.sum(actions**2)
+        action_norm_squared = np.sum(actions ** 2)
         M = len(actions)
     else:
-        action_norm_squared = np.sum(actions**2, axis=-1)
+        action_norm_squared = np.sum(actions ** 2, axis=-1)
         M = actions.shape[-1] if len(actions.shape) > 1 else 1
 
     # Penalty = ca * ||a||² / M, where ca is penalty coefficient, M is action dimension
@@ -103,18 +104,18 @@ import numpy as np
 
 
 def huber_loss(
-    td_error: torch.Tensor, huber_loss_parameter: float = 1.0
+        td_error: torch.Tensor, huber_loss_parameter: float = 1.0
 ) -> torch.Tensor:
     abs_error = torch.abs(td_error)
     quadratic = torch.minimum(
         abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device)
     )
     linear = abs_error - quadratic
-    return 0.5 * quadratic**2 + huber_loss_parameter * linear
+    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
 
 
 def get_combined_random_and_greedy_actions(
-    q_max, num_dims, num_bins, batch_size, epsilon, device
+        q_max, num_dims, num_bins, batch_size, epsilon, device
 ):
     random_mask = torch.rand(batch_size, num_dims, device=device) < epsilon
     random_actions = torch.randint(0, num_bins, (batch_size, num_dims), device=device)
@@ -124,7 +125,7 @@ def get_combined_random_and_greedy_actions(
 
 
 def continuous_to_discrete_action(
-    config, action_discretizer, continuous_action: torch.Tensor
+        config, action_discretizer, continuous_action: torch.Tensor
 ) -> np.ndarray:
     if isinstance(continuous_action, torch.Tensor):
         continuous_action = continuous_action.cpu().numpy()
@@ -177,3 +178,53 @@ def init_training(seed, device, logger):
         torch.cuda.empty_cache()
         torch.backends.cudnn.benchmark = True
         torch.backends.cuda.matmul.allow_tf32 = True
+
+
+def get_batch_components(replay_buffer, batch_size, device):
+    batch = replay_buffer.sample(batch_size)
+    if batch is None:
+        return {}
+    obs, actions, rewards, next_obs, dones, discounts, weights, indices = batch
+    obs = obs.to(device)
+    actions = actions.to(device)
+    rewards = rewards.to(device)
+    next_obs = next_obs.to(device)
+    dones = dones.to(device)
+    discounts = discounts.to(device)
+    weights = weights.to(device)
+    indices = indices.to(device)
+    return obs, actions, rewards, next_obs, dones, discounts, weights, indices
+
+def encode_observation(encoder, obs, next_obs):
+    if encoder:
+        obs_encoded = encoder(obs)
+        with torch.no_grad():
+            next_obs_encoded = encoder(next_obs)
+    else:
+        obs_encoded = obs.flatten(1)
+        next_obs_encoded = next_obs.flatten(1)
+    return obs_encoded, next_obs_encoded
+
+def calculate_losses(
+        td_error1, td_error2, use_double_q, q_optimizer, encoder, encoder_optimizer, weights, huber_loss_parameter):
+    loss1 = huber_loss(td_error1, huber_loss_parameter)
+    loss2 = (
+        huber_loss(td_error2, huber_loss_parameter)
+        if use_double_q
+        else torch.zeros_like(loss1)
+    )
+    loss1 = (loss1 * weights).mean()
+    loss2 = (
+        (loss2 * weights).mean()
+        if use_double_q
+        else torch.zeros_like(loss1)
+    )
+
+    total_loss = loss1 + loss2
+
+    q_optimizer.zero_grad()
+    if encoder:
+        encoder_optimizer.zero_grad()
+
+    total_loss.backward()
+    return total_loss
