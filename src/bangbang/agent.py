@@ -108,8 +108,11 @@ class BangBangAgent(Logger):
         """Update policy using importance-weighted policy gradient."""
         if len(self.replay_buffer) < self.config.min_replay_size:
             return {}
-        obs, actions, rewards, next_obs, dones, discounts, weights, indices = \
-            get_batch_components(self.replay_buffer, self.config.batch_size, self.device)
+        obs, actions, rewards, next_obs, dones, discounts, weights, indices = (
+            get_batch_components(
+                self.replay_buffer, self.config.batch_size, self.device
+            )
+        )
 
         if self.encoder:
             obs_encoded = self.encoder(obs)
