@@ -171,28 +171,13 @@ class DecQNAgent:
     def update(self):
         if len(self.replay_buffer) < self.config.min_replay_size:
             return {}
+        obs, actions, rewards, next_obs, dones, discounts, weights, indices = \
+            get_batch_components(self.replay_buffer, self.config.batch_size, self.device)
 
-        batch = self.replay_buffer.sample(self.config.batch_size)
-        if batch is None:
-            return {}
-
-        obs, actions, rewards, next_obs, dones, discounts, weights, indices = batch
-        obs = obs.to(self.device)
-        actions = actions.to(self.device)
-        rewards = rewards.to(self.device)
-        next_obs = next_obs.to(self.device)
-        dones = dones.to(self.device)
-        discounts = discounts.to(self.device)
+        obs_encoded, next_obs_encoded = encode_observation(self.encoder, obs, next_obs)
 
         weights = weights.to(self.device)
 
-        if self.encoder:
-            obs_encoded = self.encoder(obs)
-            with torch.no_grad():
-                next_obs_encoded = self.encoder(next_obs)
-        else:
-            obs_encoded = obs.flatten(1)
-            next_obs_encoded = next_obs.flatten(1)
 
         q1_current, q2_current = self.q_network(obs_encoded)
 
@@ -286,21 +271,9 @@ class DecQNAgent:
             else torch.zeros_like(mse_loss1)
         )
 
-        loss1 = huber_loss(td_error1, getattr(self.config, "huber_loss_parameter", 1.0))
-        loss2 = (
-            huber_loss(td_error2, getattr(self.config, "huber_loss_parameter", 1.0))
-            if self.config.use_double_q
-            else torch.zeros_like(loss1)
-        )
-
-        loss1 = (loss1 * weights).mean()
-        loss2 = (
-            (loss2 * weights).mean()
-            if self.config.use_double_q
-            else torch.zeros_like(loss1)
-        )
-
-        total_loss = loss1 + loss2
+        total_loss = calculate_losses(
+            td_error1, td_error2, self.config.use_double_q, self.q_optimizer, self.encoder, self.encoder_optimizer,
+            weights, self.config.huber_loss_parameter)
 
         self.q_optimizer.zero_grad()
         if self.encoder:

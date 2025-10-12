@@ -1,5 +1,4 @@
 import argparse
-import os
 import time
 from collections import deque
 
@@ -100,7 +99,7 @@ class BangBangTrainer(Logger):
                 self.logger.info(f"Episode {episode} Summary:")
                 self.logger.info(f"Reward: {episode_reward:.2f}")
                 recent_rewards = metrics_tracker.episode_rewards[
-                    -self.config.detailed_log_interval :
+                    -self.config.detailed_log_interval:
                 ]
                 self.logger.info(f"Recent avg reward: {np.mean(recent_rewards):.2f}")
                 self.logger.info(f"ETA: {eta / 60:.1f} min")
