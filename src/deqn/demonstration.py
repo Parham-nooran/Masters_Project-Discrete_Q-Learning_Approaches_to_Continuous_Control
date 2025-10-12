@@ -67,20 +67,17 @@ def demonstrate(
 
     print(f"\nRunning {num_episodes} demonstration episodes...")
 
-    # Video recording setup
     video_writer = None
     if save_video:
         if video_path is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             video_path = f"./output/videos/decqn_demo_{timestamp}.mp4"
 
-        # Create output directory if it doesn't exist
         os.makedirs(
             os.path.dirname(video_path) if os.path.dirname(video_path) else ".",
             exist_ok=True,
         )
 
-        # Initialize video writer
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video_writer = cv2.VideoWriter(video_path, fourcc, fps, (640, 480))
         print(f"Recording video to: {video_path}")
@@ -110,7 +107,6 @@ def demonstrate(
 
             frame = cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
 
-            # Add information overlay
             info_text = [
                 f"Episode: {episode + 1}/{num_episodes}",
                 f"Step: {step}",
@@ -129,15 +125,12 @@ def demonstrate(
                     2,
                 )
 
-            # Save frame to video if recording
             if save_video and video_writer is not None:
                 video_writer.write(frame)
 
-            # Display frame if requested
             if show_display:
                 cv2.imshow("DecQN Walker Demo", frame)
                 key = cv2.waitKey(1) & 0xFF
-                # Allow early termination with 'q' key
                 if key == ord("q"):
                     print("Demo terminated by user")
                     break
@@ -161,7 +154,6 @@ def demonstrate(
             f"  Episode {episode + 1} total reward: {episode_reward:.3f} ({step} steps)"
         )
 
-    # Cleanup
     if save_video and video_writer is not None:
         video_writer.release()
         print(f"Video saved to: {video_path}")

@@ -6,8 +6,12 @@ from src.common.actors import CustomDiscreteFeedForwardActor
 from src.common.encoder import VisionEncoder
 from src.common.logger import Logger
 from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.utils import continuous_to_discrete_action, get_batch_components, encode_observation, \
-    calculate_losses
+from src.common.utils import (
+    continuous_to_discrete_action,
+    get_batch_components,
+    encode_observation,
+    calculate_losses,
+)
 from src.gqn.critic import GrowingQCritic
 from src.gqn.discretizer import GrowingActionDiscretizer
 from src.gqn.scheduler import GrowingScheduler
@@ -84,9 +88,9 @@ class GrowingQNAgent(Logger):
                 mask[dim, :current_bins] = True
             return mask
         else:
-            total_actions = current_bins ** self.action_discretizer.action_dim
+            total_actions = current_bins**self.action_discretizer.action_dim
             mask = torch.zeros(
-                max_bins ** self.action_discretizer.action_dim,
+                max_bins**self.action_discretizer.action_dim,
                 dtype=torch.bool,
                 device=self.device,
             )
@@ -122,8 +126,8 @@ class GrowingQNAgent(Logger):
     def maybe_grow_action_space(self, episode_return):
         """Check if action space should grow."""
         if (
-                self.episode_count > 200
-                and len(self.replay_buffer) > self.config.min_replay_size * 2
+            self.episode_count > 200
+            and len(self.replay_buffer) > self.config.min_replay_size * 2
         ):
             if self.scheduler.should_grow(self.episode_count, episode_return):
                 growth_occurred = self.action_discretizer.grow_action_space()
@@ -140,9 +144,11 @@ class GrowingQNAgent(Logger):
         """Update networks - mostly same as DecQN with action masking."""
         if len(self.replay_buffer) < self.config.min_replay_size:
             return {}
-        obs, actions, rewards, next_obs, dones, discounts, weights, indices = \
-            get_batch_components(self.replay_buffer, self.config.batch_size, self.device)
-
+        obs, actions, rewards, next_obs, dones, discounts, weights, indices = (
+            get_batch_components(
+                self.replay_buffer, self.config.batch_size, self.device
+            )
+        )
         obs_encoded, next_obs_encoded = encode_observation(self.encoder, obs, next_obs)
 
         action_mask = self.get_current_action_mask()
@@ -171,7 +177,7 @@ class GrowingQNAgent(Logger):
                 ]
                 q_target_per_dim = 0.5 * (q1_selected + q2_selected)
                 q_target_values = (
-                        q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
+                    q_target_per_dim.sum(dim=1) / self.action_discretizer.action_dim
                 )
                 targets = rewards + discounts * q_target_values * (~dones).float()
             else:
@@ -204,8 +210,15 @@ class GrowingQNAgent(Logger):
         td_error2 = targets - q2_selected
 
         total_loss = calculate_losses(
-            td_error1, td_error2, self.config.use_double_q, self.q_optimizer, self.encoder, self.encoder_optimizer,
-            weights, self.config.huber_loss_parameter)
+            td_error1,
+            td_error2,
+            self.config.use_double_q,
+            self.q_optimizer,
+            self.encoder,
+            self.encoder_optimizer,
+            weights,
+            self.config.huber_loss_parameter,
+        )
         if self.device.type == "cuda":
             torch.cuda.synchronize()
 
@@ -233,7 +246,7 @@ class GrowingQNAgent(Logger):
             self.target_q_network.load_state_dict(self.q_network.state_dict())
 
         mean_abs_td_error = torch.abs(td_error1).mean().item()
-        mean_squared_td_error = (td_error1 ** 2).mean().item()
+        mean_squared_td_error = (td_error1**2).mean().item()
         return {
             "loss": total_loss.item(),
             "mean_abs_td_error": mean_abs_td_error,

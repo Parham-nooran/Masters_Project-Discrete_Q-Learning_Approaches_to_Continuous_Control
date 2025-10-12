@@ -90,7 +90,6 @@ def demonstrate_gqn(
 
     print(f"\nRunning {num_episodes} demonstration episodes...")
 
-    # Video recording setup
     video_writer = None
     if save_video:
         if video_path is None:
@@ -127,7 +126,6 @@ def demonstrate_gqn(
 
         while not time_step.last() and step < 1000:
             try:
-                # Render environment
                 pixels = env.physics.render(width=640, height=480, camera_id=0)
                 if pixels is None or len(pixels.shape) != 3:
                     pixels = env.physics.render(width=640, height=480, camera_id=0)
@@ -137,13 +135,11 @@ def demonstrate_gqn(
 
             frame = cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
 
-            # Get action from agent (no exploration)
             action = agent.select_action(obs, evaluate=True)
             action_np = (
                 action.cpu().numpy() if isinstance(action, torch.Tensor) else action
             )
 
-            # Calculate action metrics
             action_mag = np.linalg.norm(action_np)
             episode_action_magnitude += action_mag
 
@@ -153,7 +149,6 @@ def demonstrate_gqn(
 
             last_action = action_np.copy()
 
-            # Add information overlay
             growth_info = agent.get_growth_info()
             info_text = [
                 f"Episode: {episode + 1}/{num_episodes}",
@@ -166,7 +161,6 @@ def demonstrate_gqn(
             ]
 
             for i, text in enumerate(info_text):
-                # Use smaller font for more info
                 font_scale = 0.5 if i >= 4 else 0.6
                 cv2.putText(
                     frame,
@@ -178,11 +172,9 @@ def demonstrate_gqn(
                     2,
                 )
 
-            # Save frame to video if recording
             if save_video and video_writer is not None:
                 video_writer.write(frame)
 
-            # Display frame if requested
             if show_display:
                 cv2.imshow("Growing Q-Networks Demo", frame)
                 key = cv2.waitKey(1) & 0xFF
@@ -190,7 +182,6 @@ def demonstrate_gqn(
                     print("Demo terminated by user")
                     break
 
-            # Take environment step
             time_step = env.step(action_np)
             obs = process_observation(
                 time_step.observation, agent.config.use_pixels, device
@@ -200,7 +191,6 @@ def demonstrate_gqn(
             episode_reward += reward
             step += 1
 
-        # Episode summary
         avg_action_mag = episode_action_magnitude / max(step, 1)
         avg_action_change = (
             np.mean(episode_action_changes) if episode_action_changes else 0.0
@@ -224,7 +214,6 @@ def demonstrate_gqn(
     if show_display:
         cv2.destroyAllWindows()
 
-    # Final statistics
     print(f"\n=== Growing Q-Networks Demonstration Summary ===")
     print(f"Episodes: {num_episodes}")
     print(f"Mean reward: {np.mean(total_rewards):.3f}")
@@ -234,7 +223,6 @@ def demonstrate_gqn(
     print(f"Mean action magnitude: {np.mean(action_magnitudes):.3f}")
     print(f"Mean action change: {np.mean(action_changes):.3f}")
 
-    # Growth information
     growth_info = agent.get_growth_info()
     print(f"\n=== Action Space Growth Summary ===")
     print(f"Final resolution: {growth_info['current_bins']} bins per dimension")

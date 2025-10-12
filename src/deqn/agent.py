@@ -171,16 +171,14 @@ class DecQNAgent:
     def update(self):
         if len(self.replay_buffer) < self.config.min_replay_size:
             return {}
-        obs, actions, rewards, next_obs, dones, discounts, weights, indices = \
-            get_batch_components(self.replay_buffer, self.config.batch_size, self.device)
-
+        obs, actions, rewards, next_obs, dones, discounts, weights, indices = (
+            get_batch_components(
+                self.replay_buffer, self.config.batch_size, self.device
+            )
+        )
         obs_encoded, next_obs_encoded = encode_observation(self.encoder, obs, next_obs)
 
-        weights = weights.to(self.device)
-
-
         q1_current, q2_current = self.q_network(obs_encoded)
-
         with torch.no_grad():
             q1_next_target, q2_next_target = self.target_q_network(next_obs_encoded)
             q1_next_online, q2_next_online = self.q_network(next_obs_encoded)
@@ -272,8 +270,15 @@ class DecQNAgent:
         )
 
         total_loss = calculate_losses(
-            td_error1, td_error2, self.config.use_double_q, self.q_optimizer, self.encoder, self.encoder_optimizer,
-            weights, self.config.huber_loss_parameter)
+            td_error1,
+            td_error2,
+            self.config.use_double_q,
+            self.q_optimizer,
+            self.encoder,
+            self.encoder_optimizer,
+            weights,
+            self.config.huber_loss_parameter,
+        )
 
         self.q_optimizer.zero_grad()
         if self.encoder:
