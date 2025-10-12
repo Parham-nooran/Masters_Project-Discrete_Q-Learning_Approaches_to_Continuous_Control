@@ -53,7 +53,7 @@ class PlottingUtils(Logger):
             np.ones(window_size) / window_size,
             mode="valid",
         )
-        ax.plot(self.metrics.episodes[window_size - 1:], moving_avg)
+        ax.plot(self.metrics.episodes[window_size - 1 :], moving_avg)
         ax.set_title(f"Moving Average Rewards (window={window_size})")
         ax.set_xlabel("Episode")
         ax.set_ylabel("Average Reward")
@@ -161,7 +161,7 @@ class PlottingUtils(Logger):
 
         if len(losses) > window:
             smoothed = np.convolve(losses, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed)
+            axes[1].plot(episodes[window - 1 :], smoothed)
             axes[1].set_title(f"Huber Loss (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Loss")
@@ -184,7 +184,7 @@ class PlottingUtils(Logger):
 
         if len(mse_losses) > window:
             smoothed = np.convolve(mse_losses, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed, color="red")
+            axes[1].plot(episodes[window - 1 :], smoothed, color="red")
             axes[1].set_title(f"MSE Loss (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("MSE")
@@ -219,7 +219,7 @@ class PlottingUtils(Logger):
 
         if len(td_errors) > window:
             smoothed = np.convolve(td_errors, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed, color="orange")
+            axes[1].plot(episodes[window - 1 :], smoothed, color="orange")
             axes[1].set_title(f"Mean Abs TD Error (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Absolute TD Error")
@@ -242,7 +242,7 @@ class PlottingUtils(Logger):
 
         if len(td_squared) > window:
             smoothed = np.convolve(td_squared, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed, color="red")
+            axes[1].plot(episodes[window - 1 :], smoothed, color="red")
             axes[1].set_title(f"Mean Sq TD Error (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Squared TD Error")
@@ -302,7 +302,9 @@ class PlottingUtils(Logger):
 
     def _print_loss_stats(self):
         """Print loss statistics."""
-        valid_losses = [loss for loss in self.metrics.episode_losses if loss is not None]
+        valid_losses = [
+            loss for loss in self.metrics.episode_losses if loss is not None
+        ]
         if valid_losses:
             losses = np.array(valid_losses)
             self.logger.info(f"\nAverage Huber loss: {losses.mean():.6f}")
@@ -335,15 +337,21 @@ class PlottingUtils(Logger):
     def _print_epsilon_stats(self):
         """Print epsilon statistics."""
         if self.metrics.episode_epsilons:
-            self.logger.info(f"\nFinal epsilon: {self.metrics.episode_epsilons[-1]:.4f}")
+            self.logger.info(
+                f"\nFinal epsilon: {self.metrics.episode_epsilons[-1]:.4f}"
+            )
 
     def _print_recent_stats(self, rewards, lengths):
         """Print recent episode statistics."""
         if len(rewards) > 100:
             recent_rewards = rewards[-100:]
             recent_lengths = lengths[-100:]
-            self.logger.info(f"\nRecent 100 episodes avg reward: {recent_rewards.mean():.2f}")
-            self.logger.info(f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}")
+            self.logger.info(
+                f"\nRecent 100 episodes avg reward: {recent_rewards.mean():.2f}"
+            )
+            self.logger.info(
+                f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}"
+            )
 
     def _filter_valid_data(self, episodes, data):
         """Filter out None values from data."""
