@@ -13,6 +13,7 @@ class MetricsTracker:
         self.episode_q_means = []
         self.episode_epsilons = []
         self.episode_mse_losses = []
+        self.episode_times = []
         self.episodes = []
 
         os.makedirs(save_dir, exist_ok=True)
@@ -28,6 +29,7 @@ class MetricsTracker:
         mean_squared_td_error=0.0,
         q_mean=0.0,
         epsilon=0.0,
+        episode_time=0.0,
     ):
         self.episodes.append(episode)
         self.episode_rewards.append(reward)
@@ -38,6 +40,7 @@ class MetricsTracker:
         self.episode_q_means.append(q_mean)
         self.episode_epsilons.append(epsilon)
         self.episode_mse_losses.append(mse_loss)
+        self.episode_times.append(episode_time)
 
     def save_metrics(self):
         metrics_data = {
@@ -50,6 +53,7 @@ class MetricsTracker:
             "episode_mean_squared_td_error": self.episode_mean_squared_td_error,
             "episode_epsilons": self.episode_epsilons,
             "episode_q_means": self.episode_q_means,
+            "episode_times": self.episode_times,
         }
 
         metrics_path = os.path.join(self.save_dir, "metrics.pkl")

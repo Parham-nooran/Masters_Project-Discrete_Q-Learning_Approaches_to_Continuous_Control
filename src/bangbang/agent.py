@@ -8,7 +8,11 @@ from src.common.encoder import VisionEncoder
 from typing import Dict
 from src.bangbang.bernoulli_policy import BernoulliPolicy
 from src.common.logger import Logger
-from src.common.utils import get_batch_components
+from src.common.training_utils import (
+    get_batch_components,
+    encode_observation,
+    check_and_sample_batch_from_replay_buffer,
+)
 
 
 class BangBangAgent(Logger):
@@ -106,31 +110,28 @@ class BangBangAgent(Logger):
 
     def update(self) -> Dict[str, float]:
         """Update policy using importance-weighted policy gradient."""
-        if len(self.replay_buffer) < self.config.min_replay_size:
+        batch = check_and_sample_batch_from_replay_buffer(
+            self.replay_buffer, self.config.min_replay_size, self.config.num_bins
+        )
+        if batch is None:
             return {}
         obs, actions, rewards, next_obs, dones, discounts, weights, indices = (
-            get_batch_components(
-                self.replay_buffer, self.config.batch_size, self.device
-            )
+            get_batch_components(batch, self.device)
         )
-
-        if self.encoder:
-            obs_encoded = self.encoder(obs)
-        else:
-            obs_encoded = obs.flatten(1)
+        obs_encoded, next_obs_encoded = encode_observation(self.encoder, obs, next_obs)
 
         logits = self.policy(obs_encoded)
         probs = torch.sigmoid(logits)
         dist = torch.distributions.Bernoulli(probs)
         log_probs = dist.log_prob(actions).sum(dim=-1)
         returns = rewards
-        policy_loss = -(log_probs * returns * weights).mean()
+        loss = -(log_probs * returns * weights).mean()
 
         self.policy_optimizer.zero_grad()
         if self.encoder:
             self.encoder_optimizer.zero_grad()
 
-        policy_loss.backward()
+        loss.backward()
 
         if getattr(self.config, "clip_gradients", False):
             clip_norm = getattr(self.config, "clip_gradients_norm", 40.0)
@@ -148,7 +149,7 @@ class BangBangAgent(Logger):
         self.training_step += 1
 
         return {
-            "policy_loss": policy_loss.item(),
+            "loss": loss.item(),
             "mean_return": returns.mean().item(),
             "mean_prob": probs.mean().item(),
         }

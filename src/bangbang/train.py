@@ -5,7 +5,7 @@ from collections import deque
 from src.bangbang.agent import BangBangAgent
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
-from src.common.utils import *
+from src.common.training_utils import *
 
 
 class BangBangTrainer(Logger):

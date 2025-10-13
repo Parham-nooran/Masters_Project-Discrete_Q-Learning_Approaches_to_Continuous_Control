@@ -28,7 +28,7 @@ class GrowingQNAgent(Logger):
         self.obs_shape = obs_shape
         self.action_spec = action_spec
         self.action_discretizer = GrowingActionDiscretizer(
-            action_spec, max_bins=config.max_bins, decouple=config.decouple
+            action_spec, config.max_bins, config.decouple
         )
         self.scheduler = GrowingScheduler(config.num_episodes)
         if config.use_pixels:

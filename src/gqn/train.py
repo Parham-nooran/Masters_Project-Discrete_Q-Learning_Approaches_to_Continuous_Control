@@ -19,6 +19,137 @@ from src.plotting.plotting_utils import PlottingUtils
 from src.common.replay_buffer import OptimizedObsBuffer
 
 
+def _restore_replay_buffer(agent, checkpoint):
+    """Restore replay buffer state."""
+    if "replay_buffer_buffer" not in checkpoint:
+        return
+
+    agent.replay_buffer.buffer = checkpoint["replay_buffer_buffer"]
+    agent.replay_buffer.position = checkpoint["replay_buffer_position"]
+    agent.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
+    agent.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
+    agent.replay_buffer.to_device(agent.device)
+
+
+def _restore_growth_state(agent, checkpoint):
+    """Restore growth-related state."""
+    if "growth_history" in checkpoint:
+        agent.growth_history = checkpoint["growth_history"]
+
+    if "action_discretizer_current_bins" in checkpoint:
+        agent.action_discretizer.num_bins = checkpoint[
+            "action_discretizer_current_bins"
+        ]
+
+    if "action_discretizer_current_growth_idx" in checkpoint:
+        agent.action_discretizer.current_growth_idx = checkpoint[
+            "action_discretizer_current_growth_idx"
+        ]
+        agent.action_discretizer.action_bins = agent.action_discretizer.all_action_bins[
+            agent.action_discretizer.num_bins
+        ]
+
+
+def _restore_scheduler(agent, checkpoint):
+    """Restore scheduler state."""
+    if "scheduler_returns_history" in checkpoint:
+        agent.scheduler.returns_history = deque(
+            checkpoint["scheduler_returns_history"],
+            maxlen=agent.scheduler.window_size,
+        )
+        agent.scheduler.last_growth_episode = checkpoint.get(
+            "scheduler_last_growth_episode", 0
+        )
+
+
+def _restore_agent_state(agent, checkpoint):
+    """Restore agent network states."""
+    agent.q_network.load_state_dict(checkpoint["q_network_state_dict"])
+    agent.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
+    agent.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
+    agent.training_step = checkpoint.get("training_step", 0)
+    agent.epsilon = checkpoint.get("epsilon", agent.config.epsilon)
+    agent.episode_count = checkpoint.get("episode_count", 0)
+
+
+def _restore_encoder(agent, checkpoint):
+    """Restore encoder state if exists."""
+    if agent.encoder and "encoder_state_dict" in checkpoint:
+        agent.encoder.load_state_dict(checkpoint["encoder_state_dict"])
+        agent.encoder_optimizer.load_state_dict(
+            checkpoint["encoder_optimizer_state_dict"]
+        )
+
+
+def _init_recent_metrics():
+    """Initialize recent metrics buffers."""
+    return {
+        "losses": deque(maxlen=20),
+        "q1_means": deque(maxlen=20),
+        "mean_abs_td_errors": deque(maxlen=20),
+        "mean_squared_td_errors": deque(maxlen=20),
+    }
+
+
+def _init_episode_metrics():
+    """Initialize episode metrics dictionary."""
+    return {
+        "reward": 0,
+        "original_reward": 0,
+        "action_magnitude_sum": 0,
+        "step": 0,
+        "update_metrics": [],
+    }
+
+
+def _accumulate_update_metrics(episode_metrics, update_metrics):
+    """Accumulate metrics from update step."""
+    if update_metrics and isinstance(update_metrics, dict):
+        episode_metrics["update_metrics"].append(update_metrics)
+
+
+def _update_recent_metrics(recent_metrics, episode_metrics):
+    """Update recent metrics buffers."""
+    for update_metric in episode_metrics["update_metrics"]:
+        if "q1_mean" in update_metric:
+            recent_metrics["q1_means"].append(update_metric["q1_mean"])
+        if "mean_abs_td_error" in update_metric:
+            recent_metrics["mean_abs_td_errors"].append(
+                update_metric["mean_abs_td_error"]
+            )
+        if "mean_squared_td_error" in update_metric:
+            recent_metrics["mean_squared_td_errors"].append(
+                update_metric["mean_squared_td_error"]
+            )
+        if "loss" in update_metric and update_metric["loss"] is not None:
+            if not np.isnan(update_metric["loss"]):
+                recent_metrics["losses"].append(update_metric["loss"])
+
+
+def _compute_average_metrics(recent_metrics, episode_metrics):
+    """Compute average of recent metrics."""
+    return {
+        "loss": (
+            np.mean(recent_metrics["losses"]) if recent_metrics["losses"] else 0.0
+        ),
+        "q_mean": (
+            np.mean(recent_metrics["q1_means"]) if recent_metrics["q1_means"] else 0.0
+        ),
+        "mean_abs_td_error": (
+            np.mean(recent_metrics["mean_abs_td_errors"])
+            if recent_metrics["mean_abs_td_errors"]
+            else 0.0
+        ),
+        "mean_squared_td_error": (
+            np.mean(recent_metrics["mean_squared_td_errors"])
+            if recent_metrics["mean_squared_td_errors"]
+            else 0.0
+        ),
+        "action_magnitude": episode_metrics["action_magnitude_sum"]
+        / max(episode_metrics["step"], 1),
+    }
+
+
 class GQNTrainer(Logger):
     """Trainer for Growing Q-Networks Agent."""
 
@@ -33,12 +164,12 @@ class GQNTrainer(Logger):
         agent, metrics_tracker, start_episode = self._setup_training()
         self._log_setup_info(agent, start_episode)
 
-        recent_metrics = self._init_recent_metrics()
+        recent_metrics = _init_recent_metrics()
         obs_buffer = OptimizedObsBuffer(agent.obs_shape, self.device)
         start_time = time.time()
 
         for episode in range(start_episode, self.config.num_episodes):
-            episode_metrics = self._run_episode(agent, metrics_tracker, obs_buffer)
+            episode_metrics = self._run_episode(agent, obs_buffer)
             self._update_metrics(
                 metrics_tracker, recent_metrics, episode, episode_metrics, agent
             )
@@ -95,16 +226,7 @@ class GQNTrainer(Logger):
         self.logger.info(f"  Action penalty: {self.config.action_penalty}")
         self.logger.info(f"Starting training from episode {start_episode}...")
 
-    def _init_recent_metrics(self):
-        """Initialize recent metrics buffers."""
-        return {
-            "losses": deque(maxlen=20),
-            "q1_means": deque(maxlen=20),
-            "mean_abs_td_errors": deque(maxlen=20),
-            "mean_squared_td_errors": deque(maxlen=20),
-        }
-
-    def _run_episode(self, agent, metrics_tracker, obs_buffer):
+    def _run_episode(self, agent, obs_buffer):
         """Run a single training episode."""
         env = get_env(self.config.task, self.logger)
         time_step = env.reset()
@@ -113,7 +235,7 @@ class GQNTrainer(Logger):
         )
         agent.observe_first(obs)
 
-        episode_metrics = self._init_episode_metrics()
+        episode_metrics = _init_episode_metrics()
         step = 0
 
         while not time_step.last() and step < 1000:
@@ -129,7 +251,7 @@ class GQNTrainer(Logger):
             agent.observe(action, reward, next_obs, time_step.last())
 
             update_metrics = self._update_if_ready(agent)
-            self._accumulate_update_metrics(episode_metrics, update_metrics)
+            _accumulate_update_metrics(episode_metrics, update_metrics)
 
             obs = next_obs
             episode_metrics["reward"] += reward
@@ -142,16 +264,6 @@ class GQNTrainer(Logger):
         self._cleanup_memory()
 
         return episode_metrics
-
-    def _init_episode_metrics(self):
-        """Initialize episode metrics dictionary."""
-        return {
-            "reward": 0,
-            "original_reward": 0,
-            "action_magnitude_sum": 0,
-            "step": 0,
-            "update_metrics": [],
-        }
 
     def _compute_reward(self, action_np, time_step):
         """Compute penalized and original reward."""
@@ -172,11 +284,6 @@ class GQNTrainer(Logger):
             return agent.update()
         return {}
 
-    def _accumulate_update_metrics(self, episode_metrics, update_metrics):
-        """Accumulate metrics from update step."""
-        if update_metrics and isinstance(update_metrics, dict):
-            episode_metrics["update_metrics"].append(update_metrics)
-
     def _cleanup_memory(self):
         """Clean up GPU memory."""
         if self.device == "cuda":
@@ -186,8 +293,8 @@ class GQNTrainer(Logger):
         self, metrics_tracker, recent_metrics, episode, episode_metrics, agent
     ):
         """Update all metrics tracking."""
-        self._update_recent_metrics(recent_metrics, episode_metrics)
-        avg_metrics = self._compute_average_metrics(recent_metrics, episode_metrics)
+        _update_recent_metrics(recent_metrics, episode_metrics)
+        avg_metrics = _compute_average_metrics(recent_metrics, episode_metrics)
 
         metrics_tracker.log_episode(
             episode=episode,
@@ -199,48 +306,6 @@ class GQNTrainer(Logger):
             q_mean=avg_metrics["q_mean"],
             epsilon=agent.epsilon,
         )
-
-    def _update_recent_metrics(self, recent_metrics, episode_metrics):
-        """Update recent metrics buffers."""
-        for update_metric in episode_metrics["update_metrics"]:
-            if "q1_mean" in update_metric:
-                recent_metrics["q1_means"].append(update_metric["q1_mean"])
-            if "mean_abs_td_error" in update_metric:
-                recent_metrics["mean_abs_td_errors"].append(
-                    update_metric["mean_abs_td_error"]
-                )
-            if "mean_squared_td_error" in update_metric:
-                recent_metrics["mean_squared_td_errors"].append(
-                    update_metric["mean_squared_td_error"]
-                )
-            if "loss" in update_metric and update_metric["loss"] is not None:
-                if not np.isnan(update_metric["loss"]):
-                    recent_metrics["losses"].append(update_metric["loss"])
-
-    def _compute_average_metrics(self, recent_metrics, episode_metrics):
-        """Compute average of recent metrics."""
-        return {
-            "loss": (
-                np.mean(recent_metrics["losses"]) if recent_metrics["losses"] else 0.0
-            ),
-            "q_mean": (
-                np.mean(recent_metrics["q1_means"])
-                if recent_metrics["q1_means"]
-                else 0.0
-            ),
-            "mean_abs_td_error": (
-                np.mean(recent_metrics["mean_abs_td_errors"])
-                if recent_metrics["mean_abs_td_errors"]
-                else 0.0
-            ),
-            "mean_squared_td_error": (
-                np.mean(recent_metrics["mean_squared_td_errors"])
-                if recent_metrics["mean_squared_td_errors"]
-                else 0.0
-            ),
-            "action_magnitude": episode_metrics["action_magnitude_sum"]
-            / max(episode_metrics["step"], 1),
-        }
 
     def _log_progress(
         self, episode, episode_metrics, recent_metrics, agent, start_time, start_episode
@@ -256,9 +321,8 @@ class GQNTrainer(Logger):
 
     def _log_regular_progress(self, episode, episode_metrics, recent_metrics, agent):
         """Log regular progress information."""
-        avg_metrics = self._compute_average_metrics(recent_metrics, episode_metrics)
+        avg_metrics = _compute_average_metrics(recent_metrics, episode_metrics)
         growth_info = agent.get_growth_info()
-        episode_time = time.time()
 
         self.logger.info(
             f"Episode {episode:4d} | "
@@ -343,78 +407,17 @@ class GQNTrainer(Logger):
             checkpoint = torch.load(
                 checkpoint_path, map_location=agent.device, weights_only=False
             )
-            self._restore_agent_state(agent, checkpoint)
-            self._restore_growth_state(agent, checkpoint)
-            self._restore_replay_buffer(agent, checkpoint)
-            self._restore_scheduler(agent, checkpoint)
-            self._restore_encoder(agent, checkpoint)
+            _restore_agent_state(agent, checkpoint)
+            _restore_growth_state(agent, checkpoint)
+            _restore_replay_buffer(agent, checkpoint)
+            _restore_scheduler(agent, checkpoint)
+            _restore_encoder(agent, checkpoint)
 
             self._log_checkpoint_info(checkpoint, agent)
             return checkpoint["episode"]
         except Exception as e:
             self.logger.error(f"Failed to load checkpoint: {e}")
             return 0
-
-    def _restore_agent_state(self, agent, checkpoint):
-        """Restore agent network states."""
-        agent.q_network.load_state_dict(checkpoint["q_network_state_dict"])
-        agent.target_q_network.load_state_dict(
-            checkpoint["target_q_network_state_dict"]
-        )
-        agent.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
-        agent.training_step = checkpoint.get("training_step", 0)
-        agent.epsilon = checkpoint.get("epsilon", agent.config.epsilon)
-        agent.episode_count = checkpoint.get("episode_count", 0)
-
-    def _restore_growth_state(self, agent, checkpoint):
-        """Restore growth-related state."""
-        if "growth_history" in checkpoint:
-            agent.growth_history = checkpoint["growth_history"]
-
-        if "action_discretizer_current_bins" in checkpoint:
-            agent.action_discretizer.num_bins = checkpoint[
-                "action_discretizer_current_bins"
-            ]
-
-        if "action_discretizer_current_growth_idx" in checkpoint:
-            agent.action_discretizer.current_growth_idx = checkpoint[
-                "action_discretizer_current_growth_idx"
-            ]
-            agent.action_discretizer.action_bins = (
-                agent.action_discretizer.all_action_bins[
-                    agent.action_discretizer.num_bins
-                ]
-            )
-
-    def _restore_replay_buffer(self, agent, checkpoint):
-        """Restore replay buffer state."""
-        if "replay_buffer_buffer" not in checkpoint:
-            return
-
-        agent.replay_buffer.buffer = checkpoint["replay_buffer_buffer"]
-        agent.replay_buffer.position = checkpoint["replay_buffer_position"]
-        agent.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
-        agent.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
-        agent.replay_buffer.to_device(agent.device)
-
-    def _restore_scheduler(self, agent, checkpoint):
-        """Restore scheduler state."""
-        if "scheduler_returns_history" in checkpoint:
-            agent.scheduler.returns_history = deque(
-                checkpoint["scheduler_returns_history"],
-                maxlen=agent.scheduler.window_size,
-            )
-            agent.scheduler.last_growth_episode = checkpoint.get(
-                "scheduler_last_growth_episode", 0
-            )
-
-    def _restore_encoder(self, agent, checkpoint):
-        """Restore encoder state if exists."""
-        if agent.encoder and "encoder_state_dict" in checkpoint:
-            agent.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-            agent.encoder_optimizer.load_state_dict(
-                checkpoint["encoder_optimizer_state_dict"]
-            )
 
     def _log_checkpoint_info(self, checkpoint, agent):
         """Log checkpoint loading information."""

@@ -2,7 +2,7 @@ import logging
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from .utils import get_path
+from src.common.training_utils import get_path
 
 
 class Logger:

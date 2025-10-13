@@ -1,10 +1,10 @@
 import torch.optim as optim
 
 from src.common.actors import CustomDiscreteFeedForwardActor
-from src.deqn.critic import *
 from src.common.encoder import *
 from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.utils import *
+from src.common.training_utils import *
+from src.deqn.critic import *
 from src.gqn.discretizer import GrowingActionDiscretizer
 
 
@@ -169,12 +169,13 @@ class DecQNAgent:
                 return q_max.argmax(dim=1)
 
     def update(self):
-        if len(self.replay_buffer) < self.config.min_replay_size:
+        batch = check_and_sample_batch_from_replay_buffer(
+            self.replay_buffer, self.config.min_replay_size, self.config.num_bins
+        )
+        if batch is None:
             return {}
         obs, actions, rewards, next_obs, dones, discounts, weights, indices = (
-            get_batch_components(
-                self.replay_buffer, self.config.batch_size, self.device
-            )
+            get_batch_components(batch, self.device)
         )
         obs_encoded, next_obs_encoded = encode_observation(self.encoder, obs, next_obs)
 
@@ -219,7 +220,6 @@ class DecQNAgent:
                 )
                 targets = rewards + discounts * q_target_values * (~dones).float()
             else:
-                # Standard case
                 next_actions = self.make_epsilon_greedy_policy(
                     (q1_next_online, q2_next_online), 0.0, False
                 )
@@ -275,16 +275,10 @@ class DecQNAgent:
             self.config.use_double_q,
             self.q_optimizer,
             self.encoder,
-            self.encoder_optimizer,
+            self.encoder_optimizer if self.encoder else None,
             weights,
             self.config.huber_loss_parameter,
         )
-
-        self.q_optimizer.zero_grad()
-        if self.encoder:
-            self.encoder_optimizer.zero_grad()
-
-        total_loss.backward()
 
         if getattr(self.config, "clip_gradients", False):
             clip_norm = getattr(self.config, "clip_gradients_norm", 40.0)

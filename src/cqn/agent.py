@@ -6,7 +6,7 @@ import torch
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.utils import huber_loss
+from src.common.training_utils import huber_loss
 from src.cqn.discretizer import CoarseToFineDiscretizer
 from src.cqn.networks import CQNNetwork
 
@@ -150,14 +150,12 @@ class CQNAgent(Logger):
 
         self.training_steps += 1
 
-        metrics = {
+        return {
             "loss": total_loss.item(),
             "epsilon": self.epsilon,
             "q_mean": (q1_current.mean() + q2_current.mean()).item() / 2,
-            "td_error_mean": avg_td_error.mean().item(),
+            "mean_abs_td_error": avg_td_error.mean().item(),
         }
-
-        return metrics
 
     def _compute_loss(
         self, obs, actions, rewards, next_obs, dones, discounts, weights

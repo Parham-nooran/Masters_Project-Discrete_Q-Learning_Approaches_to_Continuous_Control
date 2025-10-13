@@ -11,7 +11,7 @@ class GQNConfig:
         config = SimpleNamespace()
         for key, value in vars(decqn_config).items():
             setattr(config, key, value)
-        config.max_bins = 9
+        config.num_bins = 9
         config.growing_schedule = "adaptive"
         config.decouple = True
         return config
