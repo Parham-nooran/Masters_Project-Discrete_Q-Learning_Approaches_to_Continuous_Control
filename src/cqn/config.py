@@ -1,13 +1,17 @@
+"""
+Configuration for Coarse-to-Fine Q-Network agent.
+"""
+
 import os
 from dataclasses import dataclass
 
 
 @dataclass
 class CQNConfig:
-    """Configuration for CQN agent"""
+    """CQN agent and training hyperparameters."""
 
-    env_name: str = "walker_run"
-    task: str = "walker_run"
+    env_name: str = "walker_walk"
+    task: str = "walker_walk"
     seed: int = 42
 
     layer_size_bottleneck: int = 512
@@ -30,6 +34,7 @@ class CQNConfig:
     n_step: int = 3
 
     target_update_freq: int = 1000
+    target_update_tau: float = 0.005
     huber_loss_parameter: float = 1.0
     max_grad_norm: float = 10.0
 
@@ -39,9 +44,11 @@ class CQNConfig:
     working_dir: str = "experiments"
     save_dir: str = "models/cqn"
     log_level: str = "INFO"
+    load_checkpoints: str = None
 
-    def __post_init__(self):
-        """Post-initialization setup"""
-        # Create directories
+    def __post_init__(self) -> None:
+        """Create necessary directories."""
         os.makedirs(self.save_dir, exist_ok=True)
         os.makedirs(os.path.join(self.working_dir, "output/logs"), exist_ok=True)
+        os.makedirs("output/checkpoints", exist_ok=True)
+        os.makedirs("output/metrics", exist_ok=True)
