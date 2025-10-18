@@ -17,7 +17,7 @@ class Logger:
         enable_logging=True,
         log_to_file=True,
         log_to_console=True,
-        logging_dir="output/logs",
+        logging_dir=".",
     ):
         self.specific_excel_file_name = specific_excel_file_name
         self.max_log_size_mb = max_log_size_mb

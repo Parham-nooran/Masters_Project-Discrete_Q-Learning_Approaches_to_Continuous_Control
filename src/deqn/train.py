@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument(
         "--load-checkpoints",
         type=str,
-        default=None,
+        default="./output/checkpoints/decqn_walker_run_0.pth",
         help="Path to checkpoints file to resume from",
     )
     parser.add_argument(
@@ -87,9 +87,9 @@ def parse_args():
     return parser.parse_args()
 
 
-def _initialize_metrics_tracker(start_episode):
+def _initialize_metrics_tracker(logger, start_episode):
     """Initialize or load metrics tracker."""
-    metrics_tracker = MetricsTracker(save_dir="output/metrics")
+    metrics_tracker = MetricsTracker(logger, save_dir="./output/metrics")
 
     if start_episode > 0:
         metrics_tracker.load_metrics()
@@ -112,7 +112,7 @@ def _update_agent_parameters(agent):
 class DecQNTrainer(Logger):
     """Trainer for Decoupled Q-Networks Agent."""
 
-    def __init__(self, config, working_dir="."):
+    def __init__(self, config, working_dir="./src/deqn/output/logs"):
         super().__init__(working_dir)
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -127,7 +127,7 @@ class DecQNTrainer(Logger):
         agent = DecQNAgent(self.config, obs_shape, action_spec_dict)
 
         start_episode = self._load_checkpoint_if_available(agent)
-        metrics_tracker = _initialize_metrics_tracker(start_episode)
+        metrics_tracker = _initialize_metrics_tracker(self.logger, start_episode)
 
         self._log_setup_info(agent)
 
@@ -244,7 +244,7 @@ class DecQNTrainer(Logger):
         self.logger.info(
             f"Episode {episode:4d} | "
             f"Num Steps {metrics['steps']:4d} | "
-            f"Average Reward: {torch.mean(torch.tensor(metrics['rewards'])):7.2f} | "
+            f"Episodic Reward: {torch.sum(torch.tensor(metrics['rewards'])):7.2f} | "
             f"Loss: {metrics['loss']:8.6f} | "
             f"MSE Loss: {metrics['mse_loss']:8.6f} | "
             f"Mean abs TD Error: {metrics['mean_abs_td_error']:8.6f} | "
@@ -301,7 +301,7 @@ class DecQNTrainer(Logger):
     def _generate_plots(self, metrics_tracker):
         """Generate training plots."""
         self.logger.info("Generating plots...")
-        plotter = PlottingUtils(metrics_tracker, save_dir="output/plots")
+        plotter = PlottingUtils(metrics_tracker, save_dir="./output/plots")
         plotter.plot_training_curves(save=True)
         plotter.plot_reward_distribution(save=True)
         plotter.print_summary_stats()

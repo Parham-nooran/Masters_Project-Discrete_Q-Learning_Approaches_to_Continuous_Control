@@ -327,8 +327,8 @@ class GQNTrainer(Logger):
 
         self.logger.info(
             f"Episode {episode:4d} | "
-            f"Reward: {torch.mean(torch.tensor(episode_metrics['rewards'])):7.2f} | "
-            f"Original Rewards: {torch.mean(torch.tensor(episode_metrics['original_rewards'])):7.2f} | "
+            f"Episodic Reward: {torch.sum(torch.tensor(episode_metrics['rewards'])):7.2f} | "
+            f"Original Episodic Reward: {torch.sum(torch.tensor(episode_metrics['original_rewards'])):7.2f} | "
             f"Loss: {avg_metrics['loss']:8.6f} | "
             f"Mean abs TD: {avg_metrics['mean_abs_td_error']:8.6f} | "
             f"Mean sq TD: {avg_metrics['mean_squared_td_error']:8.6f} | "

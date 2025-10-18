@@ -1,9 +1,12 @@
 import os
 import pickle
 
+from src.common.logger import Logger
+
 
 class MetricsTracker:
-    def __init__(self, save_dir="./metrics"):
+    def __init__(self, logger, save_dir="."):
+        self.logger = logger
         self.save_dir = save_dir
         self.episode_rewards = []
         self.episode_steps = []
@@ -83,9 +86,9 @@ class MetricsTracker:
                 self.episode_q_means = metrics_data.get("episode_q_means", [])
                 self.episode_epsilons = metrics_data.get("episode_epsilons", [])
 
-                print(f"Loaded metrics for {len(self.episodes)} episodes")
+                self.logger.info(f"Loaded metrics for {len(self.episodes)} episodes")
                 return True
             except Exception as e:
-                print(f"Failed to load metrics: {e}")
+                self.logger.warn(f"Failed to load metrics: {e}")
                 return False
         return False
