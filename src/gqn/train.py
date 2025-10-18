@@ -12,11 +12,11 @@ import torch
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.observation_utils import process_observation
+from src.common.replay_buffer import OptimizedObsBuffer
 from src.common.training_utils import get_env, get_env_specs, init_training
 from src.gqn.agent import GrowingQNAgent
 from src.gqn.config import GQNConfig
 from src.plotting.plotting_utils import PlottingUtils
-from src.common.replay_buffer import OptimizedObsBuffer
 
 
 def _restore_replay_buffer(agent, checkpoint):
@@ -146,7 +146,7 @@ def _compute_average_metrics(recent_metrics, episode_metrics):
             else 0.0
         ),
         "action_magnitude": torch.mean(torch.tensor(episode_metrics["action_magnitudes"]))
-        / max(episode_metrics["steps"], 1),
+                            / max(episode_metrics["steps"], 1),
     }
 
 
@@ -172,7 +172,7 @@ def _update_metrics(
 class GQNTrainer(Logger):
     """Trainer for Growing Q-Networks Agent."""
 
-    def __init__(self, config, working_dir="."):
+    def __init__(self, config, working_dir="./src/gqn/output/logs"):
         super().__init__(working_dir)
         self.working_dir = working_dir
         self.config = config
@@ -216,7 +216,7 @@ class GQNTrainer(Logger):
         agent = GrowingQNAgent(
             self.config, obs_shape, action_spec_dict, self.working_dir
         )
-        metrics_tracker = MetricsTracker(save_dir="output/metrics")
+        metrics_tracker = MetricsTracker(self.logger, save_dir="./output/metrics")
 
         start_episode = self._load_checkpoint_if_exists(agent, metrics_tracker)
         return agent, metrics_tracker, start_episode
@@ -289,7 +289,7 @@ class GQNTrainer(Logger):
         original_reward = time_step.reward if time_step.reward is not None else 0.0
 
         if self.config.action_penalty > 0:
-            penalty = self.config.action_penalty * np.sum(action_np**2) / len(action_np)
+            penalty = self.config.action_penalty * np.sum(action_np ** 2) / len(action_np)
             penalty = min(penalty, abs(original_reward) * 0.1)
             reward = original_reward - penalty
         else:
@@ -309,7 +309,7 @@ class GQNTrainer(Logger):
             torch.cuda.empty_cache()
 
     def _log_progress(
-        self, episode, episode_metrics, recent_metrics, agent, start_time, start_episode
+            self, episode, episode_metrics, recent_metrics, agent, start_time, start_episode
     ):
         """Log training progress."""
         if episode % self.config.log_interval == 0:
@@ -338,7 +338,7 @@ class GQNTrainer(Logger):
         )
 
     def _log_detailed_progress(
-        self, episode, episode_metrics, agent, start_time, start_episode
+            self, episode, episode_metrics, agent, start_time, start_episode
     ):
         """Log detailed progress information."""
         elapsed_time = time.time() - start_time
