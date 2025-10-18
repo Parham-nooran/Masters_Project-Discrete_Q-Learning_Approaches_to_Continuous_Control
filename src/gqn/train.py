@@ -94,10 +94,10 @@ def _init_recent_metrics():
 def _init_episode_metrics():
     """Initialize episode metrics dictionary."""
     return {
-        "reward": 0,
-        "original_reward": 0,
-        "action_magnitude_sum": 0,
-        "step": 0,
+        "rewards": [],
+        "original_rewards": [],
+        "action_magnitudes": [],
+        "steps": 0,
         "update_metrics": [],
     }
 
@@ -145,9 +145,28 @@ def _compute_average_metrics(recent_metrics, episode_metrics):
             if recent_metrics["mean_squared_td_errors"]
             else 0.0
         ),
-        "action_magnitude": episode_metrics["action_magnitude_sum"]
-        / max(episode_metrics["step"], 1),
+        "action_magnitude": torch.mean(torch.tensor(episode_metrics["action_magnitudes"]))
+        / max(episode_metrics["steps"], 1),
     }
+
+
+def _update_metrics(
+        metrics_tracker, recent_metrics, episode, episode_metrics, agent
+):
+    """Update all metrics tracking."""
+    _update_recent_metrics(recent_metrics, episode_metrics)
+    avg_metrics = _compute_average_metrics(recent_metrics, episode_metrics)
+
+    metrics_tracker.log_episode(
+        episode=episode,
+        rewards=episode_metrics["rewards"],
+        steps=episode_metrics["steps"],
+        loss=avg_metrics["loss"],
+        mean_abs_td_error=avg_metrics["mean_abs_td_error"],
+        mean_squared_td_error=avg_metrics["mean_squared_td_error"],
+        q_mean=avg_metrics["q_mean"],
+        epsilon=agent.epsilon,
+    )
 
 
 class GQNTrainer(Logger):
@@ -170,7 +189,7 @@ class GQNTrainer(Logger):
 
         for episode in range(start_episode, self.config.num_episodes):
             episode_metrics = self._run_episode(agent, obs_buffer)
-            self._update_metrics(
+            _update_metrics(
                 metrics_tracker, recent_metrics, episode, episode_metrics, agent
             )
             agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
@@ -236,9 +255,9 @@ class GQNTrainer(Logger):
         agent.observe_first(obs)
 
         episode_metrics = _init_episode_metrics()
-        step = 0
+        steps = 0
 
-        while not time_step.last() and step < 1000:
+        while not time_step.last() and steps < 1000:
             action = agent.select_action(obs)
             action_np = action.cpu().numpy()
 
@@ -254,13 +273,13 @@ class GQNTrainer(Logger):
             _accumulate_update_metrics(episode_metrics, update_metrics)
 
             obs = next_obs
-            episode_metrics["reward"] += reward
-            episode_metrics["original_reward"] += original_reward
-            episode_metrics["action_magnitude_sum"] += np.linalg.norm(action_np)
-            step += 1
+            episode_metrics["rewards"].append(reward)
+            episode_metrics["original_rewards"].append(original_reward)
+            episode_metrics["action_magnitudes"].append(np.linalg.norm(action_np))
+            steps += 1
 
-        episode_metrics["step"] = step
-        agent.end_episode(episode_metrics["reward"])
+        episode_metrics["steps"] = steps
+        agent.end_episode(episode_metrics["rewards"])
         self._cleanup_memory()
 
         return episode_metrics
@@ -289,24 +308,6 @@ class GQNTrainer(Logger):
         if self.device == "cuda":
             torch.cuda.empty_cache()
 
-    def _update_metrics(
-        self, metrics_tracker, recent_metrics, episode, episode_metrics, agent
-    ):
-        """Update all metrics tracking."""
-        _update_recent_metrics(recent_metrics, episode_metrics)
-        avg_metrics = _compute_average_metrics(recent_metrics, episode_metrics)
-
-        metrics_tracker.log_episode(
-            episode=episode,
-            reward=episode_metrics["reward"],
-            length=episode_metrics["step"],
-            loss=avg_metrics["loss"],
-            mean_abs_td_error=avg_metrics["mean_abs_td_error"],
-            mean_squared_td_error=avg_metrics["mean_squared_td_error"],
-            q_mean=avg_metrics["q_mean"],
-            epsilon=agent.epsilon,
-        )
-
     def _log_progress(
         self, episode, episode_metrics, recent_metrics, agent, start_time, start_episode
     ):
@@ -326,8 +327,8 @@ class GQNTrainer(Logger):
 
         self.logger.info(
             f"Episode {episode:4d} | "
-            f"Reward: {episode_metrics['reward']:7.2f} | "
-            f"Original: {episode_metrics['original_reward']:7.2f} | "
+            f"Reward: {torch.mean(torch.tensor(episode_metrics['rewards'])):7.2f} | "
+            f"Original Rewards: {torch.mean(torch.tensor(episode_metrics['original_rewards'])):7.2f} | "
             f"Loss: {avg_metrics['loss']:8.6f} | "
             f"Mean abs TD: {avg_metrics['mean_abs_td_error']:8.6f} | "
             f"Mean sq TD: {avg_metrics['mean_squared_td_error']:8.6f} | "
@@ -401,6 +402,7 @@ class GQNTrainer(Logger):
     def load_checkpoint(self, agent, checkpoint_path):
         """Load checkpoint and restore state."""
         if not os.path.exists(checkpoint_path):
+            self.logger.warning(f"Checkpoint {checkpoint_path} does not exist.")
             return 0
 
         try:

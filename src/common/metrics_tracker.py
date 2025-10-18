@@ -71,7 +71,7 @@ class MetricsTracker:
 
                 self.episodes = metrics_data.get("episodes", [])
                 self.episode_rewards = metrics_data.get("episode_rewards", [])
-                self.episode_lengths = metrics_data.get("episode_lengths", [])
+                self.episode_steps = metrics_data.get("episode_steps", [])
                 self.episode_mse_losses = metrics_data.get("episode_mse_losses", [])
                 self.episode_losses = metrics_data.get("episode_losses", [])
                 self.episode_mean_abs_td_error = metrics_data.get(
