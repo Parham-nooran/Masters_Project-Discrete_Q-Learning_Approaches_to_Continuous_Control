@@ -180,7 +180,7 @@ class DecQNTrainer(Logger):
     def _run_episode(self, env, agent, metrics_accumulator):
         """Run a single training episode."""
         episode_start_time = time.time()
-        episode_rewards = []
+        episode_reward = 0.0
         steps = 0
 
         time_step = env.reset()
@@ -205,14 +205,14 @@ class DecQNTrainer(Logger):
             self._update_networks_if_ready(agent, metrics_accumulator)
 
             obs = next_obs
-            episode_rewards.append(reward)
+            episode_reward += reward
             steps += 1
 
         episode_time = time.time() - episode_start_time
         averages = metrics_accumulator.get_averages()
 
         return {
-            "rewards": episode_rewards,
+            "reward": episode_reward,
             "steps": steps,
             "loss": averages["loss"],
             "mean_abs_td_error": averages["mean_abs_td_error"],
@@ -244,7 +244,7 @@ class DecQNTrainer(Logger):
         self.logger.info(
             f"Episode {episode:4d} | "
             f"Num Steps {metrics['steps']:4d} | "
-            f"Episodic Reward: {torch.sum(torch.tensor(metrics['rewards'])):7.2f} | "
+            f"Episodic Reward: {metrics['reward']:7.2f} | "
             f"Loss: {metrics['loss']:8.6f} | "
             f"MSE Loss: {metrics['mse_loss']:8.6f} | "
             f"Mean abs TD Error: {metrics['mean_abs_td_error']:8.6f} | "

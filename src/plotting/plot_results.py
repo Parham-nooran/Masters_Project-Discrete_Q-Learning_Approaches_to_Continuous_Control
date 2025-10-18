@@ -30,13 +30,13 @@ def parse_arguments():
     parser.add_argument(
         "--window", type=int, default=100, help="Window size for running average"
     )
-    parser.add_argument("--output_dir", default="plots", help="Directory to save plots")
+    parser.add_argument("--output_dir", default="./output/plots", help="Directory to save plots")
 
     return parser.parse_args()
 
 
 class Plotter(Logger):
-    def __init__(self, working_dir="./src/plotting/logs"):
+    def __init__(self, working_dir="./src/plotting/output/logs"):
         super().__init__(working_dir)
         self.tracker = MetricsTracker(self.logger)
         self.args = parse_arguments()
@@ -52,29 +52,27 @@ class Plotter(Logger):
     def plot(self):
         try:
             self.tracker.load_metrics(self.args.metrics_file)
-
-            if not self.tracker.episode_rewards:
-                self.logger.info(f"No metrics found in {self.args.metrics_file}")
-                self.logger.info("Make sure you have run training and saved metrics first.")
-                return
-
-            self.logger.info(f"Loaded {len(self.tracker.episode_rewards)} episodes of data")
-
-            plotter = PlottingUtils(self.tracker, save_dir=self.args.output_dir)
-
-            self.logger.info("\nGenerating plots...")
-            plotter.plot_training_curves(window=self.args.window, save=True)
-            plotter.plot_loss_comparison(window=self.args.window, save=True)
-            plotter.plot_td_error_analysis(window=self.args.window, save=True)
-            plotter.plot_reward_distribution(save=True)
-
-            self.logger("\nTraining Summary:")
-            plotter.print_summary_stats()
-
-            self.logger(f"\nAll plots saved to {self.args.output_dir}/")
-
         except Exception as e:
-            self.logger.warn(f"Error loading metrics: {e}")
+            self.logger.warning(f"Error loading metrics: {e}")
+        if not self.tracker.episode_rewards:
+            self.logger.info(f"No metrics found in {self.args.metrics_file}")
+            self.logger.info("Make sure you have run training and saved metrics first.")
+            return
+
+        self.logger.info(f"Loaded {len(self.tracker.episode_rewards)} episodes of data")
+
+        plotter = PlottingUtils(self.logger, self.tracker, self.args.output_dir)
+
+        self.logger.info("Generating plots...")
+        plotter.plot_training_curves(window=self.args.window, save=True)
+        plotter.plot_loss_comparison(window=self.args.window, save=True)
+        plotter.plot_td_error_analysis(window=self.args.window, save=True)
+        plotter.plot_reward_distribution(save=True)
+
+        self.logger.info("Training Summary:")
+        plotter.print_summary_stats()
+
+        self.logger.info(f"All plots saved to {self.args.output_dir}/")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class MetricsTracker:
     def log_episode(
         self,
         episode,
-        rewards,
+        reward,
         steps,
         mse_loss=0.0,
         loss=0.0,
@@ -35,7 +35,7 @@ class MetricsTracker:
         episode_time=0.0,
     ):
         self.episodes.append(episode)
-        self.episode_rewards.append(rewards)
+        self.episode_rewards.append(reward)
         self.episode_steps.append(steps)
         self.episode_losses.append(loss)
         self.episode_mean_abs_td_error.append(mean_abs_td_error)

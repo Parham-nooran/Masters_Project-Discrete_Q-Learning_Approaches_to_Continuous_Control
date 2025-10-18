@@ -1,10 +1,10 @@
 """Utilities for plotting training results."""
 
 import os
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
-from src.common.logger import Logger
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def _filter_valid_data(episodes, data):
@@ -18,11 +18,11 @@ def _save_figure(save_dir, filename):
     plt.savefig(filepath, dpi=150, bbox_inches="tight")
 
 
-class PlottingUtils(Logger):
+class PlottingUtils:
     """Utility class for plotting training metrics."""
 
-    def __init__(self, metrics, save_dir="./output/plots"):
-        super().__init__(save_dir)
+    def __init__(self, logger, metrics, save_dir):
+        self.logger = logger
         self.metrics = metrics
         self.save_dir = save_dir
         Path(save_dir).mkdir(parents=True, exist_ok=True)
@@ -33,7 +33,7 @@ class PlottingUtils(Logger):
         fig, axes = plt.subplots(4, 2, figsize=(15, 20))
 
         self._plot_raw_rewards(axes[0, 0])
-        self._plot_moving_average_rewards(axes[0, 1], window)
+        # self._plot_moving_average_rewards(axes[0, 1], window)
         self._plot_training_loss(axes[1, 0])
         self._plot_mse_loss(axes[1, 1])
         self._plot_mean_abs_td_error(axes[2, 0])
@@ -47,7 +47,10 @@ class PlottingUtils(Logger):
 
     def _plot_raw_rewards(self, ax):
         """Plot raw episode rewards."""
-        ax.plot(self.metrics.steps, self.metrics.episode_rewards)
+        rewards = []
+        for episode_reward, episode_step in zip(self.metrics.episode_rewards, self.metrics.episode_steps):
+            rewards += ([episode_reward] * episode_step)
+        ax.plot(rewards)
         ax.set_title("Episode Rewards")
         ax.set_xlabel("Episode")
         ax.set_ylabel("Reward")
@@ -64,7 +67,7 @@ class PlottingUtils(Logger):
             np.ones(window_size) / window_size,
             mode="valid",
         )
-        ax.plot(self.metrics.episodes[window_size - 1 :], moving_avg)
+        ax.plot(self.metrics.episodes[window_size - 1:], moving_avg)
         ax.set_title(f"Moving Average Rewards (window={window_size})")
         ax.set_xlabel("Episode")
         ax.set_ylabel("Average Reward")
@@ -172,7 +175,7 @@ class PlottingUtils(Logger):
 
         if len(losses) > window:
             smoothed = np.convolve(losses, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1 :], smoothed)
+            axes[1].plot(episodes[window - 1:], smoothed)
             axes[1].set_title(f"Huber Loss (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Loss")
@@ -195,7 +198,7 @@ class PlottingUtils(Logger):
 
         if len(mse_losses) > window:
             smoothed = np.convolve(mse_losses, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1 :], smoothed, color="red")
+            axes[1].plot(episodes[window - 1:], smoothed, color="red")
             axes[1].set_title(f"MSE Loss (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("MSE")
@@ -230,7 +233,7 @@ class PlottingUtils(Logger):
 
         if len(td_errors) > window:
             smoothed = np.convolve(td_errors, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1 :], smoothed, color="orange")
+            axes[1].plot(episodes[window - 1:], smoothed, color="orange")
             axes[1].set_title(f"Mean Abs TD Error (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Absolute TD Error")
@@ -253,7 +256,7 @@ class PlottingUtils(Logger):
 
         if len(td_squared) > window:
             smoothed = np.convolve(td_squared, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1 :], smoothed, color="red")
+            axes[1].plot(episodes[window - 1:], smoothed, color="red")
             axes[1].set_title(f"Mean Sq TD Error (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Squared TD Error")
@@ -275,11 +278,11 @@ class PlottingUtils(Logger):
     def print_summary_stats(self):
         """Print comprehensive training summary statistics."""
         if not self.metrics.episode_rewards:
-            self.logger.warn("No metrics to summarize")
+            self.logger.warning("No metrics to summarize")
             return
 
         rewards = np.array(self.metrics.episode_rewards)
-        lengths = np.array(self.metrics.episode_lengths)
+        lengths = np.array(self.metrics.episode_steps)
 
         self._print_basic_stats(rewards, lengths)
         self._print_q_value_stats()
