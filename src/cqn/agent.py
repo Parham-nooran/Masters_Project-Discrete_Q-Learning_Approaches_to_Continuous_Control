@@ -21,7 +21,7 @@ class CQNAgent:
     refines action selection from coarse to fine levels.
     """
 
-    def __init__(self, config, obs_shape: Tuple, action_spec: Dict, working_dir: str):
+    def __init__(self, config, obs_shape: Tuple, action_spec: Dict):
         """
         Initialize CQN agent.
 
@@ -31,7 +31,6 @@ class CQNAgent:
             action_spec: Dictionary with 'low' and 'high' action bounds.
             working_dir: Directory for logs and checkpoints.
         """
-        super().__init__(working_dir)
         self.config = config
         self.obs_shape = obs_shape
         self.action_spec = action_spec

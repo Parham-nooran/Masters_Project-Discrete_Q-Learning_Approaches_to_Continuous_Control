@@ -5,7 +5,7 @@ from src.common.logger import Logger
 
 
 class MetricsTracker:
-    def __init__(self, logger, save_dir="."):
+    def __init__(self, logger, save_dir):
         self.logger = logger
         self.save_dir = save_dir
         self.episode_rewards = []
@@ -18,8 +18,6 @@ class MetricsTracker:
         self.episode_mse_losses = []
         self.episode_times = []
         self.episodes = []
-
-        os.makedirs(save_dir, exist_ok=True)
 
     def log_episode(
         self,

@@ -18,7 +18,7 @@ from src.common.training_utils import (
     init_training,
 )
 from src.cqn.agent import CQNAgent
-from src.cqn.config import CQNConfig
+from src.cqn.config import CQNConfig, create_config
 
 
 def _extract_observation(time_step) -> np.ndarray:
@@ -42,6 +42,33 @@ def _extract_observation(time_step) -> np.ndarray:
     return np.concatenate(obs_list)
 
 
+def _run_eval_episode(env, agent: CQNAgent) -> float:
+    """
+    Execute single evaluation episode.
+
+    Args:
+        env: Environment for evaluation.
+        agent: CQN agent instance.
+
+    Returns:
+        Episode cumulative reward.
+    """
+    time_step = env.reset()
+    obs = _extract_observation(time_step)
+    episode_reward = 0.0
+
+    with torch.no_grad():
+        while not time_step.last():
+            action = agent.select_action(
+                torch.from_numpy(obs).float(), evaluate=True
+            )
+            time_step = env.step(action.numpy())
+            obs = _extract_observation(time_step)
+            episode_reward += time_step.reward
+
+    return episode_reward
+
+
 class CQNTrainer(Logger):
     """
     Trainer for Coarse-to-Fine Q-Network agent.
@@ -49,7 +76,7 @@ class CQNTrainer(Logger):
     Manages training loop, evaluation, checkpointing, and metrics tracking.
     """
 
-    def __init__(self, config: CQNConfig, working_dir: str ="./src/cqn/output/logs"):
+    def __init__(self, config: CQNConfig, working_dir="./src/cqn/output/logs"):
         """
         Initialize trainer.
 
@@ -58,6 +85,7 @@ class CQNTrainer(Logger):
             working_dir: Directory for logs and checkpoints.
         """
         super().__init__(working_dir)
+        self.working_dir = working_dir
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.checkpoint_manager = CheckpointManager()
@@ -70,10 +98,9 @@ class CQNTrainer(Logger):
             Trained agent instance.
         """
         self._setup_environment()
-
         env = get_env(self.config.task, self.logger)
         obs_shape, action_spec = get_env_specs(env)
-        agent = CQNAgent(self.config, obs_shape, action_spec, working_dir="./src/cqn/output/")
+        agent = CQNAgent(self.config, obs_shape, action_spec)
 
         start_episode = self._load_checkpoint_if_available(agent)
         metrics_tracker = MetricsTracker(self.logger, save_dir="./src/cqn/output/logs")
@@ -85,7 +112,6 @@ class CQNTrainer(Logger):
             self._finalize_training(agent, metrics_tracker)
         except KeyboardInterrupt:
             self.logger.info("Training interrupted by user")
-            self._save_interrupted_checkpoint(agent, metrics_tracker)
         except Exception as e:
             self.logger.error(f"Training failed: {e}")
             raise
@@ -170,7 +196,7 @@ class CQNTrainer(Logger):
         steps = 0
         time_step = env.reset()
         obs = _extract_observation(time_step)
-        episode_rewards = []
+        episode_reward = 0.0
         update_metrics = {}
 
         while not time_step.last():
@@ -186,11 +212,11 @@ class CQNTrainer(Logger):
                 update_metrics = agent.update(self.config.batch_size)
 
             obs = next_obs
-            episode_rewards.append(reward)
+            episode_reward += reward
             steps += 1
 
         metrics = {
-            "rewards": episode_rewards,
+            "reward": episode_reward,
             "steps": steps,
         }
         metrics.update(update_metrics)
@@ -211,7 +237,7 @@ class CQNTrainer(Logger):
         if episode % 10 == 0:
             elapsed = time.time() - start_time
             self.logger.info(
-                f"Episode {episode}: Reward={torch.sum(torch.tensor(metrics['rewards'])):.2f}, "
+                f"Episode {episode}: Reward={metrics['reward']:.2f}, "
                 f"Steps={metrics['steps']}, "
                 f"Elapsed={elapsed / 60:.1f}min"
             )
@@ -229,37 +255,11 @@ class CQNTrainer(Logger):
         num_eval = 5
 
         for _ in range(num_eval):
-            eval_reward = self._run_eval_episode(env, agent)
+            eval_reward = _run_eval_episode(env, agent)
             eval_rewards.append(eval_reward)
 
         mean_reward = np.mean(eval_rewards)
         self.logger.info(f"Evaluation at episode {episode}: {mean_reward:.2f}")
-
-    def _run_eval_episode(self, env, agent: CQNAgent) -> float:
-        """
-        Execute single evaluation episode.
-
-        Args:
-            env: Environment for evaluation.
-            agent: CQN agent instance.
-
-        Returns:
-            Episode cumulative reward.
-        """
-        time_step = env.reset()
-        obs = _extract_observation(time_step)
-        episode_reward = 0.0
-
-        with torch.no_grad():
-            while not time_step.last():
-                action = agent.select_action(
-                    torch.from_numpy(obs).float(), evaluate=True
-                )
-                time_step = env.step(action.numpy())
-                obs = _extract_observation(time_step)
-                episode_reward += time_step.reward
-
-        return episode_reward
 
     def _save_checkpoint(
         self, agent: CQNAgent, metrics_tracker: MetricsTracker, episode: int
@@ -278,18 +278,11 @@ class CQNTrainer(Logger):
         )
         self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
-    def _save_interrupted_checkpoint(
-        self, agent: CQNAgent, metrics_tracker: MetricsTracker
-    ) -> None:
-        """Save checkpoint when training is interrupted."""
-        agent.save(f"{self.config.save_dir}/cqn_agent_interrupted.pth")
-        metrics_tracker.save_metrics()
-
     def _finalize_training(
         self, agent: CQNAgent, metrics_tracker: MetricsTracker
     ) -> None:
         """Save final checkpoint and metrics."""
-        agent.save(f"{self.config.save_dir}/cqn_agent_final.pth")
+        agent.save(f"{self.working_dir}/cqn_agent_final.pth")
         metrics_tracker.save_metrics()
         self.logger.info("Training completed")
 
@@ -329,7 +322,7 @@ def parse_arguments() -> argparse.Namespace:
         help="Checkpoint save frequency (episodes)",
     )
     parser.add_argument(
-        "--working-dir", type=str, default=".", help="Working directory"
+        "--working-dir", type=str, default=None, help="Working directory"
     )
     parser.add_argument(
         "--load-checkpoints",
@@ -341,47 +334,10 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def create_config(args: argparse.Namespace) -> CQNConfig:
-    """
-    Create CQNConfig from parsed arguments.
-
-    Args:
-        args: Parsed command line arguments.
-
-    Returns:
-        CQNConfig instance.
-    """
-    config = CQNConfig()
-
-    if args.task:
-        config.task = args.task
-    if args.max_episodes:
-        config.max_episodes = args.max_episodes
-    if args.seed is not None:
-        config.seed = args.seed
-    if args.learning_rate:
-        config.lr = args.learning_rate
-    if args.batch_size:
-        config.batch_size = args.batch_size
-    if args.num_levels:
-        config.num_levels = args.num_levels
-    if args.num_bins:
-        config.num_bins = args.num_bins
-    if args.eval_frequency:
-        config.eval_frequency = args.eval_frequency
-    if args.save_frequency:
-        config.save_frequency = args.save_frequency
-    if args.working_dir:
-        config.working_dir = args.working_dir
-    if args.load_checkpoints:
-        config.load_checkpoints = args.load_checkpoints
-
-    return config
-
 
 if __name__ == "__main__":
     args = parse_arguments()
     config = create_config(args)
 
-    trainer = CQNTrainer(config, working_dir=args.working_dir)
+    trainer = CQNTrainer(config)
     agent = trainer.train()

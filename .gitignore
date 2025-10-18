@@ -8,3 +8,4 @@ src/bangbang/output/checkpoints
 src/bangbang/output/metrics/
 experiments/
 models/
+*.pkl

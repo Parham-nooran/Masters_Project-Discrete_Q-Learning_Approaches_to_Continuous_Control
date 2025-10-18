@@ -2,7 +2,7 @@
 Configuration for Coarse-to-Fine Q-Network agent.
 """
 
-import os
+import argparse
 from dataclasses import dataclass
 
 
@@ -41,7 +41,21 @@ class CQNConfig:
     eval_frequency: int = 50
     save_frequency: int = 100
 
-    working_dir: str = "./src/cqn/output/"
     log_level: str = "INFO"
     load_checkpoints: str = None
 
+
+def create_config(args: argparse.Namespace) -> CQNConfig:
+    """
+    Create CQNConfig from parsed arguments.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        CQNConfig instance.
+    """
+    config = CQNConfig()
+    for key, value in vars(args).items():
+        setattr(config, key.replace("-", "_"), value)
+    return config

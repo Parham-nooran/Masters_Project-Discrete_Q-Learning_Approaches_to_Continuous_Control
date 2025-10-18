@@ -7,7 +7,6 @@ from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.encoder import VisionEncoder
 from typing import Dict
 from src.bangbang.bernoulli_policy import BernoulliPolicy
-from src.common.logger import Logger
 from src.common.training_utils import (
     get_batch_components,
     encode_observation,
@@ -15,7 +14,7 @@ from src.common.training_utils import (
 )
 
 
-class BangBangAgent(Logger):
+class BangBangAgent:
     """Bang-Bang Control Agent implementing the paper's core ideas."""
 
     def __init__(self, config, obs_shape: tuple, action_spec: dict, working_dir="."):
@@ -173,7 +172,6 @@ class BangBangAgent(Logger):
             )
 
         torch.save(checkpoint, path)
-        self.logger.info(f"Checkpoint saved: {path}")
 
     def load_checkpoint(self, path: str) -> int:
         """Load agent checkpoint."""
@@ -191,6 +189,4 @@ class BangBangAgent(Logger):
 
         self.action_scale = checkpoint["action_scale"].to(self.device)
         self.action_bias = checkpoint["action_bias"].to(self.device)
-
-        self.logger.info(f"Checkpoint loaded: {path}")
         return checkpoint["episode"]

@@ -301,7 +301,7 @@ class DecQNTrainer(Logger):
     def _generate_plots(self, metrics_tracker):
         """Generate training plots."""
         self.logger.info("Generating plots...")
-        plotter = PlottingUtils(metrics_tracker, save_dir="./output/plots")
+        plotter = PlottingUtils(self.logger, metrics_tracker, save_dir="./output/plots")
         plotter.plot_training_curves(save=True)
         plotter.plot_reward_distribution(save=True)
         plotter.print_summary_stats()

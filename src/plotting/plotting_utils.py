@@ -33,7 +33,7 @@ class PlottingUtils:
         fig, axes = plt.subplots(4, 2, figsize=(15, 20))
 
         self._plot_raw_rewards(axes[0, 0])
-        # self._plot_moving_average_rewards(axes[0, 1], window)
+        self._plot_moving_average_rewards(axes[0, 1], window)
         self._plot_training_loss(axes[1, 0])
         self._plot_mse_loss(axes[1, 1])
         self._plot_mean_abs_td_error(axes[2, 0])
@@ -282,14 +282,14 @@ class PlottingUtils:
             return
 
         rewards = np.array(self.metrics.episode_rewards)
-        lengths = np.array(self.metrics.episode_steps)
+        steps = np.array(self.metrics.episode_steps)
 
-        self._print_basic_stats(rewards, lengths)
+        self._print_basic_stats(rewards, steps)
         self._print_q_value_stats()
         self._print_loss_stats()
         self._print_td_error_stats()
         self._print_epsilon_stats()
-        self._print_recent_stats(rewards, lengths)
+        self._print_recent_stats(rewards, steps)
 
     def _print_basic_stats(self, rewards, lengths):
         """Print basic reward and length statistics."""
@@ -300,8 +300,8 @@ class PlottingUtils:
         self.logger.info(f"Worst reward: {rewards.min():.2f}")
         self.logger.info(f"Reward std: {rewards.std():.2f}")
         self.logger.info(f"Average episode length: {lengths.mean():.1f}")
-        self.logger.info(f"Max episode length: {lengths.max()}")
-        self.logger.info(f"Min episode length: {lengths.min()}")
+        # self.logger.info(f"Max episode length: {lengths.max()}")
+        # self.logger.info(f"Min episode length: {lengths.min()}")
 
     def _print_q_value_stats(self):
         """Print Q-value statistics."""
