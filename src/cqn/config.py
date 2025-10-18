@@ -41,14 +41,7 @@ class CQNConfig:
     eval_frequency: int = 50
     save_frequency: int = 100
 
-    working_dir: str = "experiments"
-    save_dir: str = "models/cqn"
+    working_dir: str = "./src/cqn/output/"
     log_level: str = "INFO"
     load_checkpoints: str = None
 
-    def __post_init__(self) -> None:
-        """Create necessary directories."""
-        os.makedirs(self.save_dir, exist_ok=True)
-        os.makedirs(os.path.join(self.working_dir, "output/logs"), exist_ok=True)
-        os.makedirs("output/checkpoints", exist_ok=True)
-        os.makedirs("output/metrics", exist_ok=True)

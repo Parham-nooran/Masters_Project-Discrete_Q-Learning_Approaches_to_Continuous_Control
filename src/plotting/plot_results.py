@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 
+from src.common.logger import Logger
 from src.plotting.plotting_utils import PlottingUtils
 from src.common.metrics_tracker import MetricsTracker
 
@@ -19,7 +20,7 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
-def main():
+def parse_arguments():
     parser = argparse.ArgumentParser(description="Plot DecQN training results")
     parser.add_argument(
         "--metrics_file",
@@ -31,41 +32,51 @@ def main():
     )
     parser.add_argument("--output_dir", default="plots", help="Directory to save plots")
 
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    print("DecQN Results Plotting Tool")
-    print("=" * 30)
-    print(f"Loading metrics from: {args.metrics_file}")
-    print(f"Smoothing window: {args.window}")
-    print(f"Output directory: {args.output_dir}")
 
-    tracker = MetricsTracker()
-    try:
-        tracker.load_metrics(args.metrics_file)
+class Plotter(Logger):
+    def __init__(self, working_dir="./src/plotting/logs"):
+        super().__init__(working_dir)
+        self.tracker = MetricsTracker(self.logger)
+        self.args = parse_arguments()
+        self.log_important_args()
 
-        if not tracker.episode_rewards:
-            print(f"❌ No metrics found in {args.metrics_file}")
-            print("Make sure you have run training and saved metrics first.")
-            return
+    def log_important_args(self):
+        self.logger.info("DecQN Results Plotting Tool")
+        self.logger.info("=" * 30)
+        self.logger.info(f"Loading metrics from: {self.args.metrics_file}")
+        self.logger.info(f"Smoothing window: {self.args.window}")
+        self.logger.info(f"Output directory: {self.args.output_dir}")
 
-        print(f"✅ Loaded {len(tracker.episode_rewards)} episodes of data")
+    def plot(self):
+        try:
+            self.tracker.load_metrics(self.args.metrics_file)
 
-        plotter = PlottingUtils(tracker, save_dir=args.output_dir)
+            if not self.tracker.episode_rewards:
+                self.logger.info(f"No metrics found in {self.args.metrics_file}")
+                self.logger.info("Make sure you have run training and saved metrics first.")
+                return
 
-        print("\nGenerating plots...")
-        plotter.plot_training_curves(window=args.window, save=True)
-        plotter.plot_loss_comparison(window=args.window, save=True)
-        plotter.plot_td_error_analysis(window=args.window, save=True)
-        plotter.plot_reward_distribution(save=True)
+            self.logger.info(f"Loaded {len(self.tracker.episode_rewards)} episodes of data")
 
-        print("\nTraining Summary:")
-        plotter.print_summary_stats()
+            plotter = PlottingUtils(self.tracker, save_dir=self.args.output_dir)
 
-        print(f"\nAll plots saved to {args.output_dir}/")
+            self.logger.info("\nGenerating plots...")
+            plotter.plot_training_curves(window=self.args.window, save=True)
+            plotter.plot_loss_comparison(window=self.args.window, save=True)
+            plotter.plot_td_error_analysis(window=self.args.window, save=True)
+            plotter.plot_reward_distribution(save=True)
 
-    except Exception as e:
-        print(f"❌ Error loading metrics: {e}")
+            self.logger("\nTraining Summary:")
+            plotter.print_summary_stats()
+
+            self.logger(f"\nAll plots saved to {self.args.output_dir}/")
+
+        except Exception as e:
+            self.logger.warn(f"Error loading metrics: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    plotter = Plotter()
+    plotter.plot()

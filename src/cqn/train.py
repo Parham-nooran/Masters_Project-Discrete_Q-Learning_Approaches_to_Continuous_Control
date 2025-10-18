@@ -21,6 +21,27 @@ from src.cqn.agent import CQNAgent
 from src.cqn.config import CQNConfig
 
 
+def _extract_observation(time_step) -> np.ndarray:
+    """
+    Extract and flatten observation from time step.
+
+    Args:
+        time_step: DM Control time step.
+
+    Returns:
+        Flattened observation array.
+    """
+    obs_list = []
+    for key in sorted(time_step.observation.keys()):
+        obs_value = time_step.observation[key]
+        if hasattr(obs_value, "flatten"):
+            obs_list.append(obs_value.flatten())
+        else:
+            obs_list.append(np.array([obs_value]))
+
+    return np.concatenate(obs_list)
+
+
 class CQNTrainer(Logger):
     """
     Trainer for Coarse-to-Fine Q-Network agent.
@@ -28,7 +49,7 @@ class CQNTrainer(Logger):
     Manages training loop, evaluation, checkpointing, and metrics tracking.
     """
 
-    def __init__(self, config: CQNConfig, working_dir: str = "."):
+    def __init__(self, config: CQNConfig, working_dir: str ="./src/cqn/output/logs"):
         """
         Initialize trainer.
 
@@ -52,10 +73,10 @@ class CQNTrainer(Logger):
 
         env = get_env(self.config.task, self.logger)
         obs_shape, action_spec = get_env_specs(env)
-        agent = CQNAgent(self.config, obs_shape, action_spec, self.config.working_dir)
+        agent = CQNAgent(self.config, obs_shape, action_spec, working_dir="./src/cqn/output/")
 
         start_episode = self._load_checkpoint_if_available(agent)
-        metrics_tracker = MetricsTracker(save_dir=self.config.save_dir)
+        metrics_tracker = MetricsTracker(self.logger, save_dir="./src/cqn/output/logs")
 
         self._log_training_setup(agent)
 
@@ -146,16 +167,16 @@ class CQNTrainer(Logger):
         Returns:
             Episode metrics dictionary.
         """
+        steps = 0
         time_step = env.reset()
-        obs = self._extract_observation(time_step)
-        episode_reward = 0.0
-        episode_length = 0
+        obs = _extract_observation(time_step)
+        episode_rewards = []
         update_metrics = {}
 
         while not time_step.last():
             action = agent.select_action(torch.from_numpy(obs).float())
             time_step = env.step(action.numpy())
-            next_obs = self._extract_observation(time_step)
+            next_obs = _extract_observation(time_step)
             reward = time_step.reward
             done = time_step.last()
 
@@ -165,36 +186,16 @@ class CQNTrainer(Logger):
                 update_metrics = agent.update(self.config.batch_size)
 
             obs = next_obs
-            episode_reward += reward
-            episode_length += 1
+            episode_rewards.append(reward)
+            steps += 1
 
         metrics = {
-            "reward": episode_reward,
-            "length": episode_length,
+            "rewards": episode_rewards,
+            "steps": steps,
         }
         metrics.update(update_metrics)
 
         return metrics
-
-    def _extract_observation(self, time_step) -> np.ndarray:
-        """
-        Extract and flatten observation from time step.
-
-        Args:
-            time_step: DM Control time step.
-
-        Returns:
-            Flattened observation array.
-        """
-        obs_list = []
-        for key in sorted(time_step.observation.keys()):
-            obs_value = time_step.observation[key]
-            if hasattr(obs_value, "flatten"):
-                obs_list.append(obs_value.flatten())
-            else:
-                obs_list.append(np.array([obs_value]))
-
-        return np.concatenate(obs_list)
 
     def _log_episode_progress(
         self, episode: int, metrics: Dict[str, float], start_time: float
@@ -210,8 +211,8 @@ class CQNTrainer(Logger):
         if episode % 10 == 0:
             elapsed = time.time() - start_time
             self.logger.info(
-                f"Episode {episode}: Reward={metrics['reward']:.2f}, "
-                f"Length={metrics['length']}, "
+                f"Episode {episode}: Reward={torch.sum(torch.tensor(metrics['rewards'])):.2f}, "
+                f"Steps={metrics['steps']}, "
                 f"Elapsed={elapsed / 60:.1f}min"
             )
 
@@ -246,7 +247,7 @@ class CQNTrainer(Logger):
             Episode cumulative reward.
         """
         time_step = env.reset()
-        obs = self._extract_observation(time_step)
+        obs = _extract_observation(time_step)
         episode_reward = 0.0
 
         with torch.no_grad():
@@ -255,7 +256,7 @@ class CQNTrainer(Logger):
                     torch.from_numpy(obs).float(), evaluate=True
                 )
                 time_step = env.step(action.numpy())
-                obs = self._extract_observation(time_step)
+                obs = _extract_observation(time_step)
                 episode_reward += time_step.reward
 
         return episode_reward

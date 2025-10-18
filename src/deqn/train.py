@@ -72,7 +72,7 @@ def parse_args():
     parser.add_argument(
         "--checkpoint-interval",
         type=int,
-        default=100,
+        default=5,
         help="Save checkpoints every N episodes",
     )
     parser.add_argument(

@@ -7,15 +7,13 @@ from typing import Dict, Tuple, Optional
 import numpy as np
 import torch
 
-from src.common.logger import Logger
-from src.common.metrics_tracker import MetricsTracker
 from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.training_utils import huber_loss
 from src.cqn.discretizer import CoarseToFineDiscretizer
 from src.cqn.networks import CQNNetwork
 
 
-class CQNAgent(Logger):
+class CQNAgent:
     """
     Coarse-to-fine Q-Network agent for continuous control.
 
@@ -40,7 +38,6 @@ class CQNAgent(Logger):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self._initialize_components()
-        self.logger.info("CQN Agent initialized")
 
     def _initialize_components(self) -> None:
         """Initialize network, buffer, and training utilities."""
@@ -66,8 +63,6 @@ class CQNAgent(Logger):
             discount=self.config.discount,
         )
         self.replay_buffer.to_device(self.device)
-
-        self.metrics_tracker = MetricsTracker(save_dir=self.config.save_dir)
         self._initialize_training_state()
         self._setup_amp()
 
@@ -520,7 +515,6 @@ class CQNAgent(Logger):
             "config": self.config,
         }
         torch.save(checkpoint, filepath)
-        self.logger.info(f"Agent saved to {filepath}")
 
     def load(self, filepath: str) -> None:
         """
@@ -534,4 +528,3 @@ class CQNAgent(Logger):
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.training_steps = checkpoint["training_steps"]
         self.epsilon = checkpoint["epsilon"]
-        self.logger.info(f"Agent loaded from {filepath}")
