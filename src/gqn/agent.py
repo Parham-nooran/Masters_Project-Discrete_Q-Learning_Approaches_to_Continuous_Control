@@ -133,7 +133,7 @@ class GrowingQNAgent(Logger):
             if self.scheduler.should_grow(self.episode_count, episode_return):
                 growth_occurred = self.action_discretizer.grow_action_space()
                 if growth_occurred:
-                    current_bins = self.action_discretizer.current_bins
+                    current_bins = self.action_discretizer.num_bins
                     self.growth_history.append(current_bins)
                     self.logger.info(
                         f"Episode {self.episode_count}: Growing to {current_bins} bins"

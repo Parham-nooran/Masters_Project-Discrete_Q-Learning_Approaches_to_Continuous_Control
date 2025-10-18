@@ -6,7 +6,7 @@ class MetricsTracker:
     def __init__(self, save_dir="./metrics"):
         self.save_dir = save_dir
         self.episode_rewards = []
-        self.episode_lengths = []
+        self.episode_steps = []
         self.episode_losses = []
         self.episode_mean_abs_td_error = []
         self.episode_mean_squared_td_error = []
@@ -21,8 +21,8 @@ class MetricsTracker:
     def log_episode(
         self,
         episode,
-        reward,
-        length,
+        rewards,
+        steps,
         mse_loss=0.0,
         loss=0.0,
         mean_abs_td_error=0.0,
@@ -32,8 +32,8 @@ class MetricsTracker:
         episode_time=0.0,
     ):
         self.episodes.append(episode)
-        self.episode_rewards.append(reward)
-        self.episode_lengths.append(length)
+        self.episode_rewards.append(rewards)
+        self.episode_steps.append(steps)
         self.episode_losses.append(loss)
         self.episode_mean_abs_td_error.append(mean_abs_td_error)
         self.episode_mean_squared_td_error.append(mean_squared_td_error)
@@ -46,7 +46,7 @@ class MetricsTracker:
         metrics_data = {
             "episodes": self.episodes,
             "episode_rewards": self.episode_rewards,
-            "episode_lengths": self.episode_lengths,
+            "episode_steps": self.episode_steps,
             "episode_losses": self.episode_losses,
             "episode_mse_losses": self.episode_mse_losses,
             "episode_mean_abs_td_error": self.episode_mean_abs_td_error,

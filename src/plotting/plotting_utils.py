@@ -7,12 +7,23 @@ from pathlib import Path
 from src.common.logger import Logger
 
 
+def _filter_valid_data(episodes, data):
+    """Filter out None values from data."""
+    return [(ep, val) for ep, val in zip(episodes, data) if val is not None]
+
+
+def _save_figure(save_dir, filename):
+    """Save figure to file."""
+    filepath = os.path.join(save_dir, filename)
+    plt.savefig(filepath, dpi=150, bbox_inches="tight")
+
+
 class PlottingUtils(Logger):
     """Utility class for plotting training metrics."""
 
-    def __init__(self, metrics_tracker, save_dir="./output/plots"):
+    def __init__(self, metrics, save_dir="./output/plots"):
         super().__init__(save_dir)
-        self.metrics = metrics_tracker
+        self.metrics = metrics
         self.save_dir = save_dir
         Path(save_dir).mkdir(parents=True, exist_ok=True)
 
@@ -32,11 +43,11 @@ class PlottingUtils(Logger):
 
         plt.tight_layout()
         if save:
-            self._save_figure(save_dir, "training_curves.png")
+            _save_figure(save_dir, "training_curves.png")
 
     def _plot_raw_rewards(self, ax):
         """Plot raw episode rewards."""
-        ax.plot(self.metrics.episodes, self.metrics.episode_rewards)
+        ax.plot(self.metrics.steps, self.metrics.episode_rewards)
         ax.set_title("Episode Rewards")
         ax.set_xlabel("Episode")
         ax.set_ylabel("Reward")
@@ -61,7 +72,7 @@ class PlottingUtils(Logger):
 
     def _plot_training_loss(self, ax):
         """Plot training loss."""
-        valid_losses = self._filter_valid_data(
+        valid_losses = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_losses
         )
         if valid_losses:
@@ -74,7 +85,7 @@ class PlottingUtils(Logger):
 
     def _plot_mse_loss(self, ax):
         """Plot MSE loss."""
-        valid_mse = self._filter_valid_data(
+        valid_mse = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_mse_losses
         )
         if valid_mse:
@@ -87,7 +98,7 @@ class PlottingUtils(Logger):
 
     def _plot_mean_abs_td_error(self, ax):
         """Plot mean absolute TD error."""
-        valid_td_abs = self._filter_valid_data(
+        valid_td_abs = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_mean_abs_td_error
         )
         if valid_td_abs:
@@ -100,7 +111,7 @@ class PlottingUtils(Logger):
 
     def _plot_mean_squared_td_error(self, ax):
         """Plot mean squared TD error."""
-        valid_td_sq = self._filter_valid_data(
+        valid_td_sq = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_mean_squared_td_error
         )
         if valid_td_sq:
@@ -113,7 +124,7 @@ class PlottingUtils(Logger):
 
     def _plot_q_value_means(self, ax):
         """Plot Q-value means."""
-        valid_q_means = self._filter_valid_data(
+        valid_q_means = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_q_means
         )
         if valid_q_means:
@@ -142,11 +153,11 @@ class PlottingUtils(Logger):
 
         plt.tight_layout()
         if save:
-            self._save_figure(save_dir, "loss_comparison.png")
+            _save_figure(save_dir, "loss_comparison.png")
 
     def _plot_huber_loss_comparison(self, axes, window):
         """Plot Huber loss raw and smoothed."""
-        valid_losses = self._filter_valid_data(
+        valid_losses = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_losses
         )
         if not valid_losses:
@@ -169,7 +180,7 @@ class PlottingUtils(Logger):
 
     def _plot_mse_loss_comparison(self, axes, window):
         """Plot MSE loss raw and smoothed."""
-        valid_mse = self._filter_valid_data(
+        valid_mse = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_mse_losses
         )
         if not valid_mse:
@@ -200,11 +211,11 @@ class PlottingUtils(Logger):
 
         plt.tight_layout()
         if save:
-            self._save_figure(save_dir, "td_error_analysis.png")
+            _save_figure(save_dir, "td_error_analysis.png")
 
     def _plot_td_abs_analysis(self, axes, window):
         """Plot absolute TD error raw and smoothed."""
-        valid_td_abs = self._filter_valid_data(
+        valid_td_abs = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_mean_abs_td_error
         )
         if not valid_td_abs:
@@ -227,7 +238,7 @@ class PlottingUtils(Logger):
 
     def _plot_td_sq_analysis(self, axes, window):
         """Plot squared TD error raw and smoothed."""
-        valid_td_sq = self._filter_valid_data(
+        valid_td_sq = _filter_valid_data(
             self.metrics.episodes, self.metrics.episode_mean_squared_td_error
         )
         if not valid_td_sq:
@@ -259,7 +270,7 @@ class PlottingUtils(Logger):
         plt.grid(True, alpha=0.3)
 
         if save:
-            self._save_figure(save_dir, "reward_distribution.png")
+            _save_figure(save_dir, "reward_distribution.png")
 
     def print_summary_stats(self):
         """Print comprehensive training summary statistics."""
@@ -352,12 +363,3 @@ class PlottingUtils(Logger):
             self.logger.info(
                 f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}"
             )
-
-    def _filter_valid_data(self, episodes, data):
-        """Filter out None values from data."""
-        return [(ep, val) for ep, val in zip(episodes, data) if val is not None]
-
-    def _save_figure(self, save_dir, filename):
-        """Save figure to file."""
-        filepath = os.path.join(save_dir, filename)
-        plt.savefig(filepath, dpi=150, bbox_inches="tight")

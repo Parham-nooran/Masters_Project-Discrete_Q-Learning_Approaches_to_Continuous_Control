@@ -168,21 +168,20 @@ class DecQNTrainer(Logger):
 
         for episode in range(start_episode, self.config.num_episodes):
             episode_metrics = self._run_episode(
-                env, agent, metrics_accumulator, episode
+                env, agent, metrics_accumulator
             )
-
-            self._log_episode_metrics(episode, episode_metrics, agent, start_time)
+            self._log_episode_metrics(episode, episode_metrics, start_time)
             _update_agent_parameters(agent)
             self._perform_periodic_maintenance(episode)
             self._save_checkpoint_if_needed(agent, metrics_tracker, episode)
 
             metrics_tracker.log_episode(episode=episode, **episode_metrics)
 
-    def _run_episode(self, env, agent, metrics_accumulator, episode):
+    def _run_episode(self, env, agent, metrics_accumulator):
         """Run a single training episode."""
         episode_start_time = time.time()
-        episode_reward = 0.0
-        step = 0
+        episode_rewards = []
+        steps = 0
 
         time_step = env.reset()
         obs = process_observation(
@@ -190,7 +189,7 @@ class DecQNTrainer(Logger):
         )
         agent.observe_first(obs)
 
-        while not time_step.last() and step < 1000:
+        while not time_step.last() and steps < 1000:
             action = agent.select_action(obs)
             action_np = _convert_action_to_numpy(action)
 
@@ -206,15 +205,15 @@ class DecQNTrainer(Logger):
             self._update_networks_if_ready(agent, metrics_accumulator)
 
             obs = next_obs
-            episode_reward += reward
-            step += 1
+            episode_rewards.append(reward)
+            steps += 1
 
         episode_time = time.time() - episode_start_time
         averages = metrics_accumulator.get_averages()
 
         return {
-            "reward": episode_reward,
-            "length": step,
+            "rewards": episode_rewards,
+            "steps": steps,
             "loss": averages["loss"],
             "mean_abs_td_error": averages["mean_abs_td_error"],
             "mean_squared_td_error": averages["mean_squared_td_error"],
@@ -232,7 +231,7 @@ class DecQNTrainer(Logger):
         metrics = agent.update()
         metrics_accumulator.update(metrics)
 
-    def _log_episode_metrics(self, episode, metrics, agent, start_time):
+    def _log_episode_metrics(self, episode, metrics, start_time):
         """Log episode metrics at specified intervals."""
         if episode % self.config.log_interval == 0:
             self._log_basic_metrics(episode, metrics)
@@ -244,7 +243,8 @@ class DecQNTrainer(Logger):
         """Log basic episode metrics."""
         self.logger.info(
             f"Episode {episode:4d} | "
-            f"Reward: {metrics['reward']:7.2f} | "
+            f"Num Steps {metrics['steps']:4d} | "
+            f"Average Reward: {torch.mean(torch.tensor(metrics['rewards'])):7.2f} | "
             f"Loss: {metrics['loss']:8.6f} | "
             f"MSE Loss: {metrics['mse_loss']:8.6f} | "
             f"Mean abs TD Error: {metrics['mean_abs_td_error']:8.6f} | "
