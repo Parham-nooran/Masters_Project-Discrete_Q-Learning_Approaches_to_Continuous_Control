@@ -511,7 +511,7 @@ class CQNAgent:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "training_steps": self.training_steps,
             "epsilon": self.epsilon,
-            "config": self.config,
+            "config.py": self.config,
         }
         torch.save(checkpoint, filepath)
 

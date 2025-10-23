@@ -20,7 +20,7 @@ def load_gqn_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    config = checkpoint["config"]
+    config = checkpoint["config.py"]
 
     obs_shape, action_spec_dict = _get_env_specs(env, config)
     agent = GrowingQNAgent(config, obs_shape, action_spec_dict, checkpoint_path)

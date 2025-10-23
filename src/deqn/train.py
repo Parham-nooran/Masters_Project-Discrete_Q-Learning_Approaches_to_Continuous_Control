@@ -112,8 +112,8 @@ def _update_agent_parameters(agent):
 class DecQNTrainer(Logger):
     """Trainer for Decoupled Q-Networks Agent."""
 
-    def __init__(self, config, working_dir="./src/deqn/output/logs"):
-        super().__init__(working_dir)
+    def __init__(self, config, working_dir="./src/deqn/output"):
+        super().__init__(working_dir + "/logs")
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.checkpoint_manager = CheckpointManager(self.logger)

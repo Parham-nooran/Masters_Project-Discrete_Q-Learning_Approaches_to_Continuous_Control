@@ -172,8 +172,8 @@ def _update_metrics(metrics_tracker, recent_metrics, episode, episode_metrics, a
 class GQNTrainer(Logger):
     """Trainer for Growing Q-Networks Agent."""
 
-    def __init__(self, config, working_dir="./src/gqn/output/logs"):
-        super().__init__(working_dir)
+    def __init__(self, config, working_dir="./src/gqn/output"):
+        super().__init__(working_dir + "/logs")
         self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -437,7 +437,7 @@ def save_checkpoint(agent, episode, path):
         "q_network_state_dict": agent.q_network.state_dict(),
         "target_q_network_state_dict": agent.target_q_network.state_dict(),
         "q_optimizer_state_dict": agent.q_optimizer.state_dict(),
-        "config": agent.config,
+        "config.py": agent.config,
         "training_step": agent.training_step,
         "epsilon": agent.epsilon,
         "episode_count": agent.episode_count,
@@ -462,7 +462,7 @@ def save_checkpoint(agent, episode, path):
 
 
 def create_gqn_config(args):
-    """Create config for GQN agent."""
+    """Create config.py for GQN agent."""
     config = GQNConfig.get_default_gqn_config(args)
     config.action_penalty = getattr(args, "action_penalty", 0.001)
     config.learning_rate = getattr(args, "learning_rate", 1e-4)

@@ -74,7 +74,7 @@ class CQNTrainer(Logger):
     Manages training loop, evaluation, checkpointing, and metrics tracking.
     """
 
-    def __init__(self, config: CQNConfig, working_dir="./src/cqn/output/logs"):
+    def __init__(self, config: CQNConfig, working_dir="./src/cqn/output"):
         """
         Initialize trainer.
 
@@ -82,7 +82,7 @@ class CQNTrainer(Logger):
             config: CQNConfig object with hyperparameters.
             working_dir: Directory for logs and checkpoints.
         """
-        super().__init__(working_dir)
+        super().__init__(working_dir + "/logs")
         self.working_dir = working_dir
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

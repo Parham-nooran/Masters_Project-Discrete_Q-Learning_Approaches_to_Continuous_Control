@@ -159,7 +159,7 @@ class BangBangAgent:
             "episode": episode,
             "policy_state_dict": self.policy.state_dict(),
             "policy_optimizer_state_dict": self.policy_optimizer.state_dict(),
-            "config": self.config,
+            "config.py": self.config,
             "training_step": self.training_step,
             "action_scale": self.action_scale.cpu(),
             "action_bias": self.action_bias.cpu(),

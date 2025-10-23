@@ -3,6 +3,7 @@ import time
 from collections import deque
 
 from src.bangbang.agent import BangBangAgent
+from src.bangbang.config import create_bangbang_config
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.training_utils import *
@@ -11,8 +12,9 @@ from src.common.training_utils import *
 class BangBangTrainer(Logger):
     """Trainer for Bang-Bang Control Agent."""
 
-    def __init__(self, config, working_dir="."):
-        super().__init__(working_dir)
+    def __init__(self, config, working_dir="src/bangbang/output"):
+        super().__init__(working_dir + "/logs")
+        self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -23,7 +25,7 @@ class BangBangTrainer(Logger):
         obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
         agent = BangBangAgent(self.config, obs_shape, action_spec_dict)
 
-        metrics_tracker = MetricsTracker(save_dir="output/metrics")
+        metrics_tracker = MetricsTracker(self.logger, save_dir="output/metrics")
 
         self.logger.info(f"Starting Bang-Bang training on {self.config.task}")
         self.logger.info(f"Action dimension: {agent.action_dim}")
@@ -41,7 +43,7 @@ class BangBangTrainer(Logger):
             )
             agent.observe_first(obs)
 
-            step = 0
+            steps = 0
             while not time_step.last():
                 action = agent.select_action(obs)
                 action_np = action.cpu().numpy()
@@ -62,9 +64,9 @@ class BangBangTrainer(Logger):
 
                 obs = next_obs
                 episode_reward += reward
-                step += 1
+                steps += 1
 
-                if step > 1000:
+                if steps > 1000:
                     break
 
             avg_loss = np.mean(recent_losses) if recent_losses else 0.0
@@ -72,7 +74,7 @@ class BangBangTrainer(Logger):
             metrics_tracker.log_episode(
                 episode=episode,
                 reward=episode_reward,
-                length=step,
+                steps=steps,
                 loss=avg_loss,
                 mean_abs_td_error=0.0,
                 mean_squared_td_error=0.0,
@@ -119,32 +121,6 @@ class BangBangTrainer(Logger):
         self.logger.info(f"Training completed in {total_time / 60:.1f} minutes!")
 
         return agent
-
-
-def create_bangbang_config(args):
-    """Create config for Bang-Bang agent."""
-    from types import SimpleNamespace
-
-    config = SimpleNamespace()
-    for key, value in vars(args).items():
-        setattr(config, key.replace("-", "_"), value)
-
-    config.use_pixels = False
-    config.layer_size_network = [512, 512]
-    config.layer_size_bottleneck = 100
-    config.num_pixels = 84
-    config.min_replay_size = 1000
-    config.max_replay_size = 500000
-    config.batch_size = 128
-    config.learning_rate = 3e-4
-    config.discount = 0.99
-    config.priority_exponent = 0.6
-    config.importance_sampling_exponent = 0.4
-    config.adder_n_step = 1
-    config.clip_gradients = True
-    config.clip_gradients_norm = 40.0
-
-    return config
 
 
 if __name__ == "__main__":

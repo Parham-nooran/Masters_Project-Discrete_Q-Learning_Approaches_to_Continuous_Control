@@ -104,7 +104,7 @@ class DecQNAgent:
             "q_network_state_dict": self.q_network.state_dict(),
             "target_q_network_state_dict": self.target_q_network.state_dict(),
             "q_optimizer_state_dict": self.q_optimizer.state_dict(),
-            "config": self.config,
+            "config.py": self.config,
             "training_step": self.training_step,
         }
         if self.encoder:

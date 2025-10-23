@@ -18,7 +18,7 @@ def load_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    config = checkpoint["config"]
+    config = checkpoint["config.py"]
 
     action_spec = env.action_spec()
     obs_spec = env.observation_spec()

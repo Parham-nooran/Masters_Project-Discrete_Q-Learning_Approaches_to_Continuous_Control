@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 
 def create_config_from_args(args):
-    """Create config object from parsed arguments."""
+    """Create config.py object from parsed arguments."""
     config = SimpleNamespace()
     for key, value in vars(args).items():
         setattr(config, key.replace("-", "_"), value)
