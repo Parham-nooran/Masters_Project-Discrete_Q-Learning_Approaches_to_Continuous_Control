@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument(
         "--load-checkpoints",
         type=str,
-        default="./output/checkpoints/decqn_walker_run_0.pth",
+        default="./output/checkpoints/decqn_walker_run_700.pth",
         help="Path to checkpoints file to resume from",
     )
     parser.add_argument(
@@ -116,7 +116,7 @@ class DecQNTrainer(Logger):
         super().__init__(working_dir)
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.checkpoint_manager = CheckpointManager()
+        self.checkpoint_manager = CheckpointManager(self.logger)
 
     def train(self):
         """Execute main training loop."""
@@ -126,7 +126,9 @@ class DecQNTrainer(Logger):
         obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
         agent = DecQNAgent(self.config, obs_shape, action_spec_dict)
 
-        start_episode = self._load_checkpoint_if_available(agent)
+        start_episode = self.checkpoint_manager.load_checkpoint_if_available(
+            self.logger, agent
+        )
         metrics_tracker = _initialize_metrics_tracker(self.logger, start_episode)
 
         self._log_setup_info(agent)
@@ -139,20 +141,6 @@ class DecQNTrainer(Logger):
     def _setup_training(self):
         """Initialize training environment."""
         init_training(self.config.seed, self.device, self.logger)
-
-    def _load_checkpoint_if_available(self, agent):
-        """Load checkpoint if specified or find latest."""
-        if self.config.load_checkpoints:
-            return self.checkpoint_manager.load_checkpoint(
-                agent, self.config.load_checkpoints, self.logger
-            )
-
-        latest = self.checkpoint_manager.find_latest_checkpoint()
-        if latest:
-            self.logger.info(f"Found latest checkpoint: {latest}")
-            return self.checkpoint_manager.load_checkpoint(agent, latest, self.logger)
-
-        return 0
 
     def _log_setup_info(self, agent):
         """Log training setup information."""
@@ -167,9 +155,7 @@ class DecQNTrainer(Logger):
         start_time = time.time()
 
         for episode in range(start_episode, self.config.num_episodes):
-            episode_metrics = self._run_episode(
-                env, agent, metrics_accumulator
-            )
+            episode_metrics = self._run_episode(env, agent, metrics_accumulator)
             self._log_episode_metrics(episode, episode_metrics, start_time)
             _update_agent_parameters(agent)
             self._perform_periodic_maintenance(episode)

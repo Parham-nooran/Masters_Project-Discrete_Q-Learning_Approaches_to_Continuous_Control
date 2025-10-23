@@ -30,7 +30,9 @@ def parse_arguments():
     parser.add_argument(
         "--window", type=int, default=100, help="Window size for running average"
     )
-    parser.add_argument("--output_dir", default="./output/plots", help="Directory to save plots")
+    parser.add_argument(
+        "--output_dir", default="./output/plots", help="Directory to save plots"
+    )
 
     return parser.parse_args()
 

@@ -59,9 +59,7 @@ def _run_eval_episode(env, agent: CQNAgent) -> float:
 
     with torch.no_grad():
         while not time_step.last():
-            action = agent.select_action(
-                torch.from_numpy(obs).float(), evaluate=True
-            )
+            action = agent.select_action(torch.from_numpy(obs).float(), evaluate=True)
             time_step = env.step(action.numpy())
             obs = _extract_observation(time_step)
             episode_reward += time_step.reward
@@ -88,7 +86,7 @@ class CQNTrainer(Logger):
         self.working_dir = working_dir
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.checkpoint_manager = CheckpointManager()
+        self.checkpoint_manager = CheckpointManager(self.logger)
 
     def train(self) -> CQNAgent:
         """
@@ -102,7 +100,9 @@ class CQNTrainer(Logger):
         obs_shape, action_spec = get_env_specs(env)
         agent = CQNAgent(self.config, obs_shape, action_spec)
 
-        start_episode = self._load_checkpoint_if_available(agent)
+        start_episode = self.checkpoint_manager.load_checkpoint_if_available(
+            self.config.load_checkpoints, agent
+        )
         metrics_tracker = MetricsTracker(self.logger, save_dir="./src/cqn/output/logs")
 
         self._log_training_setup(agent)
@@ -124,28 +124,6 @@ class CQNTrainer(Logger):
     def _setup_environment(self) -> None:
         """Initialize training environment and paths."""
         init_training(self.config.seed, self.device, self.logger)
-
-    def _load_checkpoint_if_available(self, agent: CQNAgent) -> int:
-        """
-        Load checkpoint if specified or find latest.
-
-        Args:
-            agent: Agent to load checkpoint into.
-
-        Returns:
-            Starting episode number.
-        """
-        if self.config.load_checkpoints:
-            return self.checkpoint_manager.load_checkpoint(
-                agent, self.config.load_checkpoints, self.logger
-            )
-
-        latest = self.checkpoint_manager.find_latest_checkpoint()
-        if latest:
-            self.logger.info(f"Found latest checkpoint: {latest}")
-            return self.checkpoint_manager.load_checkpoint(agent, latest, self.logger)
-
-        return 0
 
     def _log_training_setup(self, agent: CQNAgent) -> None:
         """Log training configuration."""
@@ -332,7 +310,6 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     return parser.parse_args()
-
 
 
 if __name__ == "__main__":

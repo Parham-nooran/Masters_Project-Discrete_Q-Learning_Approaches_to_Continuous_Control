@@ -48,8 +48,10 @@ class PlottingUtils:
     def _plot_raw_rewards(self, ax):
         """Plot raw episode rewards."""
         rewards = []
-        for episode_reward, episode_step in zip(self.metrics.episode_rewards, self.metrics.episode_steps):
-            rewards += ([episode_reward] * episode_step)
+        for episode_reward, episode_step in zip(
+            self.metrics.episode_rewards, self.metrics.episode_steps
+        ):
+            rewards += [episode_reward] * episode_step
         ax.plot(rewards)
         ax.set_title("Episode Rewards")
         ax.set_xlabel("Episode")
@@ -67,7 +69,7 @@ class PlottingUtils:
             np.ones(window_size) / window_size,
             mode="valid",
         )
-        ax.plot(self.metrics.episodes[window_size - 1:], moving_avg)
+        ax.plot(self.metrics.episodes[window_size - 1 :], moving_avg)
         ax.set_title(f"Moving Average Rewards (window={window_size})")
         ax.set_xlabel("Episode")
         ax.set_ylabel("Average Reward")
@@ -175,7 +177,7 @@ class PlottingUtils:
 
         if len(losses) > window:
             smoothed = np.convolve(losses, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed)
+            axes[1].plot(episodes[window - 1 :], smoothed)
             axes[1].set_title(f"Huber Loss (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Loss")
@@ -198,7 +200,7 @@ class PlottingUtils:
 
         if len(mse_losses) > window:
             smoothed = np.convolve(mse_losses, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed, color="red")
+            axes[1].plot(episodes[window - 1 :], smoothed, color="red")
             axes[1].set_title(f"MSE Loss (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("MSE")
@@ -233,7 +235,7 @@ class PlottingUtils:
 
         if len(td_errors) > window:
             smoothed = np.convolve(td_errors, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed, color="orange")
+            axes[1].plot(episodes[window - 1 :], smoothed, color="orange")
             axes[1].set_title(f"Mean Abs TD Error (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Absolute TD Error")
@@ -256,7 +258,7 @@ class PlottingUtils:
 
         if len(td_squared) > window:
             smoothed = np.convolve(td_squared, np.ones(window) / window, mode="valid")
-            axes[1].plot(episodes[window - 1:], smoothed, color="red")
+            axes[1].plot(episodes[window - 1 :], smoothed, color="red")
             axes[1].set_title(f"Mean Sq TD Error (Smoothed, window={window})")
             axes[1].set_xlabel("Episode")
             axes[1].set_ylabel("Squared TD Error")

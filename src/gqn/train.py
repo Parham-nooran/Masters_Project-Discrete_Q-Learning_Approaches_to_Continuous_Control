@@ -145,14 +145,14 @@ def _compute_average_metrics(recent_metrics, episode_metrics):
             if recent_metrics["mean_squared_td_errors"]
             else 0.0
         ),
-        "action_magnitude": torch.mean(torch.tensor(episode_metrics["action_magnitudes"]))
-                            / max(episode_metrics["steps"], 1),
+        "action_magnitude": torch.mean(
+            torch.tensor(episode_metrics["action_magnitudes"])
+        )
+        / max(episode_metrics["steps"], 1),
     }
 
 
-def _update_metrics(
-        metrics_tracker, recent_metrics, episode, episode_metrics, agent
-):
+def _update_metrics(metrics_tracker, recent_metrics, episode, episode_metrics, agent):
     """Update all metrics tracking."""
     _update_recent_metrics(recent_metrics, episode_metrics)
     avg_metrics = _compute_average_metrics(recent_metrics, episode_metrics)
@@ -289,7 +289,7 @@ class GQNTrainer(Logger):
         original_reward = time_step.reward if time_step.reward is not None else 0.0
 
         if self.config.action_penalty > 0:
-            penalty = self.config.action_penalty * np.sum(action_np ** 2) / len(action_np)
+            penalty = self.config.action_penalty * np.sum(action_np**2) / len(action_np)
             penalty = min(penalty, abs(original_reward) * 0.1)
             reward = original_reward - penalty
         else:
@@ -309,7 +309,7 @@ class GQNTrainer(Logger):
             torch.cuda.empty_cache()
 
     def _log_progress(
-            self, episode, episode_metrics, recent_metrics, agent, start_time, start_episode
+        self, episode, episode_metrics, recent_metrics, agent, start_time, start_episode
     ):
         """Log training progress."""
         if episode % self.config.log_interval == 0:
@@ -338,7 +338,7 @@ class GQNTrainer(Logger):
         )
 
     def _log_detailed_progress(
-            self, episode, episode_metrics, agent, start_time, start_episode
+        self, episode, episode_metrics, agent, start_time, start_episode
     ):
         """Log detailed progress information."""
         elapsed_time = time.time() - start_time
