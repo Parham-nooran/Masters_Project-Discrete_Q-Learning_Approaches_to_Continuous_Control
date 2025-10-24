@@ -61,7 +61,9 @@ class BangBangTrainer(Logger):
         recent_losses = deque(maxlen=20)
 
         time_step = env.reset()
-        obs = process_observation(time_step.observation, self.config.use_pixels, self.device)
+        obs = process_observation(
+            time_step.observation, self.config.use_pixels, self.device
+        )
         agent.observe_first(obs)
 
         steps = 0
@@ -69,7 +71,9 @@ class BangBangTrainer(Logger):
             action = agent.select_action(obs)
 
             time_step = self._execute_action(env, action)
-            next_obs = process_observation(time_step.observation, self.config.use_pixels, self.device)
+            next_obs = process_observation(
+                time_step.observation, self.config.use_pixels, self.device
+            )
             reward = time_step.reward if time_step.reward is not None else 0.0
             done = time_step.last()
 
@@ -88,7 +92,7 @@ class BangBangTrainer(Logger):
             "reward": episode_reward,
             "steps": steps,
             "avg_loss": self._compute_average_loss(recent_losses),
-            "time": time.time() - episode_start_time
+            "time": time.time() - episode_start_time,
         }
 
     def _execute_action(self, env, action):
@@ -117,7 +121,9 @@ class BangBangTrainer(Logger):
             avg_episode_time = elapsed_time / episode
             eta = avg_episode_time * (self.config.num_episodes - episode)
 
-            recent_rewards = metrics_tracker.episode_rewards[-self.config.detailed_log_interval:]
+            recent_rewards = metrics_tracker.episode_rewards[
+                -self.config.detailed_log_interval :
+            ]
 
             self.logger.info(f"Episode {episode} Summary:")
             self.logger.info(f"Recent avg reward: {np.mean(recent_rewards):.2f}")
@@ -125,7 +131,9 @@ class BangBangTrainer(Logger):
 
     def _save_checkpoint_if_needed(self, episode, agent, metrics_tracker):
         if episode % self.config.checkpoint_interval == 0:
-            checkpoint_path = f"output/checkpoints/bangbang_{self.config.task}_{episode}.pth"
+            checkpoint_path = (
+                f"output/checkpoints/bangbang_{self.config.task}_{episode}.pth"
+            )
             agent.save_checkpoint(checkpoint_path, episode)
             metrics_tracker.save_metrics()
 
@@ -140,12 +148,20 @@ class BangBangTrainer(Logger):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Bang-Bang Control Agent")
-    parser.add_argument("--task", type=str, default="walker_walk", help="Environment task")
-    parser.add_argument("--num-episodes", type=int, default=1000, help="Number of episodes")
+    parser.add_argument(
+        "--task", type=str, default="walker_walk", help="Environment task"
+    )
+    parser.add_argument(
+        "--num-episodes", type=int, default=1000, help="Number of episodes"
+    )
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--log-interval", type=int, default=10, help="Log interval")
-    parser.add_argument("--detailed-log-interval", type=int, default=50, help="Detailed log interval")
-    parser.add_argument("--checkpoint-interval", type=int, default=100, help="Checkpoint interval")
+    parser.add_argument(
+        "--detailed-log-interval", type=int, default=50, help="Detailed log interval"
+    )
+    parser.add_argument(
+        "--checkpoint-interval", type=int, default=100, help="Checkpoint interval"
+    )
 
     args = parser.parse_args()
     config = create_bangbang_config(args)

@@ -13,12 +13,7 @@ from src.common.training_utils import (
 
 class BangBangAgent:
 
-    def __init__(
-            self,
-            config,
-            obs_shape: tuple,
-            action_spec: dict
-    ):
+    def __init__(self, config, obs_shape: tuple, action_spec: dict):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.training_step = 0
@@ -44,11 +39,17 @@ class BangBangAgent:
         self.value_function = self._create_value_function(config)
 
     def _setup_optimizers(self, config):
-        self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=config.learning_rate)
-        self.value_optimizer = optim.Adam(self.value_function.parameters(), lr=config.learning_rate)
+        self.policy_optimizer = optim.Adam(
+            self.policy.parameters(), lr=config.learning_rate
+        )
+        self.value_optimizer = optim.Adam(
+            self.value_function.parameters(), lr=config.learning_rate
+        )
         self.encoder_optimizer = self._create_encoder_optimizer(config)
 
-    def _create_encoder(self, config, obs_shape: tuple) -> Tuple[Optional[VisionEncoder], int]:
+    def _create_encoder(
+        self, config, obs_shape: tuple
+    ) -> Tuple[Optional[VisionEncoder], int]:
         if config.use_pixels:
             encoder = VisionEncoder(config, config.num_pixels).to(self.device)
             return encoder, config.layer_size_bottleneck
@@ -61,9 +62,7 @@ class BangBangAgent:
 
     def _create_policy(self, config) -> BernoulliPolicy:
         return BernoulliPolicy(
-            self.encoder_output_size,
-            self.action_dim,
-            config.layer_size_network
+            self.encoder_output_size, self.action_dim, config.layer_size_network
         ).to(self.device)
 
     def _create_value_function(self, config) -> LayerNormMLP:
@@ -87,20 +86,22 @@ class BangBangAgent:
         if algorithm_type == "ppo":
             return PPO(
                 clip_ratio=getattr(config, "ppo_clip_ratio", 0.2),
-                value_coef=getattr(config, "ppo_value_coef", 0.5)
+                value_coef=getattr(config, "ppo_value_coef", 0.5),
             )
         elif algorithm_type == "sac":
             sac = SAC(
                 alpha=getattr(config, "sac_alpha", 0.2),
                 tau=getattr(config, "sac_tau", 0.005),
-                learning_rate=config.learning_rate
+                learning_rate=config.learning_rate,
             )
-            sac.initialize_q_networks(self.encoder_output_size + self.action_dim, self.device)
+            sac.initialize_q_networks(
+                self.encoder_output_size + self.action_dim, self.device
+            )
             return sac
         elif algorithm_type == "mpo":
             return MPO(
                 epsilon=getattr(config, "mpo_epsilon", 0.1),
-                epsilon_penalty=getattr(config, "mpo_epsilon_penalty", 0.001)
+                epsilon_penalty=getattr(config, "mpo_epsilon_penalty", 0.001),
             )
         else:
             raise ValueError(f"Unknown algorithm: {algorithm_type}")
@@ -121,7 +122,9 @@ class BangBangAgent:
     def observe_first(self, obs: torch.Tensor):
         self.last_obs = obs
 
-    def select_action(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+    def select_action(
+        self, obs: torch.Tensor, deterministic: bool = False
+    ) -> torch.Tensor:
         obs = self._prepare_observation(obs)
 
         with torch.no_grad():
@@ -140,7 +143,9 @@ class BangBangAgent:
 
         return obs
 
-    def observe(self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool):
+    def observe(
+        self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool
+    ):
         if self.last_obs is None:
             return
 
@@ -185,9 +190,7 @@ class BangBangAgent:
 
     def _sample_batch(self) -> Optional[dict]:
         return check_and_sample_batch_from_replay_buffer(
-            self.replay_buffer,
-            self.config.min_replay_size,
-            self.config.batch_size
+            self.replay_buffer, self.config.min_replay_size, self.config.batch_size
         )
 
     def _perform_gradient_update(self, loss: torch.Tensor):
@@ -238,7 +241,9 @@ class BangBangAgent:
 
         if self.encoder:
             checkpoint["encoder_state_dict"] = self.encoder.state_dict()
-            checkpoint["encoder_optimizer_state_dict"] = self.encoder_optimizer.state_dict()
+            checkpoint["encoder_optimizer_state_dict"] = (
+                self.encoder_optimizer.state_dict()
+            )
 
         if isinstance(self.algorithm, SAC):
             checkpoint.update(self._get_sac_checkpoint_data())
@@ -279,7 +284,9 @@ class BangBangAgent:
 
     def _load_encoder_checkpoint(self, checkpoint: dict):
         self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-        self.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer_state_dict"])
+        self.encoder_optimizer.load_state_dict(
+            checkpoint["encoder_optimizer_state_dict"]
+        )
 
     def _load_sac_checkpoint(self, checkpoint: dict):
         self.algorithm.q1.load_state_dict(checkpoint["q1_state_dict"])
@@ -288,5 +295,9 @@ class BangBangAgent:
         self.algorithm.target_q2.load_state_dict(checkpoint["target_q2_state_dict"])
 
         if "q1_optimizer_state_dict" in checkpoint:
-            self.algorithm.q1_optimizer.load_state_dict(checkpoint["q1_optimizer_state_dict"])
-            self.algorithm.q2_optimizer.load_state_dict(checkpoint["q2_optimizer_state_dict"])
+            self.algorithm.q1_optimizer.load_state_dict(
+                checkpoint["q1_optimizer_state_dict"]
+            )
+            self.algorithm.q2_optimizer.load_state_dict(
+                checkpoint["q2_optimizer_state_dict"]
+            )

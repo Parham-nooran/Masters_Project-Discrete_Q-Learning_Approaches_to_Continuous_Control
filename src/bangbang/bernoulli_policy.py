@@ -8,7 +8,9 @@ from src.common.networks import LayerNormMLP
 
 class BernoulliPolicy(nn.Module):
 
-    def __init__(self, input_size: int, action_dim: int, hidden_sizes: list = [512, 512]):
+    def __init__(
+        self, input_size: int, action_dim: int, hidden_sizes: list = [512, 512]
+    ):
         super().__init__()
         self.action_dim = action_dim
         sizes = [input_size] + hidden_sizes + [action_dim]
@@ -43,6 +45,8 @@ class BernoulliPolicy(nn.Module):
     def _convert_to_bang_bang(self, actions: torch.Tensor) -> torch.Tensor:
         return 2.0 * actions - 1.0
 
-    def _compute_log_probs(self, probs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+    def _compute_log_probs(
+        self, probs: torch.Tensor, actions: torch.Tensor
+    ) -> torch.Tensor:
         dist = torch.distributions.Bernoulli(probs)
         return dist.log_prob(actions).sum(dim=-1)
