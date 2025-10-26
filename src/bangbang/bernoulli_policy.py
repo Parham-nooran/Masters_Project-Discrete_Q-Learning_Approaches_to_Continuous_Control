@@ -5,6 +5,10 @@ import torch.nn as nn
 
 from src.common.networks import LayerNormMLP
 
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.orthogonal_(m.weight, gain=1.0)
+        nn.init.constant_(m.bias, 0)
 
 class BernoulliPolicy(nn.Module):
 
@@ -15,6 +19,7 @@ class BernoulliPolicy(nn.Module):
         self.action_dim = action_dim
         sizes = [input_size] + hidden_sizes + [action_dim]
         self.network = LayerNormMLP(sizes, activate_final=False)
+        self.apply(init_weights)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.network(obs)

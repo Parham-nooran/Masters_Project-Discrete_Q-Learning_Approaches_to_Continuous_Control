@@ -66,6 +66,7 @@ def _compute_td_errors(
     return td_errors
 
 
+
 class PPO(Base):
 
     def __init__(self, clip_ratio: float = 0.2, value_coef: float = 0.5):
@@ -92,10 +93,10 @@ class PPO(Base):
         )
         log_probs = _compute_log_probs(policy, obs_encoded, actions)
 
-        if self.old_log_probs is None:
-            self.old_log_probs = log_probs.detach()
+        with torch.no_grad():
+            old_log_probs = log_probs.detach()
 
-        policy_loss = self._compute_policy_loss(log_probs, advantages)
+        policy_loss = self._compute_policy_loss(log_probs, old_log_probs, advantages)
         value_loss = _compute_value_loss(
             values, rewards, next_obs_encoded, dones, discounts, value_function
         )
@@ -116,8 +117,10 @@ class PPO(Base):
         )
         return total_loss, metrics, td_errors
 
-    def _compute_policy_loss(self, log_probs, advantages):
-        ratio = torch.exp(log_probs - self.old_log_probs)
+    def _compute_policy_loss(self, log_probs, old_log_probs, advantages):
+        ratio = torch.exp(log_probs - old_log_probs)
+        ratio = torch.clamp(ratio, 0.0, 10.0)
+
         clipped_ratio = torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio)
         return -torch.min(ratio * advantages, clipped_ratio * advantages).mean()
 
@@ -271,8 +274,8 @@ class MPO(Base):
     def __init__(self, epsilon: float = 0.1, epsilon_penalty: float = 0.001):
         self.epsilon = epsilon
         self.epsilon_penalty = epsilon_penalty
-        self.log_temperature = torch.tensor(0.0, requires_grad=True)
-        self.log_alpha_mean = torch.tensor(0.0, requires_grad=True)
+        self.log_temperature = torch.tensor(0.0)
+        self.log_alpha_mean = torch.tensor(0.0)
 
     def compute_loss(
         self,
