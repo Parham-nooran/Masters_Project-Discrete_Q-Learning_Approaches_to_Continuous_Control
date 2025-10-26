@@ -94,7 +94,7 @@ def _init_recent_metrics():
 def _init_episode_metrics():
     """Initialize episode metrics dictionary."""
     return {
-        "rewards": [],
+        "reward": 0.0,
         "original_rewards": [],
         "action_magnitudes": [],
         "steps": 0,
@@ -159,7 +159,7 @@ def _update_metrics(metrics_tracker, recent_metrics, episode, episode_metrics, a
 
     metrics_tracker.log_episode(
         episode=episode,
-        rewards=episode_metrics["rewards"],
+        reward=episode_metrics["reward"],
         steps=episode_metrics["steps"],
         loss=avg_metrics["loss"],
         mean_abs_td_error=avg_metrics["mean_abs_td_error"],
@@ -273,13 +273,13 @@ class GQNTrainer(Logger):
             _accumulate_update_metrics(episode_metrics, update_metrics)
 
             obs = next_obs
-            episode_metrics["rewards"].append(reward)
+            episode_metrics["reward"] += reward
             episode_metrics["original_rewards"].append(original_reward)
             episode_metrics["action_magnitudes"].append(np.linalg.norm(action_np))
             steps += 1
 
         episode_metrics["steps"] = steps
-        agent.end_episode(episode_metrics["rewards"])
+        agent.end_episode(episode_metrics["reward"])
         self._cleanup_memory()
 
         return episode_metrics
@@ -327,7 +327,7 @@ class GQNTrainer(Logger):
 
         self.logger.info(
             f"Episode {episode:4d} | "
-            f"Episodic Reward: {torch.sum(torch.tensor(episode_metrics['rewards'])):7.2f} | "
+            f"Episodic Reward: {episode_metrics['reward']:7.2f} | "
             f"Original Episodic Reward: {torch.sum(torch.tensor(episode_metrics['original_rewards'])):7.2f} | "
             f"Loss: {avg_metrics['loss']:8.6f} | "
             f"Mean abs TD: {avg_metrics['mean_abs_td_error']:8.6f} | "
@@ -401,10 +401,6 @@ class GQNTrainer(Logger):
 
     def load_checkpoint(self, agent, checkpoint_path):
         """Load checkpoint and restore state."""
-        if not os.path.exists(checkpoint_path):
-            self.logger.warning(f"Checkpoint {checkpoint_path} does not exist.")
-            return 0
-
         try:
             checkpoint = torch.load(
                 checkpoint_path, map_location=agent.device, weights_only=False
