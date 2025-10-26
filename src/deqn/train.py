@@ -114,6 +114,7 @@ class DecQNTrainer(Logger):
 
     def __init__(self, config, working_dir="./src/deqn/output"):
         super().__init__(working_dir + "/logs")
+        self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.checkpoint_manager = CheckpointManager(self.logger)
@@ -127,7 +128,7 @@ class DecQNTrainer(Logger):
         agent = DecQNAgent(self.config, obs_shape, action_spec_dict)
 
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
-            self.logger, agent
+            self.working_dir + "/metrics", agent
         )
         metrics_tracker = _initialize_metrics_tracker(self.logger, start_episode)
 
