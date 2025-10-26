@@ -47,13 +47,8 @@ class Logger:
 
         handlers = []
         config_info = []
-        if (
-            self.log_info_to_file(formatter, handlers, config_info)
-            and self.specific_excel_file_name is not None
-        ):
-            self.log_info_to_file(formatter, handlers, config_info)
-        if self.log_info_to_console(formatter, handlers, config_info):
-            self.log_info_to_console(formatter, handlers, config_info)
+        self.log_info_to_file(formatter, handlers, config_info)
+        self.log_info_to_console(formatter, handlers, config_info)
 
         logging.basicConfig(level=self.log_level, handlers=handlers, force=True)
         self.logger.info(
