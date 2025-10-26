@@ -68,7 +68,7 @@ class BangBangTrainer(Logger):
         agent.observe_first(obs)
 
         steps = 0
-        max_steps = getattr(self.args, 'max_episode_steps', 1000)
+        max_steps = getattr(self.args, "max_episode_steps", 1000)
 
         while not time_step.last() and steps < max_steps:
             action = agent.select_action(obs)
@@ -125,7 +125,7 @@ class BangBangTrainer(Logger):
             eta = avg_episode_time * (self.args.num_episodes - episode)
 
             recent_rewards = metrics_tracker.episode_rewards[
-                -self.args.detailed_log_interval:
+                -self.args.detailed_log_interval :
             ]
 
             self.logger.info(f"Episode {episode} Summary:")
@@ -167,51 +167,86 @@ if __name__ == "__main__":
     )
 
     # Network architecture
-    parser.add_argument("--use-pixels", action="store_true", help="Use pixel observations")
-    parser.add_argument("--layer-size-network", type=int, nargs="+", default=[512, 512],
-                        help="Hidden layer sizes for policy/value networks")
-    parser.add_argument("--layer-size-bottleneck", type=int, default=100,
-                        help="Encoder output size")
-    parser.add_argument("--num-pixels", type=int, default=84, help="Pixel observation size")
+    parser.add_argument(
+        "--use-pixels", action="store_true", help="Use pixel observations"
+    )
+    parser.add_argument(
+        "--layer-size-network",
+        type=int,
+        nargs="+",
+        default=[512, 512],
+        help="Hidden layer sizes for policy/value networks",
+    )
+    parser.add_argument(
+        "--layer-size-bottleneck", type=int, default=100, help="Encoder output size"
+    )
+    parser.add_argument(
+        "--num-pixels", type=int, default=84, help="Pixel observation size"
+    )
 
     # Training hyperparameters
-    parser.add_argument("--min-replay-size", type=int, default=1000,
-                        help="Minimum replay buffer size before training")
-    parser.add_argument("--max-replay-size", type=int, default=500000,
-                        help="Maximum replay buffer size")
+    parser.add_argument(
+        "--min-replay-size",
+        type=int,
+        default=1000,
+        help="Minimum replay buffer size before training",
+    )
+    parser.add_argument(
+        "--max-replay-size", type=int, default=500000, help="Maximum replay buffer size"
+    )
     parser.add_argument("--batch-size", type=int, default=128, help="Batch size")
-    parser.add_argument("--learning-rate", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument(
+        "--learning-rate", type=float, default=3e-4, help="Learning rate"
+    )
     parser.add_argument("--discount", type=float, default=0.99, help="Discount factor")
-    parser.add_argument("--priority-exponent", type=float, default=0.6,
-                        help="Prioritized replay alpha")
-    parser.add_argument("--importance-sampling-exponent", type=float, default=0.4,
-                        help="Prioritized replay beta")
+    parser.add_argument(
+        "--priority-exponent", type=float, default=0.6, help="Prioritized replay alpha"
+    )
+    parser.add_argument(
+        "--importance-sampling-exponent",
+        type=float,
+        default=0.4,
+        help="Prioritized replay beta",
+    )
     parser.add_argument("--adder-n-step", type=int, default=1, help="N-step returns")
-    parser.add_argument("--clip-gradients", action="store_true", default=True,
-                        help="Clip gradients")
-    parser.add_argument("--clip-gradients-norm", type=float, default=40.0,
-                        help="Gradient clipping norm")
-    parser.add_argument("--max-episode-steps", type=int, default=1000,
-                        help="Maximum steps per episode")
+    parser.add_argument(
+        "--clip-gradients", action="store_true", default=True, help="Clip gradients"
+    )
+    parser.add_argument(
+        "--clip-gradients-norm", type=float, default=40.0, help="Gradient clipping norm"
+    )
+    parser.add_argument(
+        "--max-episode-steps", type=int, default=1000, help="Maximum steps per episode"
+    )
 
     # Algorithm selection
-    parser.add_argument("--algorithm", type=str, default="ppo",
-                        choices=["ppo", "sac", "mpo"],
-                        help="RL algorithm to use")
+    parser.add_argument(
+        "--algorithm",
+        type=str,
+        default="ppo",
+        choices=["ppo", "sac", "mpo"],
+        help="RL algorithm to use",
+    )
 
     # Algorithm-specific parameters
-    parser.add_argument("--ppo-clip-ratio", type=float, default=0.2,
-                        help="PPO clipping ratio")
-    parser.add_argument("--ppo-value-coef", type=float, default=0.5,
-                        help="PPO value loss coefficient")
-    parser.add_argument("--sac-alpha", type=float, default=0.2,
-                        help="SAC entropy temperature")
-    parser.add_argument("--sac-tau", type=float, default=0.005,
-                        help="SAC target network update rate")
-    parser.add_argument("--mpo-epsilon", type=float, default=0.1,
-                        help="MPO KL constraint")
-    parser.add_argument("--mpo-epsilon-penalty", type=float, default=0.001,
-                        help="MPO epsilon penalty")
+    parser.add_argument(
+        "--ppo-clip-ratio", type=float, default=0.2, help="PPO clipping ratio"
+    )
+    parser.add_argument(
+        "--ppo-value-coef", type=float, default=0.5, help="PPO value loss coefficient"
+    )
+    parser.add_argument(
+        "--sac-alpha", type=float, default=0.2, help="SAC entropy temperature"
+    )
+    parser.add_argument(
+        "--sac-tau", type=float, default=0.005, help="SAC target network update rate"
+    )
+    parser.add_argument(
+        "--mpo-epsilon", type=float, default=0.1, help="MPO KL constraint"
+    )
+    parser.add_argument(
+        "--mpo-epsilon-penalty", type=float, default=0.001, help="MPO epsilon penalty"
+    )
 
     args = parser.parse_args()
 

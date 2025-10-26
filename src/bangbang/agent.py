@@ -29,8 +29,12 @@ class BangBangAgent:
         self.action_spec = action_spec
         self.action_dim = len(action_spec["low"])
 
-        self.action_low = torch.tensor(action_spec["low"], device=self.device, dtype=torch.float32)
-        self.action_high = torch.tensor(action_spec["high"], device=self.device, dtype=torch.float32)
+        self.action_low = torch.tensor(
+            action_spec["low"], device=self.device, dtype=torch.float32
+        )
+        self.action_high = torch.tensor(
+            action_spec["high"], device=self.device, dtype=torch.float32
+        )
 
     def _setup_networks(self, args, obs_shape: tuple):
         self.encoder, self.encoder_output_size = self._create_encoder(args, obs_shape)
@@ -47,7 +51,7 @@ class BangBangAgent:
         self.encoder_optimizer = self._create_encoder_optimizer(args)
 
     def _create_encoder(
-            self, args, obs_shape: tuple
+        self, args, obs_shape: tuple
     ) -> Tuple[Optional[VisionEncoder], int]:
         if args.use_pixels:
             encoder = VisionEncoder(args, args.num_pixels).to(self.device)
@@ -66,6 +70,7 @@ class BangBangAgent:
 
     def _create_value_function(self, args) -> LayerNormMLP:
         from src.common.networks import LayerNormMLP
+
         layer_sizes = [self.encoder_output_size] + args.layer_size_network + [1]
         return LayerNormMLP(layer_sizes, activate_final=False).to(self.device)
 
@@ -124,7 +129,7 @@ class BangBangAgent:
         self.last_obs = obs
 
     def select_action(
-            self, obs: torch.Tensor, deterministic: bool = False
+        self, obs: torch.Tensor, deterministic: bool = False
     ) -> torch.Tensor:
         obs = self._prepare_observation(obs)
 
@@ -144,11 +149,10 @@ class BangBangAgent:
         return obs
 
     def observe(
-            self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool
+        self, action: torch.Tensor, reward: float, next_obs: torch.Tensor, done: bool
     ):
         if self.last_obs is None:
             return
-
 
         binary_action = (action + 1.0) / 2.0
 
@@ -189,7 +193,9 @@ class BangBangAgent:
 
         # Check for NaN loss
         if torch.isnan(loss) or torch.isinf(loss):
-            print(f"Warning: NaN/Inf loss detected at step {self.training_step}, skipping update")
+            print(
+                f"Warning: NaN/Inf loss detected at step {self.training_step}, skipping update"
+            )
             return {"loss_error": 1.0}
 
         self._perform_gradient_update(loss)

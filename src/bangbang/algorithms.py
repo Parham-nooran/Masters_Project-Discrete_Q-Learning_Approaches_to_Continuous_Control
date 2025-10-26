@@ -66,7 +66,6 @@ def _compute_td_errors(
     return td_errors
 
 
-
 class PPO(Base):
 
     def __init__(self, clip_ratio: float = 0.2, value_coef: float = 0.5):

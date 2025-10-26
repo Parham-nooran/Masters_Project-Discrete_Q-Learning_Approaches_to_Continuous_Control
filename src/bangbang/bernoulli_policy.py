@@ -5,10 +5,12 @@ import torch.nn as nn
 
 from src.common.networks import LayerNormMLP
 
+
 def init_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.orthogonal_(m.weight, gain=1.0)
         nn.init.constant_(m.bias, 0)
+
 
 class BernoulliPolicy(nn.Module):
 
