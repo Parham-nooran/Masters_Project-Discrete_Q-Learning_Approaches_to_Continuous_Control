@@ -3,11 +3,6 @@ import os
 
 def load_checkpoint(agent, checkpoint_path, logger):
     """Load checkpoint and return starting episode."""
-    if not checkpoint_path or not os.path.exists(checkpoint_path):
-        if checkpoint_path:
-            logger.warn(f"Checkpoint {checkpoint_path} not found. Starting fresh...")
-        return 0
-
     try:
         loaded_episode = agent.load_checkpoint(checkpoint_path)
         start_episode = loaded_episode + 1

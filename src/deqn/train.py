@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument(
         "--load-checkpoints",
         type=str,
-        default="./output/checkpoints/decqn_walker_run_700.pth",
+        default=None,
         help="Path to checkpoints file to resume from",
     )
     parser.add_argument(
@@ -128,7 +128,7 @@ class DecQNTrainer(Logger):
         agent = DecQNAgent(self.config, obs_shape, action_spec_dict)
 
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
-            self.working_dir + "/metrics", agent
+            self.config.load_checkpoints, agent
         )
         metrics_tracker = _initialize_metrics_tracker(self.logger, start_episode)
 
