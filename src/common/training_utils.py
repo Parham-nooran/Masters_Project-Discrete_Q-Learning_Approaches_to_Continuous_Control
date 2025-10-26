@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-import ogbench
 import torch
 import torch.nn.functional as F
 from dm_control import suite
@@ -52,17 +51,15 @@ def process_observation(dm_obs, use_pixels, device, obs_buffer=None) -> torch.Te
     if use_pixels:
         return process_pixel_observation(dm_obs, device)
     else:
-        if isinstance(dm_obs, dict):
-            state_parts = []
-            for key in sorted(dm_obs.keys()):
-                val = dm_obs[key]
-                if isinstance(val, np.ndarray):
-                    state_parts.append(val.astype(np.float32).flatten())
-                else:
-                    state_parts.append(np.array([float(val)], dtype=np.float32))
-            state_vector = np.concatenate(state_parts, dtype=np.float32)
-        else:
-            state_vector = np.array(dm_obs, dtype=np.float32).flatten()
+        state_parts = []
+        for key in sorted(dm_obs.keys()):
+            val = dm_obs[key]
+            if isinstance(val, np.ndarray):
+                state_parts.append(val.astype(np.float32).flatten())
+            else:
+                state_parts.append(np.array([float(val)], dtype=np.float32))
+
+        state_vector = np.concatenate(state_parts, dtype=np.float32)
         if obs_buffer is None:
             return torch.from_numpy(state_vector).to(device)
         else:
@@ -164,12 +161,6 @@ def check_task(task, logger):
 
 
 def get_env(task, logger):
-    if task.startswith(('antmaze-', 'antsoccer-', 'pointmaze-', 'humanoidmaze-')):
-        if 'singletask' not in task:
-            task = f'{task}-singletask-v0'
-        logger.info(f"Loading OGBench Environment: {task}")
-        env, _, _ = ogbench.make_env_and_datasets(task, env_only=True)
-        return env
     task = check_task(task, logger)
     domain_name, task_name = task.split("_", 1)
     env = suite.load(domain_name, task_name)
