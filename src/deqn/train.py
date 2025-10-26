@@ -87,15 +87,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def _initialize_metrics_tracker(logger, start_episode):
-    """Initialize or load metrics tracker."""
-    metrics_tracker = MetricsTracker(logger, save_dir="./output/metrics")
-
-    if start_episode > 0:
-        metrics_tracker.load_metrics()
-
-    return metrics_tracker
-
 
 def _convert_action_to_numpy(action):
     """Convert action tensor to numpy array."""
@@ -130,7 +121,7 @@ class DecQNTrainer(Logger):
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
             self.config.load_checkpoints, agent
         )
-        metrics_tracker = _initialize_metrics_tracker(self.logger, start_episode)
+        metrics_tracker = self._initialize_metrics_tracker(start_episode)
 
         self._log_setup_info(agent)
 
@@ -292,6 +283,15 @@ class DecQNTrainer(Logger):
         plotter.plot_training_curves(save=True)
         plotter.plot_reward_distribution(save=True)
         plotter.print_summary_stats()
+
+    def _initialize_metrics_tracker(self, start_episode):
+        """Initialize or load metrics tracker."""
+        metrics_tracker = MetricsTracker(self.logger, save_dir="./output/metrics")
+
+        if start_episode > 0:
+            metrics_tracker.load_metrics(self.config.load_metrics)
+
+        return metrics_tracker
 
 
 if __name__ == "__main__":
