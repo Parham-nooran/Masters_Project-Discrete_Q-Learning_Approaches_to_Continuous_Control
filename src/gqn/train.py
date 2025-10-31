@@ -95,7 +95,6 @@ def _init_episode_metrics():
     """Initialize episode metrics dictionary."""
     return {
         "reward": 0.0,
-        "original_rewards": [],
         "action_magnitudes": [],
         "steps": 0,
         "update_metrics": [],
@@ -274,7 +273,6 @@ class GQNTrainer(Logger):
 
             obs = next_obs
             episode_metrics["reward"] += reward
-            episode_metrics["original_rewards"].append(original_reward)
             episode_metrics["action_magnitudes"].append(np.linalg.norm(action_np))
             steps += 1
 
@@ -328,7 +326,6 @@ class GQNTrainer(Logger):
         self.logger.info(
             f"Episode {episode:4d} | "
             f"Episodic Reward: {episode_metrics['reward']:7.2f} | "
-            f"Original Episodic Reward: {torch.sum(torch.tensor(episode_metrics['original_rewards'])):7.2f} | "
             f"Loss: {avg_metrics['loss']:8.6f} | "
             f"Mean abs TD: {avg_metrics['mean_abs_td_error']:8.6f} | "
             f"Mean sq TD: {avg_metrics['mean_squared_td_error']:8.6f} | "
@@ -348,7 +345,6 @@ class GQNTrainer(Logger):
         growth_info = agent.get_growth_info()
         self.logger.info(f"Episode {episode} Detailed Summary:")
         self.logger.info(f"Penalized Reward: {episode_metrics['reward']:.2f}")
-        self.logger.info(f"Original Reward: {episode_metrics['original_reward']:.2f}")
         self.logger.info(f"Current resolution: {growth_info['current_bins']} bins")
         self.logger.info(f"Growth history: {growth_info['growth_history']}")
         self.logger.info(f"Buffer size: {len(agent.replay_buffer)}")
