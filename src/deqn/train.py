@@ -28,6 +28,12 @@ def parse_args():
         help="Path to checkpoints file to resume from",
     )
     parser.add_argument(
+        "--load-metrics",
+        type=str,
+        default=None,
+        help="Path to metrics file to resume from",
+    )
+    parser.add_argument(
         "--task", type=str, default="walker_run", help="Environment task"
     )
     parser.add_argument(
