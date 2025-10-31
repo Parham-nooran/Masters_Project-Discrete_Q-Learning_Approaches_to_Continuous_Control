@@ -38,9 +38,10 @@ def parse_arguments():
 
 
 class Plotter(Logger):
-    def __init__(self, working_dir="./src/plotting/output/logs"):
-        super().__init__(working_dir)
-        self.tracker = MetricsTracker(self.logger)
+    def __init__(self, working_dir="./src/plotting/output"):
+        super().__init__(working_dir + "/logs")
+        self.working_dir = working_dir
+        self.tracker = MetricsTracker(self.logger, save_dir=self.working_dir)
         self.args = parse_arguments()
         self.log_important_args()
 
