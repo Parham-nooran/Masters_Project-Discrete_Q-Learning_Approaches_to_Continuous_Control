@@ -84,18 +84,18 @@ class CQNAgent:
         with torch.no_grad():
             action = self._hierarchical_action_selection(obs, evaluate)
 
-
         action = action.cpu()
-        action = torch.clamp(action,
-                             torch.tensor(self.action_spec["low"]),
-                             torch.tensor(self.action_spec["high"]))
+        action = torch.clamp(
+            action,
+            torch.tensor(self.action_spec["low"]),
+            torch.tensor(self.action_spec["high"]),
+        )
         return action
 
     def _prepare_observation(self, obs: torch.Tensor) -> torch.Tensor:
         """Convert observation to proper format and device."""
         if isinstance(obs, np.ndarray):
             obs = torch.from_numpy(obs).float()
-
 
         if len(obs.shape) == 1:
             obs = obs.unsqueeze(0)
