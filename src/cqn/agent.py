@@ -29,7 +29,6 @@ class CQNAgent:
             config: Configuration object with hyperparameters.
             obs_shape: Shape of observations.
             action_spec: Dictionary with 'low' and 'high' action bounds.
-            working_dir: Directory for logs and checkpoints.
         """
         self.config = config
         self.obs_shape = obs_shape
@@ -79,27 +78,27 @@ class CQNAgent:
         self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
-        """
-        Select action using hierarchical coarse-to-fine strategy.
-
-        Args:
-            obs: Observation tensor or numpy array.
-            evaluate: If True, use greedy policy; otherwise epsilon-greedy.
-
-        Returns:
-            Continuous action tensor.
-        """
+        """Select action using hierarchical coarse-to-fine strategy."""
         obs = self._prepare_observation(obs)
 
         with torch.no_grad():
             action = self._hierarchical_action_selection(obs, evaluate)
 
-        return action.cpu()
+
+        action = action.cpu()
+        action = torch.clamp(action,
+                             torch.tensor(self.action_spec["low"]),
+                             torch.tensor(self.action_spec["high"]))
+        return action
 
     def _prepare_observation(self, obs: torch.Tensor) -> torch.Tensor:
         """Convert observation to proper format and device."""
         if isinstance(obs, np.ndarray):
-            obs = torch.from_numpy(obs).float().unsqueeze(0)
+            obs = torch.from_numpy(obs).float()
+
+
+        if len(obs.shape) == 1:
+            obs = obs.unsqueeze(0)
         elif len(obs.shape) == len(self.obs_shape):
             obs = obs.unsqueeze(0)
 
@@ -123,9 +122,9 @@ class CQNAgent:
         level_continuous = None
 
         for level in range(self.num_levels):
-            if level > 0:
+            if level > 0 and prev_action is not None:
                 action_range = self.discretizer.get_action_range_for_level(
-                    level, prev_action.squeeze(0)
+                    level, prev_action.squeeze(0).to(self.device)
                 )
 
             q1, q2 = self.network(obs, level, prev_action)
@@ -514,6 +513,41 @@ class CQNAgent:
             "config.py": self.config,
         }
         torch.save(checkpoint, filepath)
+
+    def save_checkpoint(self, filepath: str, episode: int) -> None:
+        """
+        Save agent checkpoint with episode information.
+
+        Args:
+            filepath: Path to save checkpoint.
+            episode: Current episode number.
+        """
+        checkpoint = {
+            "network_state_dict": self.network.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "training_steps": self.training_steps,
+            "epsilon": self.epsilon,
+            "episode": episode,
+            "config": self.config,
+        }
+        torch.save(checkpoint, filepath)
+
+    def load_checkpoint(self, filepath: str) -> int:
+        """
+        Load agent checkpoint and return episode number.
+
+        Args:
+            filepath: Path to checkpoint.
+
+        Returns:
+            Episode number from checkpoint.
+        """
+        checkpoint = torch.load(filepath, map_location=self.device)
+        self.network.load_state_dict(checkpoint["network_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.training_steps = checkpoint["training_steps"]
+        self.epsilon = checkpoint["epsilon"]
+        return checkpoint.get("episode", 0)
 
     def load(self, filepath: str) -> None:
         """
