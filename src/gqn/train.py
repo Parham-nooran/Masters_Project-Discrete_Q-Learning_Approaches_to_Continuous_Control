@@ -2,6 +2,7 @@
 
 import argparse
 import gc
+import json
 import os
 import time
 from collections import deque
@@ -151,11 +152,12 @@ def _compute_average_metrics(recent_metrics, episode_metrics):
     }
 
 
-def _update_metrics(metrics_tracker, recent_metrics, episode, episode_metrics, agent):
+def _update_metrics(metrics_tracker, recent_metrics, episode, episode_metrics, agent, episode_time):
     """Update all metrics tracking."""
     _update_recent_metrics(recent_metrics, episode_metrics)
     avg_metrics = _compute_average_metrics(recent_metrics, episode_metrics)
 
+    growth_info = agent.get_growth_info()
     metrics_tracker.log_episode(
         episode=episode,
         reward=episode_metrics["reward"],
@@ -165,6 +167,9 @@ def _update_metrics(metrics_tracker, recent_metrics, episode, episode_metrics, a
         mean_squared_td_error=avg_metrics["mean_squared_td_error"],
         q_mean=avg_metrics["q_mean"],
         epsilon=agent.epsilon,
+        episode_time=episode_time,
+        current_bins=growth_info["current_bins"],
+        growth_history=str(growth_info["growth_history"]),
     )
 
 
@@ -187,9 +192,12 @@ class GQNTrainer(Logger):
         start_time = time.time()
 
         for episode in range(start_episode, self.config.num_episodes):
+            episode_start_time = time.time()
             episode_metrics = self._run_episode(agent, obs_buffer)
+            episode_time = time.time() - episode_start_time
+
             _update_metrics(
-                metrics_tracker, recent_metrics, episode, episode_metrics, agent
+                metrics_tracker, recent_metrics, episode, episode_metrics, agent, episode_time
             )
             agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
 
@@ -250,7 +258,7 @@ class GQNTrainer(Logger):
         time_step = env.reset()
         obs = process_observation(
             time_step.observation, self.config.use_pixels, self.device, obs_buffer
-        )
+        ).to(self.device, non_blocking=True)
         agent.observe_first(obs)
 
         episode_metrics = _init_episode_metrics()
@@ -263,7 +271,7 @@ class GQNTrainer(Logger):
             time_step = env.step(action_np)
             next_obs = process_observation(
                 time_step.observation, self.config.use_pixels, self.device, obs_buffer
-            )
+            ).to(self.device, non_blocking=True)
 
             reward, original_reward = self._compute_reward(action_np, time_step)
             agent.observe(action, reward, next_obs, time_step.last())
@@ -325,13 +333,10 @@ class GQNTrainer(Logger):
 
         self.logger.info(
             f"Episode {episode:4d} | "
-            f"Episodic Reward: {episode_metrics['reward']:7.2f} | "
+            f"Reward: {episode_metrics['reward']:7.2f} | "
             f"Loss: {avg_metrics['loss']:8.6f} | "
-            f"Mean abs TD: {avg_metrics['mean_abs_td_error']:8.6f} | "
-            f"Mean sq TD: {avg_metrics['mean_squared_td_error']:8.6f} | "
-            f"Q-mean: {avg_metrics['q_mean']:6.3f} | "
             f"Bins: {growth_info['current_bins']} | "
-            f"Action_mag: {avg_metrics['action_magnitude']:.3f}"
+            f"Growth history: {growth_info['growth_history']}"
         )
 
     def _log_detailed_progress(
@@ -366,15 +371,26 @@ class GQNTrainer(Logger):
 
     def _finalize_training(self, agent, metrics_tracker, start_time):
         """Finalize training and save results."""
+        total_time = time.time() - start_time
+
+        if metrics_tracker.episode_times:
+            avg_episode_time = np.mean(metrics_tracker.episode_times)
+            total_episodes = len(metrics_tracker.episode_times)
+        else:
+            avg_episode_time = 0
+            total_episodes = 0
+
         metrics_tracker.save_metrics()
         final_checkpoint = "output/checkpoints/gqn_final.pth"
         save_checkpoint(agent, self.config.num_episodes, final_checkpoint)
         self.logger.info(f"Final checkpoint saved: {final_checkpoint}")
 
-        total_time = time.time() - start_time
         self.logger.info(f"Training completed in {total_time / 60:.1f} minutes!")
+        self.logger.info(f"Average episode time: {avg_episode_time:.2f} seconds")
+        self.logger.info(f"Total episodes: {total_episodes}")
 
         self._log_growth_summary(agent)
+        self._save_timing_data(metrics_tracker, total_time)
         self._generate_plots(metrics_tracker)
 
     def _log_growth_summary(self, agent):
@@ -386,6 +402,35 @@ class GQNTrainer(Logger):
         self.logger.info(
             f"  Total resolution levels: {len(growth_info['growth_history'])}"
         )
+
+    def _save_timing_data(self, metrics_tracker, total_time):
+        """Save timing information."""
+        growth_events = metrics_tracker.get_growth_events()
+
+        avg_episode_time = (
+            np.mean(metrics_tracker.episode_times)
+            if metrics_tracker.episode_times else 0
+        )
+
+        timing_data = {
+            "total_time_seconds": total_time,
+            "total_time_minutes": total_time / 60,
+            "total_time_hours": total_time / 3600,
+            "avg_episode_time_seconds": avg_episode_time,
+            "num_episodes": len(metrics_tracker.episode_times),
+            "growth_events": growth_events,
+            "final_bins": (
+                metrics_tracker.episode_current_bins[-1]
+                if metrics_tracker.episode_current_bins else None
+            ),
+        }
+
+        os.makedirs("output/metrics", exist_ok=True)
+        with open("output/metrics/timing_data.json", "w") as f:
+            json.dump(timing_data, f, indent=2)
+
+        self.logger.info(f"Timing data saved to output/metrics/timing_data.json")
+        self.logger.info(f"Number of growth events: {len(growth_events)}")
 
     def _generate_plots(self, metrics_tracker):
         """Generate training plots."""
@@ -450,11 +495,12 @@ def save_checkpoint(agent, episode, path):
             agent.encoder_optimizer.state_dict()
         )
 
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(checkpoint, path)
 
 
 def create_gqn_config(args):
-    """Create config.py for GQN agent."""
+    """Create config for GQN agent."""
     config = GQNConfig.get_default_gqn_config(args)
     config.action_penalty = getattr(args, "action_penalty", 0.001)
     config.learning_rate = getattr(args, "learning_rate", 1e-4)

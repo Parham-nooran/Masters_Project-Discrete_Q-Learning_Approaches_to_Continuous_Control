@@ -11,7 +11,7 @@ def _build_network(layer_sizes: List[int]) -> nn.Module:
         linear = nn.Linear(layer_sizes[i], layer_sizes[i + 1])
         layers.append(linear)
 
-        if i < len(layer_sizes) - 2:  # No activation on final layer
+        if i < len(layer_sizes) - 2:
             layers.append(nn.LayerNorm(layer_sizes[i + 1]))
             layers.append(nn.ELU())
 
@@ -26,13 +26,14 @@ def _init_weights(m):
             nn.init.zeros_(m.bias)
 
 
+@torch.jit.script
 def apply_action_mask_optimized(
     q_values: torch.Tensor, action_mask: torch.Tensor
 ) -> torch.Tensor:
     """JIT-compiled action masking for speed."""
-    mask_value = -1e6
+    mask_value = torch.tensor(-1e6, dtype=q_values.dtype, device=q_values.device)
     return torch.where(
-        action_mask.unsqueeze(0), q_values, torch.full_like(q_values, mask_value)
+        action_mask.unsqueeze(0), q_values, mask_value
     )
 
 
@@ -73,9 +74,7 @@ class GrowingQCritic(nn.Module):
     def forward(
         self, x: torch.Tensor, action_mask: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Forward pass with optional action masking and output scaling.
-        """
+        """Forward pass with optional action masking."""
         q1 = self.q1_network(x)
         q2 = self.q2_network(x) if self.use_double_q else q1
 
@@ -92,9 +91,9 @@ class GrowingQCritic(nn.Module):
                 q2 = apply_action_mask_optimized(q2, action_mask)
         else:
             if action_mask is not None:
-                mask_value = -1e6
-                expanded_mask = action_mask.unsqueeze(0).expand(q1.shape[0], -1)
-                q1 = torch.where(expanded_mask, q1, torch.full_like(q1, mask_value))
-                q2 = torch.where(expanded_mask, q2, torch.full_like(q2, mask_value))
+                mask_value = torch.tensor(-1e6, dtype=q1.dtype, device=q1.device)
+                expanded_mask = action_mask.unsqueeze(0).expand_as(q1)
+                q1 = torch.where(expanded_mask, q1, mask_value)
+                q2 = torch.where(expanded_mask, q2, mask_value)
 
         return q1, q2

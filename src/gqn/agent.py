@@ -74,29 +74,33 @@ class GrowingQNAgent(Logger):
         self.growth_history = [self.action_discretizer.num_bins]
 
     def get_current_action_mask(self):
-        """Get action mask for current resolution level - simplified approach."""
+        """Get action mask for current resolution level."""
         current_bins = self.action_discretizer.num_bins
         max_bins = self.config.max_bins
 
-        if self.config.decouple:
-            mask = torch.zeros(
-                self.action_discretizer.action_dim,
-                max_bins,
-                dtype=torch.bool,
-                device=self.device,
-            )
-            for dim in range(self.action_discretizer.action_dim):
-                mask[dim, :current_bins] = True
-            return mask
-        else:
-            total_actions = current_bins**self.action_discretizer.action_dim
-            mask = torch.zeros(
-                max_bins**self.action_discretizer.action_dim,
-                dtype=torch.bool,
-                device=self.device,
-            )
-            mask[:total_actions] = True
-            return mask
+        if not hasattr(self, '_cached_mask') or self._cached_bins != current_bins:
+            if self.config.decouple:
+                mask = torch.zeros(
+                    self.action_discretizer.action_dim,
+                    max_bins,
+                    dtype=torch.bool,
+                    device=self.device,
+                )
+                for dim in range(self.action_discretizer.action_dim):
+                    mask[dim, :current_bins] = True
+            else:
+                total_actions = current_bins**self.action_discretizer.action_dim
+                mask = torch.zeros(
+                    max_bins**self.action_discretizer.action_dim,
+                    dtype=torch.bool,
+                    device=self.device,
+                )
+                mask[:total_actions] = True
+
+            self._cached_mask = mask
+            self._cached_bins = current_bins
+
+        return self._cached_mask
 
     def select_action(self, obs):
         """Select action - same as DecQN but with action masking."""
@@ -131,13 +135,16 @@ class GrowingQNAgent(Logger):
             and len(self.replay_buffer) > self.config.min_replay_size * 2
         ):
             if self.scheduler.should_grow(self.episode_count, episode_return):
+                old_bins = self.action_discretizer.num_bins
                 growth_occurred = self.action_discretizer.grow_action_space()
                 if growth_occurred:
                     current_bins = self.action_discretizer.num_bins
                     self.growth_history.append(current_bins)
                     self.logger.info(
-                        f"Episode {self.episode_count}: Growing to {current_bins} bins"
+                        f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
                     )
+                    if hasattr(self, '_cached_mask'):
+                        delattr(self, '_cached_mask')
                     return True
         return False
 
