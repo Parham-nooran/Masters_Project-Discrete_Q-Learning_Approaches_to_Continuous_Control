@@ -1,8 +1,6 @@
 import os
 import pickle
 
-from src.common.logger import Logger
-
 
 class MetricsTracker:
     def __init__(self, logger, save_dir):
@@ -18,19 +16,24 @@ class MetricsTracker:
         self.episode_mse_losses = []
         self.episode_times = []
         self.episodes = []
+        self.episode_current_bins = []
+        self.episode_growth_history = []
+        os.makedirs(save_dir, exist_ok=True)
 
     def log_episode(
-        self,
-        episode,
-        reward,
-        steps,
-        mse_loss=0.0,
-        loss=0.0,
-        mean_abs_td_error=0.0,
-        mean_squared_td_error=0.0,
-        q_mean=0.0,
-        epsilon=0.0,
-        episode_time=0.0,
+            self,
+            episode,
+            reward,
+            steps,
+            mse_loss=0.0,
+            loss=0.0,
+            mean_abs_td_error=0.0,
+            mean_squared_td_error=0.0,
+            q_mean=0.0,
+            epsilon=0.0,
+            episode_time=0.0,
+            current_bins=None,
+            growth_history=None,
     ):
         self.episodes.append(episode)
         self.episode_rewards.append(reward)
@@ -42,6 +45,8 @@ class MetricsTracker:
         self.episode_epsilons.append(epsilon)
         self.episode_mse_losses.append(mse_loss)
         self.episode_times.append(episode_time)
+        self.episode_current_bins.append(current_bins if current_bins is not None else 0)
+        self.episode_growth_history.append(growth_history if growth_history is not None else "[]")
 
     def save_metrics(self):
         metrics_data = {
@@ -55,11 +60,16 @@ class MetricsTracker:
             "episode_epsilons": self.episode_epsilons,
             "episode_q_means": self.episode_q_means,
             "episode_times": self.episode_times,
+            "episode_current_bins": self.episode_current_bins,
+            "episode_growth_history": self.episode_growth_history,
         }
 
+        os.makedirs(self.save_dir, exist_ok=True)
         metrics_path = os.path.join(self.save_dir, "metrics.pkl")
         with open(metrics_path, "wb") as f:
             pickle.dump(metrics_data, f)
+
+        self.logger.info(f"Metrics saved to {metrics_path}")
 
     def load_metrics(self, path=None):
         if path is None:
@@ -83,6 +93,9 @@ class MetricsTracker:
                 )
                 self.episode_q_means = metrics_data.get("episode_q_means", [])
                 self.episode_epsilons = metrics_data.get("episode_epsilons", [])
+                self.episode_times = metrics_data.get("episode_times", [])
+                self.episode_current_bins = metrics_data.get("episode_current_bins", [])
+                self.episode_growth_history = metrics_data.get("episode_growth_history", [])
 
                 self.logger.info(f"Loaded metrics for {len(self.episodes)} episodes")
                 return True
@@ -90,3 +103,25 @@ class MetricsTracker:
                 self.logger.warn(f"Failed to load metrics: {e}")
                 return False
         return False
+
+    def get_growth_events(self):
+        """Extract growth events from history."""
+        growth_events = []
+        prev_bins = None
+
+        for episode, bins_str in zip(self.episodes, self.episode_growth_history):
+            try:
+                bins_list = eval(bins_str) if isinstance(bins_str, str) else bins_str
+                if bins_list and (prev_bins is None or bins_list != prev_bins):
+                    current_bins = bins_list[-1] if bins_list else None
+                    if current_bins and current_bins != prev_bins:
+                        growth_events.append({
+                            "episode": episode,
+                            "bins": current_bins,
+                            "full_history": bins_list
+                        })
+                        prev_bins = current_bins
+            except:
+                continue
+
+        return growth_events
