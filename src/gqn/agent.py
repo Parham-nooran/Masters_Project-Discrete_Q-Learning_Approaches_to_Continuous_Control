@@ -78,7 +78,7 @@ class GrowingQNAgent(Logger):
         current_bins = self.action_discretizer.num_bins
         max_bins = self.config.max_bins
 
-        if not hasattr(self, '_cached_mask') or self._cached_bins != current_bins:
+        if not hasattr(self, "_cached_mask") or self._cached_bins != current_bins:
             if self.config.decouple:
                 mask = torch.zeros(
                     self.action_discretizer.action_dim,
@@ -143,8 +143,8 @@ class GrowingQNAgent(Logger):
                     self.logger.info(
                         f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
                     )
-                    if hasattr(self, '_cached_mask'):
-                        delattr(self, '_cached_mask')
+                    if hasattr(self, "_cached_mask"):
+                        delattr(self, "_cached_mask")
                     return True
         return False
 

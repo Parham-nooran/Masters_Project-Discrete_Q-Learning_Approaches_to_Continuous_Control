@@ -201,15 +201,18 @@ class CQNTrainer(Logger):
         return metrics
 
     def _log_episode_progress(
-            self, episode: int, metrics: Dict[str, float], start_time: float
+        self, episode: int, metrics: Dict[str, float], start_time: float
     ) -> None:
         """Log episode progress with bin width information."""
         if episode % 10 == 0:
             elapsed = time.time() - start_time
-            bin_info = ", ".join([
-                f"{k.replace('bin_width_', '')}={v:.6f}"
-                for k, v in metrics.items() if k.startswith("bin_width_")
-            ])
+            bin_info = ", ".join(
+                [
+                    f"{k.replace('bin_width_', '')}={v:.6f}"
+                    for k, v in metrics.items()
+                    if k.startswith("bin_width_")
+                ]
+            )
 
             self.logger.info(
                 f"Episode {episode}: Reward={metrics['reward']:.2f}, "

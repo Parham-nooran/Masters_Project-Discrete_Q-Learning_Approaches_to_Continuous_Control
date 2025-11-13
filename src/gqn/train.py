@@ -152,7 +152,9 @@ def _compute_average_metrics(recent_metrics, episode_metrics):
     }
 
 
-def _update_metrics(metrics_tracker, recent_metrics, episode, episode_metrics, agent, episode_time):
+def _update_metrics(
+    metrics_tracker, recent_metrics, episode, episode_metrics, agent, episode_time
+):
     """Update all metrics tracking."""
     _update_recent_metrics(recent_metrics, episode_metrics)
     avg_metrics = _compute_average_metrics(recent_metrics, episode_metrics)
@@ -197,7 +199,12 @@ class GQNTrainer(Logger):
             episode_time = time.time() - episode_start_time
 
             _update_metrics(
-                metrics_tracker, recent_metrics, episode, episode_metrics, agent, episode_time
+                metrics_tracker,
+                recent_metrics,
+                episode,
+                episode_metrics,
+                agent,
+                episode_time,
             )
             agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
 
@@ -409,7 +416,8 @@ class GQNTrainer(Logger):
 
         avg_episode_time = (
             np.mean(metrics_tracker.episode_times)
-            if metrics_tracker.episode_times else 0
+            if metrics_tracker.episode_times
+            else 0
         )
 
         timing_data = {
@@ -421,7 +429,8 @@ class GQNTrainer(Logger):
             "growth_events": growth_events,
             "final_bins": (
                 metrics_tracker.episode_current_bins[-1]
-                if metrics_tracker.episode_current_bins else None
+                if metrics_tracker.episode_current_bins
+                else None
             ),
         }
 

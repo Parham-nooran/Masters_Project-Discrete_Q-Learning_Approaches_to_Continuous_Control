@@ -32,9 +32,7 @@ def apply_action_mask_optimized(
 ) -> torch.Tensor:
     """JIT-compiled action masking for speed."""
     mask_value = torch.tensor(-1e6, dtype=q_values.dtype, device=q_values.device)
-    return torch.where(
-        action_mask.unsqueeze(0), q_values, mask_value
-    )
+    return torch.where(action_mask.unsqueeze(0), q_values, mask_value)
 
 
 def _init_final_layer(layer):

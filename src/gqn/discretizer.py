@@ -11,7 +11,9 @@ class GrowingActionDiscretizer(Discretizer):
         self.decouple = decouple
         self.max_bins = max_bins
         self.action_spec = action_spec
-        self.growth_sequence = [2, 3, 5, 9] if max_bins <= 9 else [2, 3, 5, 9, 17, 33, 65]
+        self.growth_sequence = (
+            [2, 3, 5, 9] if max_bins <= 9 else [2, 3, 5, 9, 17, 33, 65]
+        )
         self.num_bins = self.growth_sequence[0]
         super().__init__(decouple, action_spec, self.num_bins)
         self._precompute_action_bins()

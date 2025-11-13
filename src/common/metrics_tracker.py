@@ -22,20 +22,20 @@ class MetricsTracker:
         os.makedirs(save_dir, exist_ok=True)
 
     def log_episode(
-            self,
-            episode,
-            reward,
-            steps,
-            mse_loss=0.0,
-            loss=0.0,
-            mean_abs_td_error=0.0,
-            mean_squared_td_error=0.0,
-            q_mean=0.0,
-            epsilon=0.0,
-            episode_time=0.0,
-            current_bins=None,
-            growth_history=None,
-            **kwargs
+        self,
+        episode,
+        reward,
+        steps,
+        mse_loss=0.0,
+        loss=0.0,
+        mean_abs_td_error=0.0,
+        mean_squared_td_error=0.0,
+        q_mean=0.0,
+        epsilon=0.0,
+        episode_time=0.0,
+        current_bins=None,
+        growth_history=None,
+        **kwargs,
     ):
         self.episodes.append(episode)
         self.episode_rewards.append(reward)
@@ -47,8 +47,12 @@ class MetricsTracker:
         self.episode_epsilons.append(epsilon)
         self.episode_mse_losses.append(mse_loss)
         self.episode_times.append(episode_time)
-        self.episode_current_bins.append(current_bins if current_bins is not None else 0)
-        self.episode_growth_history.append(growth_history if growth_history is not None else "[]")
+        self.episode_current_bins.append(
+            current_bins if current_bins is not None else 0
+        )
+        self.episode_growth_history.append(
+            growth_history if growth_history is not None else "[]"
+        )
 
     def save_metrics(self):
         metrics_data = {
@@ -99,7 +103,9 @@ class MetricsTracker:
                 self.episode_times = metrics_data.get("episode_times", [])
                 self.episode_bin_widths = metrics_data.get("episode_bin_widths", [])
                 self.episode_current_bins = metrics_data.get("episode_current_bins", [])
-                self.episode_growth_history = metrics_data.get("episode_growth_history", [])
+                self.episode_growth_history = metrics_data.get(
+                    "episode_growth_history", []
+                )
 
                 self.logger.info(f"Loaded metrics for {len(self.episodes)} episodes")
                 return True
@@ -119,11 +125,13 @@ class MetricsTracker:
                 if bins_list and (prev_bins is None or bins_list != prev_bins):
                     current_bins = bins_list[-1] if bins_list else None
                     if current_bins and current_bins != prev_bins:
-                        growth_events.append({
-                            "episode": episode,
-                            "bins": current_bins,
-                            "full_history": bins_list
-                        })
+                        growth_events.append(
+                            {
+                                "episode": episode,
+                                "bins": current_bins,
+                                "full_history": bins_list,
+                            }
+                        )
                         prev_bins = current_bins
             except:
                 continue

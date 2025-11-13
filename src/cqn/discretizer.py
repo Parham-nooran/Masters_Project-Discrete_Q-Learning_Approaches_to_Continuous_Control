@@ -132,9 +132,9 @@ class CoarseToFineDiscretizer:
         bin_width = (self.action_max - self.action_min) / self.num_bins
 
         continuous_actions = (
-            self.action_min.unsqueeze(0) +
-            bin_indices * bin_width.unsqueeze(0) +
-            bin_width.unsqueeze(0) / 2
+            self.action_min.unsqueeze(0)
+            + bin_indices * bin_width.unsqueeze(0)
+            + bin_width.unsqueeze(0) / 2
         )
 
         return continuous_actions
