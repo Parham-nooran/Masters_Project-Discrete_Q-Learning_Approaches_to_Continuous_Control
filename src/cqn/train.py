@@ -298,7 +298,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--save-frequency",
         type=int,
-        default=100,
+        default=10,
         help="Checkpoint save frequency (episodes)",
     )
     parser.add_argument(

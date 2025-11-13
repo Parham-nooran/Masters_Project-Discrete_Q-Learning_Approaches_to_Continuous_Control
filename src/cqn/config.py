@@ -19,7 +19,7 @@ class CQNConfig:
     num_bins: int = 5
 
     lr: float = 1e-3
-    batch_size: int = 256
+    batch_size: int = 512
     max_episodes: int = 1000
     discount: float = 0.99
 
@@ -28,7 +28,7 @@ class CQNConfig:
     epsilon_decay: float = 0.995
 
     replay_buffer_size: int = 1000000
-    min_buffer_size: int = 10000
+    min_buffer_size: int = 5000
     per_alpha: float = 0.6
     per_beta: float = 0.4
     n_step: int = 3

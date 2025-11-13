@@ -183,10 +183,9 @@ class CQNAgent:
                 level_actions.unsqueeze(0), level
             )[0]
 
-        continuous = torch.zeros(self.action_dim, device=self.device)
         range_min, range_max = action_range[0], action_range[1]
-        bin_size = (range_max - range_min) / self.num_bins
-        continuous = range_min + (level_actions.float() + 0.5) * bin_size
+        bin_width = (range_max - range_min) / self.num_bins
+        continuous = range_min + (level_actions.float() + 0.5) * bin_width
 
         return continuous
 
@@ -255,7 +254,7 @@ class CQNAgent:
             Dictionary with loss and metrics.
         """
         if self.use_amp:
-            with torch.amp.autocast("cuda"):
+            with torch.amp.autocast('cuda', dtype=torch.float16):
                 total_loss, td_errors, q1_last, q2_last = self._compute_loss(
                     obs, actions, rewards, next_obs, dones, discounts, weights
                 )
@@ -263,7 +262,7 @@ class CQNAgent:
             self.optimizer.zero_grad(set_to_none=True)
             self.scaler.scale(total_loss).backward()
 
-            if hasattr(self.config, "max_grad_norm"):
+            if hasattr(self.config, 'max_grad_norm'):
                 self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(
                     self.network.parameters(), self.config.max_grad_norm
@@ -279,7 +278,7 @@ class CQNAgent:
             self.optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
 
-            if hasattr(self.config, "max_grad_norm"):
+            if hasattr(self.config, 'max_grad_norm'):
                 torch.nn.utils.clip_grad_norm_(
                     self.network.parameters(), self.config.max_grad_norm
                 )
@@ -324,42 +323,65 @@ class CQNAgent:
         q2_last = None
 
         for level in range(self.num_levels):
-            level_loss, level_td_errors, q1_val, q2_val = self._compute_level_loss(
-                obs,
-                next_obs,
-                actions,
-                rewards,
-                dones,
-                discounts,
-                weights,
-                level,
-                prev_action,
-                prev_next_action,
-            )
+            q1_current, q2_current = self.network(obs, level, prev_action, use_target=False)
+
+            with torch.no_grad():
+                q1_next_online, q2_next_online = self.network(
+                    next_obs, level, prev_next_action, use_target=False
+                )
+                q_next_online = torch.max(q1_next_online, q2_next_online)
+                next_actions = q_next_online.argmax(dim=2)
+
+                q1_next_target, q2_next_target = self.network(
+                    next_obs, level, prev_next_action, use_target=True
+                )
+
+                target_q1 = torch.gather(
+                    q1_next_target, 2, next_actions.unsqueeze(2)
+                ).squeeze(2)
+                target_q2 = torch.gather(
+                    q2_next_target, 2, next_actions.unsqueeze(2)
+                ).squeeze(2)
+
+                target_q = torch.min(target_q1, target_q2)
+
+                td_target = (
+                        rewards.unsqueeze(1)
+                        + (1 - dones.float()).unsqueeze(1) * discounts.unsqueeze(1) * target_q
+                )
+
+            discrete_actions = self._continuous_to_discrete(actions, level)
+
+            current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
+            current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
+
+            td_error1 = td_target - current_q1
+            td_error2 = td_target - current_q2
+
+            loss1 = huber_loss(td_error1, self.config.huber_loss_parameter)
+            loss2 = huber_loss(td_error2, self.config.huber_loss_parameter)
+
+            level_loss = ((loss1 + loss2) * weights.unsqueeze(1)).mean()
+
+            td_errors_level = torch.abs(td_error1).mean(dim=1) + torch.abs(td_error2).mean(dim=1)
 
             total_loss += level_loss
-            td_errors.append(level_td_errors)
+            td_errors.append(td_errors_level)
 
             if level == self.num_levels - 1:
-                q1_last = q1_val
-                q2_last = q2_val
+                q1_last = current_q1
+                q2_last = current_q2
 
             if level < self.num_levels - 1:
-                discrete_actions = self._continuous_to_discrete(actions, level)
+                discrete_actions_for_next = self._continuous_to_discrete(actions, level)
                 prev_action = self.discretizer.discrete_to_continuous(
-                    discrete_actions, level
+                    discrete_actions_for_next, level
                 )
 
                 with torch.no_grad():
-                    q1_next_online, q2_next_online = self.network(
-                        next_obs, level, prev_next_action, use_target=False
+                    prev_next_action = self.discretizer.discrete_to_continuous(
+                        next_actions, level
                     )
-                    q_next_online = torch.max(q1_next_online, q2_next_online)
-                    next_actions = q_next_online.argmax(dim=2)
-
-                prev_next_action = self.discretizer.discrete_to_continuous(
-                    next_actions, level
-                )
 
         total_loss = total_loss / self.num_levels
 
