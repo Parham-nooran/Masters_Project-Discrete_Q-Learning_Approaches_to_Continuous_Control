@@ -184,13 +184,26 @@ class CQNAgent:
             )[0]
 
         continuous = torch.zeros(self.action_dim, device=self.device)
-        for dim in range(self.action_dim):
-            bin_idx = level_actions[dim].long()
-            range_min, range_max = action_range[0, dim], action_range[1, dim]
-            bin_size = (range_max - range_min) / self.num_bins
-            continuous[dim] = range_min + (bin_idx + 0.5) * bin_size
+        range_min, range_max = action_range[0], action_range[1]
+        bin_size = (range_max - range_min) / self.num_bins
+        continuous = range_min + (level_actions.float() + 0.5) * bin_size
 
         return continuous
+
+    def get_current_bin_widths(self) -> Dict[str, float]:
+        """Calculate current effective bin widths at finest level."""
+        parent_range_width = (
+            torch.tensor(self.action_spec["high"], device=self.device) -
+            torch.tensor(self.action_spec["low"], device=self.device)
+        )
+
+        finest_level_factor = self.num_bins ** (self.num_levels - 1)
+        finest_bin_width = parent_range_width / finest_level_factor / self.num_bins
+
+        return {
+            f"bin_width_dim_{i}": finest_bin_width[i].item()
+            for i in range(self.action_dim)
+        }
 
     def update(self, batch_size: int = 256) -> Dict[str, float]:
         """
@@ -243,7 +256,7 @@ class CQNAgent:
             Dictionary with loss and metrics.
         """
         if self.use_amp:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 total_loss, td_errors, q1_last, q2_last = self._compute_loss(
                     obs, actions, rewards, next_obs, dones, discounts, weights
                 )
@@ -404,12 +417,8 @@ class CQNAgent:
 
         discrete_actions = self._continuous_to_discrete(actions, level)
 
-        current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(
-            2
-        )
-        current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(
-            2
-        )
+        current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
+        current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
 
         td_error1 = td_target - current_q1
         td_error2 = td_target - current_q2
@@ -475,12 +484,8 @@ class CQNAgent:
         return {
             "loss": metrics["loss"].item(),
             "epsilon": self.epsilon,
-            "q_mean": (metrics["q1_last"].mean() + metrics["q2_last"].mean()).item()
-            / 2,
-            "mean_abs_td_error": torch.stack(metrics["td_errors"])
-            .mean(dim=0)
-            .mean()
-            .item(),
+            "q_mean": (metrics["q1_last"].mean() + metrics["q2_last"].mean()).item() / 2,
+            "mean_abs_td_error": torch.stack(metrics["td_errors"]).mean(dim=0).mean().item(),
         }
 
     def store_transition(
@@ -510,7 +515,7 @@ class CQNAgent:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "training_steps": self.training_steps,
             "epsilon": self.epsilon,
-            "config.py": self.config,
+            "config": self.config,
         }
         torch.save(checkpoint, filepath)
 

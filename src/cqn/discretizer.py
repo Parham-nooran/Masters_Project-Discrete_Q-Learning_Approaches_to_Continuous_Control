@@ -86,33 +86,23 @@ class CoarseToFineDiscretizer:
 
         Args:
             level: Current hierarchy level.
-            parent_actions: Continuous actions from level 0 [action_dim].
+            parent_actions: Continuous actions from previous level [action_dim].
 
         Returns:
             Refined range [2, action_dim].
         """
-        ranges = []
         parent_range_width = self.action_max - self.action_min
 
-        refinement_factor = self.num_bins**level
+        refinement_factor = self.num_bins ** (level - 1)
         refined_width = parent_range_width / refinement_factor
 
-        for dim in range(self.action_dim):
-            parent_center = parent_actions[dim]
+        range_min = parent_actions - refined_width / 2
+        range_max = parent_actions + refined_width / 2
 
-            range_min = parent_center - refined_width[dim] / 2
-            range_max = parent_center + refined_width[dim] / 2
+        range_min = torch.clamp(range_min, self.action_min, self.action_max)
+        range_max = torch.clamp(range_max, self.action_min, self.action_max)
 
-            range_min = torch.clamp(
-                range_min, self.action_min[dim], self.action_max[dim]
-            )
-            range_max = torch.clamp(
-                range_max, self.action_min[dim], self.action_max[dim]
-            )
-
-            ranges.append(torch.stack([range_min, range_max]))
-
-        return torch.stack(ranges, dim=1)
+        return torch.stack([range_min, range_max], dim=0)
 
     def discrete_to_continuous(
         self, discrete_actions: torch.Tensor, level: int
@@ -138,14 +128,13 @@ class CoarseToFineDiscretizer:
             batch_size, self.action_dim, device=self.device
         )
 
-        for dim in range(self.action_dim):
-            bin_indices = discrete_actions[:, dim].long()
-            bin_indices = torch.clamp(bin_indices, 0, self.num_bins - 1)
+        bin_indices = torch.clamp(discrete_actions.long(), 0, self.num_bins - 1)
+        bin_width = (self.action_max - self.action_min) / self.num_bins
 
-            bin_width = (self.action_max[dim] - self.action_min[dim]) / self.num_bins
-
-            continuous_actions[:, dim] = (
-                self.action_min[dim] + bin_indices * bin_width + bin_width / 2
-            )
+        continuous_actions = (
+            self.action_min.unsqueeze(0) +
+            bin_indices * bin_width.unsqueeze(0) +
+            bin_width.unsqueeze(0) / 2
+        )
 
         return continuous_actions

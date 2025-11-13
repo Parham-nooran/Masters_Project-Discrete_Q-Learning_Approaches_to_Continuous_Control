@@ -161,16 +161,10 @@ class CQNTrainer(Logger):
             metrics_tracker.log_episode(episode=episode, **episode_metrics)
 
     def _run_episode(self, env, agent: CQNAgent) -> Dict[str, float]:
-        """
-        Execute single training episode.
+        """Execute single training episode with timing."""
+        import time as time_module
 
-        Args:
-            env: Training environment.
-            agent: CQN agent instance.
-
-        Returns:
-            Episode metrics dictionary.
-        """
+        episode_start_time = time_module.time()
         steps = 0
         time_step = env.reset()
         obs = _extract_observation(time_step)
@@ -193,31 +187,36 @@ class CQNTrainer(Logger):
             episode_reward += reward
             steps += 1
 
+        episode_time = time_module.time() - episode_start_time
+        bin_widths = agent.get_current_bin_widths()
+
         metrics = {
             "reward": episode_reward,
             "steps": steps,
+            "episode_time": episode_time,
         }
         metrics.update(update_metrics)
+        metrics.update(bin_widths)
 
         return metrics
 
     def _log_episode_progress(
-        self, episode: int, metrics: Dict[str, float], start_time: float
+            self, episode: int, metrics: Dict[str, float], start_time: float
     ) -> None:
-        """
-        Log episode progress and metrics.
-
-        Args:
-            episode: Episode number.
-            metrics: Episode metrics dictionary.
-            start_time: Training start time.
-        """
+        """Log episode progress with bin width information."""
         if episode % 10 == 0:
             elapsed = time.time() - start_time
+            bin_info = ", ".join([
+                f"{k.replace('bin_width_', '')}={v:.6f}"
+                for k, v in metrics.items() if k.startswith("bin_width_")
+            ])
+
             self.logger.info(
                 f"Episode {episode}: Reward={metrics['reward']:.2f}, "
                 f"Steps={metrics['steps']}, "
-                f"Elapsed={elapsed / 60:.1f}min"
+                f"Time={metrics.get('episode_time', 0):.2f}s, "
+                f"Elapsed={elapsed / 60:.1f}min, "
+                f"BinWidths=[{bin_info}]"
             )
 
     def _run_evaluation(self, env, agent: CQNAgent, episode: int) -> None:

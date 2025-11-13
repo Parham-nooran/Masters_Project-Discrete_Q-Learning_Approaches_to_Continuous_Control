@@ -16,6 +16,7 @@ class MetricsTracker:
         self.episode_mse_losses = []
         self.episode_times = []
         self.episodes = []
+        self.episode_bin_widths = []
         self.episode_current_bins = []
         self.episode_growth_history = []
         os.makedirs(save_dir, exist_ok=True)
@@ -34,6 +35,7 @@ class MetricsTracker:
             episode_time=0.0,
             current_bins=None,
             growth_history=None,
+            **kwargs
     ):
         self.episodes.append(episode)
         self.episode_rewards.append(reward)
@@ -60,6 +62,7 @@ class MetricsTracker:
             "episode_epsilons": self.episode_epsilons,
             "episode_q_means": self.episode_q_means,
             "episode_times": self.episode_times,
+            "episode_bin_widths": self.episode_bin_widths,
             "episode_current_bins": self.episode_current_bins,
             "episode_growth_history": self.episode_growth_history,
         }
@@ -94,6 +97,7 @@ class MetricsTracker:
                 self.episode_q_means = metrics_data.get("episode_q_means", [])
                 self.episode_epsilons = metrics_data.get("episode_epsilons", [])
                 self.episode_times = metrics_data.get("episode_times", [])
+                self.episode_bin_widths = metrics_data.get("episode_bin_widths", [])
                 self.episode_current_bins = metrics_data.get("episode_current_bins", [])
                 self.episode_growth_history = metrics_data.get("episode_growth_history", [])
 
