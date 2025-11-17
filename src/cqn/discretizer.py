@@ -122,12 +122,6 @@ class CoarseToFineDiscretizer:
 
         if len(discrete_actions.shape) == 1:
             discrete_actions = discrete_actions.unsqueeze(0)
-
-        batch_size = discrete_actions.shape[0]
-        continuous_actions = torch.zeros(
-            batch_size, self.action_dim, device=self.device
-        )
-
         bin_indices = torch.clamp(discrete_actions.long(), 0, self.num_bins - 1)
         bin_width = (self.action_max - self.action_min) / self.num_bins
 
@@ -137,4 +131,4 @@ class CoarseToFineDiscretizer:
             + bin_width.unsqueeze(0) / 2
         )
 
-        return continuous_actions
+        return continuous_actions.to(self.device)

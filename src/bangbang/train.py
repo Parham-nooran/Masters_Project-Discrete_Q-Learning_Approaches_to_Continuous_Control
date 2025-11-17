@@ -22,7 +22,7 @@ class BangBangTrainer(Logger):
         obs_shape, action_spec_dict = get_env_specs(env, self.args.use_pixels)
         agent = BangBangAgent(self.args, obs_shape, action_spec_dict)
 
-        metrics_tracker = MetricsTracker(self.logger, save_dir="output/metrics")
+        metrics_tracker = MetricsTracker(self.logger, save_dir=self.working_dir + "/metrics")
 
         self._log_training_start(agent)
 

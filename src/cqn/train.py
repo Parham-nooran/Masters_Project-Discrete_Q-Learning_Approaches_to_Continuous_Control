@@ -19,6 +19,8 @@ from src.common.training_utils import (
 )
 from src.cqn.agent import CQNAgent
 from src.cqn.config import CQNConfig, create_config
+from src.common.device_utils import get_device
+import time as time_module
 
 
 def _extract_observation(time_step) -> np.ndarray:
@@ -60,7 +62,7 @@ def _run_eval_episode(env, agent: CQNAgent) -> float:
     with torch.no_grad():
         while not time_step.last():
             action = agent.select_action(torch.from_numpy(obs).float(), evaluate=True)
-            time_step = env.step(action.numpy())
+            time_step = env.step(action.cpu().numpy())
             obs = _extract_observation(time_step)
             episode_reward += time_step.reward
 
@@ -85,8 +87,8 @@ class CQNTrainer(Logger):
         super().__init__(working_dir + "/logs")
         self.working_dir = working_dir
         self.config = config
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.checkpoint_manager = CheckpointManager(self.logger)
+        self.device, _, _ = get_device()
+        self.checkpoint_manager = CheckpointManager(self.logger, checkpoint_dir=self.working_dir + "/checkpoints")
 
     def train(self) -> CQNAgent:
         """
@@ -103,7 +105,7 @@ class CQNTrainer(Logger):
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
             self.config.load_checkpoints, agent
         )
-        metrics_tracker = MetricsTracker(self.logger, save_dir="./src/cqn/output/logs")
+        metrics_tracker = MetricsTracker(self.logger, save_dir=self.working_dir + "/metrics")
 
         self._log_training_setup(agent)
 
@@ -162,7 +164,6 @@ class CQNTrainer(Logger):
 
     def _run_episode(self, env, agent: CQNAgent) -> Dict[str, float]:
         """Execute single training episode with timing."""
-        import time as time_module
 
         episode_start_time = time_module.time()
         steps = 0
@@ -172,13 +173,14 @@ class CQNTrainer(Logger):
         update_metrics = {}
 
         while not time_step.last():
-            action = agent.select_action(torch.from_numpy(obs).float())
-            time_step = env.step(action.numpy())
+            obs_tensor = torch.from_numpy(obs).float()
+            action = agent.select_action(obs_tensor)
+            time_step = env.step(action.cpu().numpy())
             next_obs = _extract_observation(time_step)
             reward = time_step.reward
             done = time_step.last()
 
-            agent.store_transition(obs, action.numpy(), reward, next_obs, done)
+            agent.store_transition(obs, action.cpu().numpy(), reward, next_obs, done)
 
             if len(agent.replay_buffer) > self.config.min_buffer_size:
                 update_metrics = agent.update(self.config.batch_size)
@@ -289,7 +291,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--learning-rate", type=float, default=1e-3, help="Learning rate"
     )
-    parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
+    parser.add_argument("--batch-size", type=int, default=512, help="Batch size")
     parser.add_argument("--num-levels", type=int, default=3, help="Hierarchy levels")
     parser.add_argument("--num-bins", type=int, default=5, help="Bins per level")
     parser.add_argument(

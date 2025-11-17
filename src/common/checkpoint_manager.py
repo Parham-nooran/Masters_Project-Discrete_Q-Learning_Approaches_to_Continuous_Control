@@ -19,7 +19,7 @@ def load_checkpoint(agent, checkpoint_path, logger):
 class CheckpointManager:
     """Manages checkpoint loading and saving operations."""
 
-    def __init__(self, logger, checkpoint_dir="output/checkpoints"):
+    def __init__(self, logger, checkpoint_dir):
         self.checkpoint_dir = checkpoint_dir
         self.logger = logger
 
@@ -44,7 +44,8 @@ class CheckpointManager:
 
     def save_checkpoint(self, agent, episode, task_name):
         """Save agent checkpoint."""
-        checkpoint_path = f"{self.checkpoint_dir}/decqn_{task_name}_{episode}.pth"
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        checkpoint_path = os.path.join(self.checkpoint_dir, f"{task_name}_{episode}.pth")
         agent.save_checkpoint(checkpoint_path, episode)
         return checkpoint_path
 

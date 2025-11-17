@@ -18,68 +18,7 @@ from src.common.training_utils import get_env, get_env_specs, init_training
 from src.gqn.agent import GrowingQNAgent
 from src.gqn.config import GQNConfig
 from src.plotting.plotting_utils import PlottingUtils
-
-
-def _restore_replay_buffer(agent, checkpoint):
-    """Restore replay buffer state."""
-    if "replay_buffer_buffer" not in checkpoint:
-        return
-
-    agent.replay_buffer.buffer = checkpoint["replay_buffer_buffer"]
-    agent.replay_buffer.position = checkpoint["replay_buffer_position"]
-    agent.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
-    agent.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
-    agent.replay_buffer.to_device(agent.device)
-
-
-def _restore_growth_state(agent, checkpoint):
-    """Restore growth-related state."""
-    if "growth_history" in checkpoint:
-        agent.growth_history = checkpoint["growth_history"]
-
-    if "action_discretizer_current_bins" in checkpoint:
-        agent.action_discretizer.num_bins = checkpoint[
-            "action_discretizer_current_bins"
-        ]
-
-    if "action_discretizer_current_growth_idx" in checkpoint:
-        agent.action_discretizer.current_growth_idx = checkpoint[
-            "action_discretizer_current_growth_idx"
-        ]
-        agent.action_discretizer.action_bins = agent.action_discretizer.all_action_bins[
-            agent.action_discretizer.num_bins
-        ]
-
-
-def _restore_scheduler(agent, checkpoint):
-    """Restore scheduler state."""
-    if "scheduler_returns_history" in checkpoint:
-        agent.scheduler.returns_history = deque(
-            checkpoint["scheduler_returns_history"],
-            maxlen=agent.scheduler.window_size,
-        )
-        agent.scheduler.last_growth_episode = checkpoint.get(
-            "scheduler_last_growth_episode", 0
-        )
-
-
-def _restore_agent_state(agent, checkpoint):
-    """Restore agent network states."""
-    agent.q_network.load_state_dict(checkpoint["q_network_state_dict"])
-    agent.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
-    agent.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
-    agent.training_step = checkpoint.get("training_step", 0)
-    agent.epsilon = checkpoint.get("epsilon", agent.config.epsilon)
-    agent.episode_count = checkpoint.get("episode_count", 0)
-
-
-def _restore_encoder(agent, checkpoint):
-    """Restore encoder state if exists."""
-    if agent.encoder and "encoder_state_dict" in checkpoint:
-        agent.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-        agent.encoder_optimizer.load_state_dict(
-            checkpoint["encoder_optimizer_state_dict"]
-        )
+from src.common.checkpoint_manager import CheckpointManager
 
 
 def _init_recent_metrics():
@@ -183,6 +122,10 @@ class GQNTrainer(Logger):
         self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.checkpoint_manager = CheckpointManager(
+            self.logger,
+            os.path.join(self.working_dir, "checkpoints")
+        )
 
     def train(self):
         """Main training loop."""
@@ -230,7 +173,7 @@ class GQNTrainer(Logger):
         agent = GrowingQNAgent(
             self.config, obs_shape, action_spec_dict, self.working_dir
         )
-        metrics_tracker = MetricsTracker(self.logger, save_dir="./output/metrics")
+        metrics_tracker = MetricsTracker(self.logger, save_dir=self.working_dir + "/metrics")
 
         start_episode = self._load_checkpoint_if_exists(agent, metrics_tracker)
         return agent, metrics_tracker, start_episode
@@ -239,11 +182,14 @@ class GQNTrainer(Logger):
         """Load checkpoint if specified."""
         if not self.config.load_checkpoints:
             return 0
+        start_episode = self.checkpoint_manager.load_checkpoint_if_available(
+            self.config.load_checkpoints, agent
+        )
 
-        start_episode = self.load_checkpoint(agent, self.config.load_checkpoints)
         if start_episode > 0:
             metrics_tracker.load_metrics()
-        return start_episode + 1
+
+        return start_episode
 
     def _log_setup_info(self, agent, start_episode):
         """Log training setup information."""
@@ -372,8 +318,9 @@ class GQNTrainer(Logger):
 
         if episode % self.config.checkpoint_interval == 0:
             metrics_tracker.save_metrics()
-            checkpoint_path = f"output/checkpoints/gqn_episode_{episode}.pth"
-            save_checkpoint(agent, episode, checkpoint_path)
+            checkpoint_path = self.checkpoint_manager.save_checkpoint(
+                agent, episode, self.config.task
+            )
             self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
     def _finalize_training(self, agent, metrics_tracker, start_time):
@@ -388,8 +335,9 @@ class GQNTrainer(Logger):
             total_episodes = 0
 
         metrics_tracker.save_metrics()
-        final_checkpoint = "output/checkpoints/gqn_final.pth"
-        save_checkpoint(agent, self.config.num_episodes, final_checkpoint)
+        final_checkpoint = self.checkpoint_manager.save_checkpoint(
+            agent, self.config.num_episodes, f"{self.config.task}_final"
+        )
         self.logger.info(f"Final checkpoint saved: {final_checkpoint}")
 
         self.logger.info(f"Training completed in {total_time / 60:.1f} minutes!")
@@ -449,63 +397,6 @@ class GQNTrainer(Logger):
         plotter.plot_reward_distribution(save=True)
         plotter.print_summary_stats()
 
-    def load_checkpoint(self, agent, checkpoint_path):
-        """Load checkpoint and restore state."""
-        try:
-            checkpoint = torch.load(
-                checkpoint_path, map_location=agent.device, weights_only=False
-            )
-            _restore_agent_state(agent, checkpoint)
-            _restore_growth_state(agent, checkpoint)
-            _restore_replay_buffer(agent, checkpoint)
-            _restore_scheduler(agent, checkpoint)
-            _restore_encoder(agent, checkpoint)
-
-            self._log_checkpoint_info(checkpoint, agent)
-            return checkpoint["episode"]
-        except Exception as e:
-            self.logger.error(f"Failed to load checkpoint: {e}")
-            return 0
-
-    def _log_checkpoint_info(self, checkpoint, agent):
-        """Log checkpoint loading information."""
-        self.logger.info(f"Loaded checkpoint from episode {checkpoint['episode']}")
-        self.logger.info(
-            f"Current resolution: {agent.action_discretizer.num_bins} bins"
-        )
-        self.logger.info(f"Growth history: {agent.growth_history}")
-
-
-def save_checkpoint(agent, episode, path):
-    """Save agent checkpoint including GQN-specific state."""
-    checkpoint = {
-        "episode": episode,
-        "q_network_state_dict": agent.q_network.state_dict(),
-        "target_q_network_state_dict": agent.target_q_network.state_dict(),
-        "q_optimizer_state_dict": agent.q_optimizer.state_dict(),
-        "config.py": agent.config,
-        "training_step": agent.training_step,
-        "epsilon": agent.epsilon,
-        "episode_count": agent.episode_count,
-        "growth_history": agent.growth_history,
-        "action_discretizer_current_bins": agent.action_discretizer.num_bins,
-        "action_discretizer_current_growth_idx": agent.action_discretizer.current_growth_idx,
-        "replay_buffer_buffer": agent.replay_buffer.buffer,
-        "replay_buffer_position": agent.replay_buffer.position,
-        "replay_buffer_priorities": agent.replay_buffer.priorities,
-        "replay_buffer_max_priority": agent.replay_buffer.max_priority,
-        "scheduler_returns_history": list(agent.scheduler.returns_history),
-        "scheduler_last_growth_episode": agent.scheduler.last_growth_episode,
-    }
-
-    if agent.encoder:
-        checkpoint["encoder_state_dict"] = agent.encoder.state_dict()
-        checkpoint["encoder_optimizer_state_dict"] = (
-            agent.encoder_optimizer.state_dict()
-        )
-
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(checkpoint, path)
 
 
 def create_gqn_config(args):

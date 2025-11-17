@@ -11,6 +11,13 @@ from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.training_utils import huber_loss
 from src.cqn.discretizer import CoarseToFineDiscretizer
 from src.cqn.networks import CQNNetwork
+from src.common.device_utils import (
+    get_device,
+    optimizer_step,
+    mark_step,
+    save_checkpoint as save_ckpt,
+    load_checkpoint as load_ckpt
+)
 
 
 class CQNAgent:
@@ -33,7 +40,7 @@ class CQNAgent:
         self.config = config
         self.obs_shape = obs_shape
         self.action_spec = action_spec
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device, self.is_tpu, self.use_amp = get_device()
 
         self._initialize_components()
 
@@ -73,9 +80,11 @@ class CQNAgent:
         self.training_steps = 0
 
     def _setup_amp(self) -> None:
-        """Setup automatic mixed precision if using CUDA."""
-        self.use_amp = self.device.type == "cuda"
-        self.scaler = torch.cuda.amp.GradScaler() if self.use_amp else None
+        """Setup automatic mixed precision based on device."""
+        if self.use_amp and not self.is_tpu:
+            self.scaler = torch.cuda.amp.GradScaler()
+        else:
+            self.scaler = None
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
         """Select action using hierarchical coarse-to-fine strategy."""
@@ -85,11 +94,9 @@ class CQNAgent:
             action = self._hierarchical_action_selection(obs, evaluate)
 
         action = action.cpu()
-        action = torch.clamp(
-            action,
-            torch.tensor(self.action_spec["low"]),
-            torch.tensor(self.action_spec["high"]),
-        )
+        action_low = torch.tensor(self.action_spec["low"], device=action.device)
+        action_high = torch.tensor(self.action_spec["high"], device=action.device)
+        action = torch.clamp(action, action_low, action_high)
         return action
 
     def _prepare_observation(self, obs: torch.Tensor) -> torch.Tensor:
@@ -136,7 +143,7 @@ class CQNAgent:
                 level_actions, level, action_range
             )
 
-            prev_action = level_continuous.unsqueeze(0)
+            prev_action = level_continuous.unsqueeze(0).to(self.device)
 
         return level_continuous
 
@@ -181,13 +188,13 @@ class CQNAgent:
         if level == 0:
             return self.discretizer.discrete_to_continuous(
                 level_actions.unsqueeze(0), level
-            )[0]
+            )[0].to(self.device)
 
         range_min, range_max = action_range[0], action_range[1]
         bin_width = (range_max - range_min) / self.num_bins
         continuous = range_min + (level_actions.float() + 0.5) * bin_width
 
-        return continuous
+        return continuous.to(self.device)
 
     def get_current_bin_widths(self) -> Dict[str, float]:
         """Calculate current effective bin widths at finest level."""
@@ -283,7 +290,8 @@ class CQNAgent:
                     self.network.parameters(), self.config.max_grad_norm
                 )
 
-            self.optimizer.step()
+            optimizer_step(self.optimizer, self.is_tpu)
+            mark_step(self.is_tpu)
 
         return {
             "loss": total_loss,
@@ -533,12 +541,7 @@ class CQNAgent:
         self.replay_buffer.add(obs, action, reward, next_obs, done)
 
     def save(self, filepath: str) -> None:
-        """
-        Save agent checkpoint.
-
-        Args:
-            filepath: Path to save checkpoint.
-        """
+        """Save agent checkpoint."""
         checkpoint = {
             "network_state_dict": self.network.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
@@ -546,7 +549,7 @@ class CQNAgent:
             "epsilon": self.epsilon,
             "config": self.config,
         }
-        torch.save(checkpoint, filepath)
+        save_ckpt(checkpoint, filepath, self.is_tpu)
 
     def save_checkpoint(self, filepath: str, episode: int) -> None:
         """
@@ -564,7 +567,7 @@ class CQNAgent:
             "episode": episode,
             "config": self.config,
         }
-        torch.save(checkpoint, filepath)
+        save_ckpt(checkpoint, filepath, self.is_tpu)
 
     def load_checkpoint(self, filepath: str) -> int:
         """
@@ -576,7 +579,7 @@ class CQNAgent:
         Returns:
             Episode number from checkpoint.
         """
-        checkpoint = torch.load(filepath, map_location=self.device)
+        checkpoint = load_ckpt(filepath, self.device, self.is_tpu)
         self.network.load_state_dict(checkpoint["network_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.training_steps = checkpoint["training_steps"]
@@ -590,7 +593,7 @@ class CQNAgent:
         Args:
             filepath: Path to checkpoint.
         """
-        checkpoint = torch.load(filepath, map_location=self.device)
+        checkpoint = load_ckpt(filepath, self.device, self.is_tpu)
         self.network.load_state_dict(checkpoint["network_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.training_steps = checkpoint["training_steps"]

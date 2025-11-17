@@ -34,7 +34,7 @@ def parse_args():
         help="Path to metrics file to resume from",
     )
     parser.add_argument(
-        "--task", type=str, default="walker_run", help="Environment task"
+        "--task", type=str, default="reacher", help="Environment task"
     )
     parser.add_argument(
         "--num-episodes", type=int, default=1000, help="Number of episodes to train"
@@ -78,11 +78,11 @@ def parse_args():
     parser.add_argument(
         "--checkpoint-interval",
         type=int,
-        default=5,
+        default=10,
         help="Save checkpoints every N episodes",
     )
     parser.add_argument(
-        "--log-interval", type=int, default=10, help="Log progress every N episodes"
+        "--log-interval", type=int, default=5, help="Log progress every N episodes"
     )
     parser.add_argument(
         "--detailed-log-interval",
@@ -113,7 +113,7 @@ class DecQNTrainer(Logger):
         self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.checkpoint_manager = CheckpointManager(self.logger)
+        self.checkpoint_manager = CheckpointManager(self.logger, checkpoint_dir=self.working_dir + "/checkpoints")
 
     def train(self):
         """Execute main training loop."""
@@ -126,7 +126,7 @@ class DecQNTrainer(Logger):
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
             self.config.load_checkpoints, agent
         )
-        metrics_tracker = self._initialize_metrics_tracker(start_episode)
+        metrics_tracker = self._initialize_metrics_tracker(start_episode, )
 
         self._log_setup_info(agent)
 

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import torch.optim as optim
@@ -282,3 +283,101 @@ class GrowingQNAgent(Logger):
             "growth_history": self.growth_history,
             "max_bins": self.config.max_bins,
         }
+
+    def save_checkpoint(self, path, episode):
+        """Save agent checkpoint including GQN-specific state."""
+        checkpoint = {
+            "episode": episode,
+            "q_network_state_dict": self.q_network.state_dict(),
+            "target_q_network_state_dict": self.target_q_network.state_dict(),
+            "q_optimizer_state_dict": self.q_optimizer.state_dict(),
+            "config": self.config,
+            "training_step": self.training_step,
+            "epsilon": self.epsilon,
+            "episode_count": self.episode_count,
+            "growth_history": self.growth_history,
+            "action_discretizer_current_bins": self.action_discretizer.num_bins,
+            "action_discretizer_current_growth_idx": self.action_discretizer.current_growth_idx,
+            "replay_buffer_buffer": self.replay_buffer.buffer,
+            "replay_buffer_position": self.replay_buffer.position,
+            "replay_buffer_priorities": self.replay_buffer.priorities,
+            "replay_buffer_max_priority": self.replay_buffer.max_priority,
+            "scheduler_returns_history": list(self.scheduler.returns_history),
+            "scheduler_last_growth_episode": self.scheduler.last_growth_episode,
+        }
+
+        if self.encoder:
+            checkpoint["encoder_state_dict"] = self.encoder.state_dict()
+            checkpoint["encoder_optimizer_state_dict"] = (
+                self.encoder_optimizer.state_dict()
+            )
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        torch.save(checkpoint, path)
+        self.logger.info(f"Checkpoint saved to {path}")
+
+    def load_checkpoint(self, checkpoint_path):
+        """Load checkpoint and restore state. Returns episode number."""
+        try:
+            checkpoint = torch.load(
+                checkpoint_path, map_location=self.device, weights_only=False
+            )
+
+            self.q_network.load_state_dict(checkpoint["q_network_state_dict"])
+            self.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
+            self.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
+            self.training_step = checkpoint.get("training_step", 0)
+            self.epsilon = checkpoint.get("epsilon", self.config.epsilon)
+            self.episode_count = checkpoint.get("episode_count", 0)
+
+            if "growth_history" in checkpoint:
+                self.growth_history = checkpoint["growth_history"]
+
+            if "action_discretizer_current_bins" in checkpoint:
+                self.action_discretizer.num_bins = checkpoint[
+                    "action_discretizer_current_bins"
+                ]
+
+            if "action_discretizer_current_growth_idx" in checkpoint:
+                self.action_discretizer.current_growth_idx = checkpoint[
+                    "action_discretizer_current_growth_idx"
+                ]
+                self.action_discretizer.action_bins = self.action_discretizer.all_action_bins[
+                    self.action_discretizer.num_bins
+                ]
+
+            if "replay_buffer_buffer" in checkpoint:
+                self.replay_buffer.buffer = checkpoint["replay_buffer_buffer"]
+                self.replay_buffer.position = checkpoint["replay_buffer_position"]
+                self.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
+                self.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
+                self.replay_buffer.to_device(self.device)
+
+            if "scheduler_returns_history" in checkpoint:
+                from collections import deque
+                self.scheduler.returns_history = deque(
+                    checkpoint["scheduler_returns_history"],
+                    maxlen=self.scheduler.window_size,
+                )
+                self.scheduler.last_growth_episode = checkpoint.get(
+                    "scheduler_last_growth_episode", 0
+                )
+
+            if self.encoder and "encoder_state_dict" in checkpoint:
+                self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
+                self.encoder_optimizer.load_state_dict(
+                    checkpoint["encoder_optimizer_state_dict"]
+                )
+
+            if hasattr(self, "_cached_mask"):
+                delattr(self, "_cached_mask")
+
+            self.logger.info(f"Loaded checkpoint from episode {checkpoint['episode']}")
+            self.logger.info(f"Current resolution: {self.action_discretizer.num_bins} bins")
+            self.logger.info(f"Growth history: {self.growth_history}")
+
+            return checkpoint["episode"]
+        except Exception as e:
+            self.logger.error(f"Failed to load checkpoint: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return 0
