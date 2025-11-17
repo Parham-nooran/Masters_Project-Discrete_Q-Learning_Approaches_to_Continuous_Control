@@ -54,7 +54,7 @@ class MetricsTracker:
             growth_history if growth_history is not None else "[]"
         )
 
-    def save_metrics(self):
+    def save_metrics(self, task_name):
         metrics_data = {
             "episodes": self.episodes,
             "episode_rewards": self.episode_rewards,
@@ -72,7 +72,7 @@ class MetricsTracker:
         }
 
         os.makedirs(self.save_dir, exist_ok=True)
-        metrics_path = os.path.join(self.save_dir, "metrics.pkl")
+        metrics_path = os.path.join(self.save_dir, f"metrics_{task_name}.pkl")
         with open(metrics_path, "wb") as f:
             pickle.dump(metrics_data, f)
 

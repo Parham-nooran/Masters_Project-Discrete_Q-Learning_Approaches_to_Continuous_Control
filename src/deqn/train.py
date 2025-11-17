@@ -264,7 +264,7 @@ class DecQNTrainer(Logger):
         if episode % self.config.checkpoint_interval != 0:
             return
 
-        metrics_tracker.save_metrics()
+        metrics_tracker.save_metrics(self.config.task)
         checkpoint_path = self.checkpoint_manager.save_checkpoint(
             agent, episode, self.config.task
         )
@@ -272,7 +272,7 @@ class DecQNTrainer(Logger):
 
     def _finalize_training(self, agent, metrics_tracker):
         """Finalize training by saving and plotting."""
-        metrics_tracker.save_metrics()
+        metrics_tracker.save_metrics(self.config.task)
 
         final_checkpoint = self.checkpoint_manager.save_checkpoint(
             agent, self.config.num_episodes, self.config.task + "_final"
