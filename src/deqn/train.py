@@ -126,7 +126,7 @@ class DecQNTrainer(Logger):
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
             self.config.load_checkpoints, agent
         )
-        metrics_tracker = self._initialize_metrics_tracker(start_episode, save_dir="/metrics")
+        metrics_tracker = self._initialize_metrics_tracker(start_episode, save_dir=self.working_dir + "/metrics")
 
         self._log_setup_info(agent)
 
