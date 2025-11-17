@@ -126,7 +126,7 @@ class DecQNTrainer(Logger):
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
             self.config.load_checkpoints, agent
         )
-        metrics_tracker = self._initialize_metrics_tracker(start_episode, )
+        metrics_tracker = self._initialize_metrics_tracker(start_episode, save_dir="/metrics")
 
         self._log_setup_info(agent)
 
@@ -284,14 +284,14 @@ class DecQNTrainer(Logger):
     def _generate_plots(self, metrics_tracker):
         """Generate training plots."""
         self.logger.info("Generating plots...")
-        plotter = PlottingUtils(self.logger, metrics_tracker, save_dir="./output/plots")
+        plotter = PlottingUtils(self.logger, metrics_tracker, self.working_dir + "/plots")
         plotter.plot_training_curves(save=True)
         plotter.plot_reward_distribution(save=True)
         plotter.print_summary_stats()
 
-    def _initialize_metrics_tracker(self, start_episode):
+    def _initialize_metrics_tracker(self, start_episode, save_dir):
         """Initialize or load metrics tracker."""
-        metrics_tracker = MetricsTracker(self.logger, save_dir="./output/metrics")
+        metrics_tracker = MetricsTracker(self.logger, save_dir)
 
         if start_episode > 0:
             metrics_tracker.load_metrics(self.config.load_metrics)

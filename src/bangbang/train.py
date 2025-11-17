@@ -6,29 +6,37 @@ from src.bangbang.agent import BangBangAgent
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.training_utils import *
+from src.common.checkpoint_manager import CheckpointManager
 
 
 class BangBangTrainer(Logger):
 
     def __init__(self, args, working_dir="./src/bangbang/output"):
-        super().__init__(working_dir + "/logs")
-        self.working_dir = working_dir
+        self.working_dir = working_dir + "/" + args.algorithm
+        super().__init__(self.working_dir + "/logs")
         self.args = args
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.checkpoint_manager = CheckpointManager(
+            self.logger,
+            checkpoint_dir=self.working_dir + "/checkpoints"
+        )
 
     def train(self):
         init_training(self.args.seed, self.device, self.logger)
         env = get_env(self.args.task, self.logger)
         obs_shape, action_spec_dict = get_env_specs(env, self.args.use_pixels)
         agent = BangBangAgent(self.args, obs_shape, action_spec_dict)
-
+        start_episode = self.checkpoint_manager.load_checkpoint_if_available(
+            self.args.resume_checkpoint,
+            agent
+        )
         metrics_tracker = MetricsTracker(self.logger, save_dir=self.working_dir + "/metrics")
 
         self._log_training_start(agent)
 
         start_time = time.time()
 
-        for episode in range(self.args.num_episodes):
+        for episode in range(start_episode, self.args.num_episodes):
             episode_metrics = self._run_episode(env, agent)
 
             metrics_tracker.log_episode(
@@ -134,17 +142,12 @@ class BangBangTrainer(Logger):
 
     def _save_checkpoint_if_needed(self, episode, agent, metrics_tracker):
         if episode % self.args.checkpoint_interval == 0:
-            checkpoint_path = (
-                f"output/checkpoints/bangbang_{self.args.task}_{episode}.pth"
-            )
-            agent.save_checkpoint(checkpoint_path, episode)
+            self.checkpoint_manager.save_checkpoint(agent, episode, self.args.task)
             metrics_tracker.save_metrics()
 
     def _finalize_training(self, agent, metrics_tracker, start_time):
-        final_path = f"output/checkpoints/bangbang_{self.args.task}_final.pth"
-        agent.save_checkpoint(final_path, self.args.num_episodes)
+        self.checkpoint_manager.save_checkpoint(agent, self.args.num_episodes, self.args.task)
         metrics_tracker.save_metrics()
-
         total_time = time.time() - start_time
         self.logger.info(f"Training completed in {total_time / 60:.1f} minutes!")
 
@@ -247,7 +250,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mpo-epsilon-penalty", type=float, default=0.001, help="MPO epsilon penalty"
     )
-
+    parser.add_argument(
+        "--resume-checkpoint",
+        type=str,
+        default=None,
+        help="Path to checkpoint to resume from"
+    )
     args = parser.parse_args()
 
     trainer = BangBangTrainer(args)
