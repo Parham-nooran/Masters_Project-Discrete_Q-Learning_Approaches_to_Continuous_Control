@@ -82,7 +82,7 @@ class CQNAgent:
     def _setup_amp(self) -> None:
         """Setup automatic mixed precision based on device."""
         if self.use_amp and not self.is_tpu:
-            self.scaler = torch.cuda.amp.GradScaler()
+            self.scaler = torch.amp.GradScaler('cuda')
         else:
             self.scaler = None
 

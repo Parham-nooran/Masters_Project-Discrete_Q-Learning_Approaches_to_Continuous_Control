@@ -12,8 +12,8 @@ from src.common.checkpoint_manager import CheckpointManager
 class BangBangTrainer(Logger):
 
     def __init__(self, args, working_dir="./src/bangbang/output"):
-        self.working_dir = working_dir + "/" + args.algorithm
         super().__init__(self.working_dir + "/logs")
+        self.working_dir = working_dir + "/" + args.algorithm
         self.args = args
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.checkpoint_manager = CheckpointManager(

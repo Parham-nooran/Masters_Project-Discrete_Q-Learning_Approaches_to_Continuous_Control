@@ -34,7 +34,7 @@ def parse_args():
         help="Path to metrics file to resume from",
     )
     parser.add_argument(
-        "--task", type=str, default="reacher", help="Environment task"
+        "--task", type=str, default="reacher_easy", help="Environment task"
     )
     parser.add_argument(
         "--num-episodes", type=int, default=1000, help="Number of episodes to train"
