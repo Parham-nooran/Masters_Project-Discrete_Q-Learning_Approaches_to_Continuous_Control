@@ -1,8 +1,5 @@
 .idea
 __pycache__
-src/gqn/output/
-src/deqn/output/
-output/
 logs/
 src/bangbang/output/checkpoints
-src/plotting/metrics/
+*.pth
