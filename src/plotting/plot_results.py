@@ -24,7 +24,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Plot DecQN training results")
     parser.add_argument(
         "--metrics_file",
-        default="metrics/metrics.pkl",
+        default="metrics/gqn_reacher_easy.pkl",
         help="Path to metrics pkl file",
     )
     parser.add_argument(
