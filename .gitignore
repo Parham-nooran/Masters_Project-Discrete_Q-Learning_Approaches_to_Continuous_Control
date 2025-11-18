@@ -5,6 +5,4 @@ src/deqn/output/
 output/
 logs/
 src/bangbang/output/checkpoints
-src/bangbang/output/metrics/
 src/plotting/metrics/
-*.pkl
