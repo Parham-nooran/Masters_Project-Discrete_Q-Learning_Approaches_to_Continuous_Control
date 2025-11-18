@@ -304,6 +304,9 @@ def parse_arguments() -> argparse.Namespace:
         help="Checkpoint save frequency (episodes)",
     )
     parser.add_argument(
+        "--log-interval", type=int, default=5, help="Log progress every N episodes"
+    )
+    parser.add_argument(
         "--working-dir", type=str, default=None, help="Working directory"
     )
     parser.add_argument(
