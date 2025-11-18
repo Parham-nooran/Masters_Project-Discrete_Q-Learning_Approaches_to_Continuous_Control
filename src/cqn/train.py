@@ -256,7 +256,7 @@ class CQNTrainer(Logger):
         """
         metrics_tracker.save_metrics(self.config.task)
         checkpoint_path = self.checkpoint_manager.save_checkpoint(
-            agent, episode, f"cqn_episode_{episode}"
+            agent, episode, self.config.task
         )
         self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
@@ -298,9 +298,9 @@ def parse_arguments() -> argparse.Namespace:
         "--eval-frequency", type=int, default=50, help="Evaluation frequency (episodes)"
     )
     parser.add_argument(
-        "--save-frequency",
+        "--checkpoint-interval",
         type=int,
-        default=10,
+        default=100,
         help="Checkpoint save frequency (episodes)",
     )
     parser.add_argument(
