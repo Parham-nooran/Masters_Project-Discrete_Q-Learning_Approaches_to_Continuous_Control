@@ -16,6 +16,7 @@ class BangBangTrainer(Logger):
         self.working_dir = working_dir + "/" + args.algorithm
         self.args = args
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.agent_name = f"bangbang_{self.args.algorithm}_"
         self.checkpoint_manager = CheckpointManager(
             self.logger,
             checkpoint_dir=self.working_dir + "/checkpoints"
@@ -143,11 +144,11 @@ class BangBangTrainer(Logger):
     def _save_checkpoint_if_needed(self, episode, agent, metrics_tracker):
         if episode % self.args.checkpoint_interval == 0:
             self.checkpoint_manager.save_checkpoint(agent, episode, self.args.task)
-            metrics_tracker.save_metrics(agent, self.args.task)
+            metrics_tracker.save_metrics(self.agent_name, self.args.task)
 
     def _finalize_training(self, agent, metrics_tracker, start_time):
         self.checkpoint_manager.save_checkpoint(agent, self.args.num_episodes, self.args.task)
-        metrics_tracker.save_metrics(agent, self.args.task)
+        metrics_tracker.save_metrics(self.agent_name, self.args.task)
         total_time = time.time() - start_time
         self.logger.info(f"Training completed in {total_time / 60:.1f} minutes!")
 

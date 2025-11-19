@@ -113,6 +113,7 @@ class DecQNTrainer(Logger):
         self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.agent_name = "deqn"
         self.checkpoint_manager = CheckpointManager(self.logger, checkpoint_dir=self.working_dir + "/checkpoints")
 
     def train(self):
@@ -264,7 +265,7 @@ class DecQNTrainer(Logger):
         if episode % self.config.checkpoint_interval != 0:
             return
 
-        metrics_tracker.save_metrics(agent, self.config.task)
+        metrics_tracker.save_metrics(self.agent_name, self.config.task)
         checkpoint_path = self.checkpoint_manager.save_checkpoint(
             agent, episode, self.config.task
         )
@@ -272,7 +273,7 @@ class DecQNTrainer(Logger):
 
     def _finalize_training(self, agent, metrics_tracker):
         """Finalize training by saving and plotting."""
-        metrics_tracker.save_metrics(agent, self.config.task)
+        metrics_tracker.save_metrics(self.agent_name, self.config.task)
 
         final_checkpoint = self.checkpoint_manager.save_checkpoint(
             agent, self.config.num_episodes, self.config.task + "_final"

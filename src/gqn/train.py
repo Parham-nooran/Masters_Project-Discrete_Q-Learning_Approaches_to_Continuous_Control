@@ -122,6 +122,7 @@ class GQNTrainer(Logger):
         self.working_dir = working_dir
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.agent_name = "gqn"
         self.checkpoint_manager = CheckpointManager(
             self.logger,
             os.path.join(self.working_dir, "checkpoints")
@@ -317,7 +318,7 @@ class GQNTrainer(Logger):
             gc.collect()
 
         if episode % self.config.checkpoint_interval == 0:
-            metrics_tracker.save_metrics(agent, self.config.task)
+            metrics_tracker.save_metrics(self.agent_name, self.config.task)
             checkpoint_path = self.checkpoint_manager.save_checkpoint(
                 agent, episode, self.config.task
             )
@@ -334,7 +335,7 @@ class GQNTrainer(Logger):
             avg_episode_time = 0
             total_episodes = 0
 
-        metrics_tracker.save_metrics(agent, self.config.task)
+        metrics_tracker.save_metrics(self.agent_name, self.config.task)
         final_checkpoint = self.checkpoint_manager.save_checkpoint(
             agent, self.config.num_episodes, f"{self.config.task}_final"
         )
