@@ -18,12 +18,22 @@ def _build_network(layer_sizes: List[int]) -> nn.Module:
     return nn.Sequential(*layers)
 
 
-def _init_weights(m):
-    """Conservative weight initialization for Q-networks."""
+def _init_weights(m, seed=None):
+    """Conservative weight initialization for Q-networks with optional seed."""
     if isinstance(m, nn.Linear):
+        if seed is not None:
+            torch.manual_seed(seed)
         nn.init.xavier_uniform_(m.weight, gain=1.0)
         if m.bias is not None:
             nn.init.zeros_(m.bias)
+
+
+def _init_final_layer(layer, seed=None):
+    """Initialize final layer with small weights."""
+    if seed is not None:
+        torch.manual_seed(seed)
+    nn.init.uniform_(layer.weight, -0.003, 0.003)
+    nn.init.zeros_(layer.bias)
 
 
 @torch.jit.script
@@ -35,13 +45,10 @@ def apply_action_mask_optimized(
     return torch.where(action_mask.unsqueeze(0), q_values, mask_value)
 
 
-def _init_final_layer(layer):
-    nn.init.uniform_(layer.weight, -0.003, 0.003)
-    nn.init.zeros_(layer.bias)
-
-
 class GrowingQCritic(nn.Module):
-    def __init__(self, config, input_size: int, action_spec: Dict):
+    """Growing Q-Critic with decorrelated double Q-network initialization."""
+
+    def __init__(self, config, input_size: int, action_spec: Dict, init_seed: Optional[int] = None):
         super().__init__()
         self.config = config
         self.decouple = config.decouple
@@ -52,22 +59,21 @@ class GrowingQCritic(nn.Module):
         if self.decouple:
             self.max_output_dim = self.max_bins * self.action_dim
         else:
-            self.max_output_dim = self.max_bins**self.action_dim
+            self.max_output_dim = self.max_bins ** self.action_dim
 
         layer_sizes = [input_size] + config.layer_size_network + [self.max_output_dim]
 
         self.q1_network = _build_network(layer_sizes)
-        self.q1_network.apply(_init_weights)
+        self.q1_network.apply(lambda m: _init_weights(m, seed=init_seed))
+        _init_final_layer(self.q1_network[-1], seed=init_seed)
 
         if self.use_double_q:
+            q2_seed = init_seed + 1000 if init_seed is not None else None
             self.q2_network = _build_network(layer_sizes)
-            self.q2_network.apply(_init_weights)
+            self.q2_network.apply(lambda m: _init_weights(m, seed=q2_seed))
+            _init_final_layer(self.q2_network[-1], seed=q2_seed)
         else:
             self.q2_network = self.q1_network
-
-        _init_final_layer(self.q1_network[-1])
-        if self.use_double_q:
-            _init_final_layer(self.q2_network[-1])
 
     def forward(
         self, x: torch.Tensor, action_mask: Optional[torch.Tensor] = None

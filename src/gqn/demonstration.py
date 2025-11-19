@@ -20,7 +20,7 @@ def load_gqn_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    config = checkpoint["config.py"]
+    config = checkpoint["config"]
 
     obs_shape, action_spec_dict = _get_env_specs(env, config)
     agent = GrowingQNAgent(config, obs_shape, action_spec_dict, checkpoint_path)
@@ -56,8 +56,8 @@ def _load_network_states(agent, checkpoint):
     agent.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
     agent.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
     agent.training_step = checkpoint.get("training_step", 0)
-    agent.epsilon = checkpoint.get("epsilon", 0.0)
     agent.episode_count = checkpoint.get("episode_count", 0)
+    agent.steps_since_growth = checkpoint.get("steps_since_growth", 0)
 
 
 def _load_growth_info(agent, checkpoint):
@@ -261,11 +261,12 @@ def _draw_info_on_frame(
         f"Reward: {episode_stats['reward']:.2f}",
         f"Current Bins: {growth_info['current_bins']}",
         f"Growth History: {growth_info['growth_history']}",
+        f"Temperature: {growth_info['temperature']:.4f}",
         f"Action: [{', '.join([f'{x:.3f}' for x in action_np])}]",
     ]
 
     for i, text in enumerate(info_text):
-        font_scale = 0.5 if i >= 4 else 0.6
+        font_scale = 0.5 if i >= 5 else 0.6
         cv2.putText(
             frame,
             text,

@@ -1,9 +1,10 @@
 import os
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 
-from src.common.actors import CustomDiscreteFeedForwardActor
 from src.common.encoder import VisionEncoder
 from src.common.logger import Logger
 from src.common.replay_buffer import PrioritizedReplayBuffer
@@ -11,7 +12,6 @@ from src.common.training_utils import (
     continuous_to_discrete_action,
     get_batch_components,
     encode_observation,
-    calculate_losses,
     check_and_sample_batch_from_replay_buffer,
 )
 from src.gqn.critic import GrowingQCritic
@@ -20,7 +20,7 @@ from src.gqn.scheduler import GrowingScheduler
 
 
 class GrowingQNAgent(Logger):
-    """Growing Q-Networks Agent with proper value preservation during growth."""
+    """Growing Q-Networks Agent with softmax exploration and min double Q-learning."""
 
     def __init__(self, config, obs_shape, action_spec, working_dir):
         super().__init__(working_dir)
@@ -36,11 +36,10 @@ class GrowingQNAgent(Logger):
 
         self._init_networks(obs_shape, action_spec)
         self._init_replay_buffer()
-        self._init_actor()
         self._init_training_state()
 
     def _init_networks(self, obs_shape, action_spec):
-        """Initialize Q-networks with proper encoder handling."""
+        """Initialize Q-networks with decorrelated initialization."""
         if self.config.use_pixels:
             self.encoder = VisionEncoder(self.config, self.config.num_pixels).to(self.device)
             encoder_output_size = self.config.layer_size_bottleneck
@@ -52,11 +51,11 @@ class GrowingQNAgent(Logger):
             encoder_output_size = np.prod(obs_shape)
 
         self.q_network = GrowingQCritic(
-            self.config, encoder_output_size, action_spec
+            self.config, encoder_output_size, action_spec, init_seed=42
         ).to(self.device)
 
         self.target_q_network = GrowingQCritic(
-            self.config, encoder_output_size, action_spec
+            self.config, encoder_output_size, action_spec, init_seed=123
         ).to(self.device)
 
         self.target_q_network.load_state_dict(self.q_network.state_dict())
@@ -76,24 +75,15 @@ class GrowingQNAgent(Logger):
         )
         self.replay_buffer.device = self.device
 
-    def _init_actor(self):
-        """Initialize actor for action selection."""
-        self.actor = CustomDiscreteFeedForwardActor(
-            policy_network=self.q_network,
-            encoder=self.encoder,
-            action_discretizer=self.action_discretizer,
-            epsilon=self.config.epsilon,
-            decouple=self.config.decouple,
-        )
-
     def _init_training_state(self):
         """Initialize training state variables."""
         self.training_step = 0
         self.episode_count = 0
-        self.epsilon = self.config.epsilon
-        self.growth_history = [self.action_discretizer.num_bins]
         self.steps_since_growth = 0
-        self.warmup_steps_after_growth = 1000
+        self.growth_history = [self.action_discretizer.num_bins]
+        self.base_temperature = 1.0
+        self.min_temperature = 0.01
+        self.temperature_decay = 0.9995
 
     def get_current_action_mask(self):
         """Get action mask for current resolution level with caching."""
@@ -127,9 +117,54 @@ class GrowingQNAgent(Logger):
             mask[:total_actions] = True
         return mask
 
-    def select_action(self, obs):
-        """Select action using epsilon-greedy policy."""
-        return self.actor.select_action(obs)
+    def get_temperature(self):
+        """Compute current softmax temperature with reset after growth."""
+        steps_for_decay = self.steps_since_growth
+        temp = self.base_temperature * (self.temperature_decay ** steps_for_decay)
+        return max(temp, self.min_temperature)
+
+    def select_action(self, obs, evaluate=False):
+        """Select action using softmax policy with adaptive temperature."""
+        with torch.no_grad():
+            if self.encoder:
+                obs_encoded = self.encoder(obs.unsqueeze(0))
+            else:
+                obs_encoded = obs.unsqueeze(0)
+
+            action_mask = self.get_current_action_mask()
+            q1, q2 = self.q_network(obs_encoded, action_mask)
+            q_values = torch.min(q1, q2)
+
+            if evaluate:
+                return self._greedy_action_selection(q_values)
+
+            return self._softmax_action_selection(q_values)
+
+    def _greedy_action_selection(self, q_values):
+        """Select greedy action for evaluation."""
+        if self.config.decouple:
+            actions = q_values.argmax(dim=2).squeeze(0)
+            return self.action_discretizer.action_bins[
+                torch.arange(self.action_discretizer.action_dim, device=actions.device), actions
+            ]
+        else:
+            action_idx = q_values.argmax(dim=1).squeeze(0).item()
+            return self.action_discretizer.action_bins[action_idx]
+
+    def _softmax_action_selection(self, q_values):
+        """Select action using softmax with current temperature."""
+        temperature = self.get_temperature()
+
+        if self.config.decouple:
+            probs = F.softmax(q_values / temperature, dim=2)
+            actions = torch.multinomial(probs.squeeze(0), 1).squeeze(1)
+            return self.action_discretizer.action_bins[
+                torch.arange(self.action_discretizer.action_dim, device=actions.device), actions
+            ]
+        else:
+            probs = F.softmax(q_values / temperature, dim=1)
+            action_idx = torch.multinomial(probs.squeeze(0), 1).squeeze(0).item()
+            return self.action_discretizer.action_bins[action_idx]
 
     def observe_first(self, obs):
         """Store first observation of episode."""
@@ -153,7 +188,7 @@ class GrowingQNAgent(Logger):
         return action
 
     def maybe_grow_action_space(self, episode_return):
-        """Check and perform action space growth with proper warmup."""
+        """Check and perform action space growth with temperature reset."""
         if not self._should_check_growth():
             return False
 
@@ -170,7 +205,7 @@ class GrowingQNAgent(Logger):
         )
 
     def _perform_growth(self):
-        """Perform action space growth with proper initialization."""
+        """Perform action space growth with temperature reset."""
         old_bins = self.action_discretizer.num_bins
         growth_occurred = self.action_discretizer.grow_action_space()
 
@@ -185,6 +220,7 @@ class GrowingQNAgent(Logger):
             self.logger.info(
                 f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
             )
+            self.logger.info(f"Temperature reset to {self.base_temperature}")
             return True
 
         return False
@@ -199,7 +235,7 @@ class GrowingQNAgent(Logger):
             delattr(self, "_cached_mask")
 
     def update(self):
-        """Update networks with proper handling of recently grown action space."""
+        """Update networks using min double Q-learning."""
         batch = check_and_sample_batch_from_replay_buffer(
             self.replay_buffer, self.config.min_replay_size, self.config.num_bins
         )
@@ -233,38 +269,25 @@ class GrowingQNAgent(Logger):
         return self._compute_metrics(loss, td_errors, q1_selected, q2_selected)
 
     def _compute_targets(self, next_obs_encoded, rewards, dones, discounts, action_mask):
-        """Compute target Q-values with warmup after growth."""
+        """Compute target Q-values using min of double Q-networks."""
         with torch.no_grad():
             q1_target, q2_target = self.target_q_network(next_obs_encoded, action_mask)
             q1_online, q2_online = self.q_network(next_obs_encoded, action_mask)
 
-            in_warmup = self.steps_since_growth < self.warmup_steps_after_growth
+            q_min = torch.min(q1_online, q2_online)
 
             if self.config.decouple:
                 return self._compute_decoupled_targets(
-                    q1_target, q2_target, q1_online, q2_online,
-                    rewards, dones, discounts, in_warmup
+                    q1_target, q2_target, q_min, rewards, dones, discounts
                 )
             else:
                 return self._compute_coupled_targets(
-                    q1_target, q2_target, q1_online, q2_online,
-                    rewards, dones, discounts, in_warmup
+                    q1_target, q2_target, q_min, rewards, dones, discounts
                 )
 
-    def _compute_decoupled_targets(
-            self, q1_target, q2_target, q1_online, q2_online,
-            rewards, dones, discounts, in_warmup
-    ):
-        """Compute targets for decoupled action space."""
-        q_online = 0.5 * (q1_online + q2_online)
-
-        if in_warmup:
-            old_bins = self.growth_history[-2] if len(self.growth_history) > 1 else 2
-            q_online_masked = q_online.clone()
-            q_online_masked[:, :, old_bins:] = -1e6
-            next_actions = q_online_masked.argmax(dim=2)
-        else:
-            next_actions = q_online.argmax(dim=2)
+    def _compute_decoupled_targets(self, q1_target, q2_target, q_min, rewards, dones, discounts):
+        """Compute targets for decoupled action space using min double Q."""
+        next_actions = q_min.argmax(dim=2)
 
         batch_indices = torch.arange(q1_target.shape[0], device=self.device)
         dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
@@ -276,28 +299,17 @@ class GrowingQNAgent(Logger):
             batch_indices.unsqueeze(1), dim_indices.unsqueeze(0), next_actions
         ]
 
-        q_target_values = (0.5 * (q1_selected + q2_selected)).sum(dim=1) / self.action_discretizer.action_dim
+        q_target_values = torch.min(q1_selected, q2_selected).sum(dim=1) / self.action_discretizer.action_dim
         return rewards + discounts * q_target_values * (~dones).float()
 
-    def _compute_coupled_targets(
-            self, q1_target, q2_target, q1_online, q2_online,
-            rewards, dones, discounts, in_warmup
-    ):
-        """Compute targets for coupled action space."""
-        q_online = 0.5 * (q1_online + q2_online)
+    def _compute_coupled_targets(self, q1_target, q2_target, q_min, rewards, dones, discounts):
+        """Compute targets for coupled action space using min double Q."""
+        next_actions = q_min.argmax(dim=1)
 
-        if in_warmup:
-            old_bins = self.growth_history[-2] if len(self.growth_history) > 1 else 2
-            total_old_actions = old_bins ** self.action_discretizer.action_dim
-            q_online_masked = q_online.clone()
-            q_online_masked[:, total_old_actions:] = -1e6
-            next_actions = q_online_masked.argmax(dim=1)
-        else:
-            next_actions = q_online.argmax(dim=1)
+        q1_values = q1_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
+        q2_values = q2_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
 
-        q_target = 0.5 * (q1_target + q2_target)
-        q_target_values = q_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
-
+        q_target_values = torch.min(q1_values, q2_values)
         return rewards + discounts * q_target_values * ~dones
 
     def _select_q_values(self, q1_current, q2_current, actions):
@@ -324,18 +336,29 @@ class GrowingQNAgent(Logger):
         return q1_selected, q2_selected
 
     def _compute_loss(self, q1_selected, q2_selected, targets, weights):
-        """Compute weighted TD loss."""
+        """Compute weighted Huber loss for both Q-networks."""
         td_error1 = targets - q1_selected
         td_error2 = targets - q2_selected
 
-        loss = calculate_losses(
-            td_error1, td_error2, self.config.use_double_q,
-            self.q_optimizer, self.encoder,
-            self.encoder_optimizer if self.encoder else None,
-            weights, self.config.huber_loss_parameter
-        )
+        huber_loss = nn.SmoothL1Loss(reduction='none', beta=self.config.huber_loss_parameter)
 
-        return loss, td_error1
+        loss1 = huber_loss(q1_selected, targets)
+        loss2 = huber_loss(q2_selected, targets)
+
+        weighted_loss1 = (loss1 * weights).mean()
+        weighted_loss2 = (loss2 * weights).mean()
+
+        total_loss = weighted_loss1 + weighted_loss2
+
+        self.q_optimizer.zero_grad()
+        if self.encoder:
+            self.encoder_optimizer.zero_grad()
+
+        total_loss.backward()
+
+        td_errors = 0.5 * (torch.abs(td_error1) + torch.abs(td_error2))
+
+        return total_loss, td_errors
 
     def _optimize(self, loss):
         """Perform optimization step with gradient clipping."""
@@ -354,7 +377,7 @@ class GrowingQNAgent(Logger):
 
     def _update_priorities(self, indices, td_errors):
         """Update replay buffer priorities based on TD errors."""
-        priorities = torch.abs(td_errors).detach().cpu().numpy()
+        priorities = td_errors.detach().cpu().numpy()
         self.replay_buffer.update_priorities(indices, priorities)
 
     def _maybe_update_target(self):
@@ -366,11 +389,12 @@ class GrowingQNAgent(Logger):
         """Compute and return training metrics."""
         return {
             "loss": loss.item(),
-            "mean_abs_td_error": torch.abs(td_errors).mean().item(),
+            "mean_abs_td_error": td_errors.mean().item(),
             "mean_squared_td_error": (td_errors ** 2).mean().item(),
             "q1_mean": q1_selected.mean().item(),
-            "q2_mean": q2_selected.mean().item() if self.config.use_double_q else 0,
+            "q2_mean": q2_selected.mean().item(),
             "current_bins": self.action_discretizer.num_bins,
+            "temperature": self.get_temperature(),
         }
 
     def end_episode(self, episode_return):
@@ -378,10 +402,14 @@ class GrowingQNAgent(Logger):
         self.episode_count += 1
         self.maybe_grow_action_space(episode_return)
 
+    @property
+    def epsilon(self):
+        """Compatibility property for logging. Returns current temperature instead."""
+        return self.get_temperature()
+
     def update_epsilon(self, decay_rate=0.995, min_epsilon=0.01):
-        """Decay exploration rate."""
-        self.epsilon = max(min_epsilon, self.epsilon * decay_rate)
-        self.actor.epsilon = self.epsilon
+        """Compatibility method for train.py. Temperature decays automatically per step."""
+        pass
 
     def get_growth_info(self):
         """Get information about current growth state."""
@@ -389,6 +417,7 @@ class GrowingQNAgent(Logger):
             "current_bins": self.action_discretizer.num_bins,
             "growth_history": self.growth_history,
             "max_bins": self.config.max_bins,
+            "temperature": self.get_temperature(),
         }
 
     def save_checkpoint(self, path, episode):
@@ -400,7 +429,6 @@ class GrowingQNAgent(Logger):
             "q_optimizer_state_dict": self.q_optimizer.state_dict(),
             "config": self.config,
             "training_step": self.training_step,
-            "epsilon": self.epsilon,
             "episode_count": self.episode_count,
             "growth_history": self.growth_history,
             "steps_since_growth": self.steps_since_growth,
@@ -420,6 +448,7 @@ class GrowingQNAgent(Logger):
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save(checkpoint, path)
+        self.logger.info(f"Checkpoint saved to {path}")
 
     def load_checkpoint(self, checkpoint_path):
         """Load checkpoint and restore state."""
@@ -451,7 +480,6 @@ class GrowingQNAgent(Logger):
     def _restore_training_state(self, checkpoint):
         """Restore training state from checkpoint."""
         self.training_step = checkpoint.get("training_step", 0)
-        self.epsilon = checkpoint.get("epsilon", self.config.epsilon)
         self.episode_count = checkpoint.get("episode_count", 0)
         self.steps_since_growth = checkpoint.get("steps_since_growth", 0)
 
