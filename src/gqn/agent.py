@@ -28,7 +28,6 @@ class GrowingQNAgent(Logger):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.obs_shape = obs_shape
         self.action_spec = action_spec
-
         self.action_discretizer = GrowingActionDiscretizer(
             action_spec, config.max_bins, config.decouple
         )
@@ -84,6 +83,7 @@ class GrowingQNAgent(Logger):
         self.base_temperature = 1.0
         self.min_temperature = 0.01
         self.temperature_decay = 0.9995
+        self.warmup_steps_after_growth = 1000
 
     def get_current_action_mask(self):
         """Get action mask for current resolution level with caching."""
@@ -126,19 +126,12 @@ class GrowingQNAgent(Logger):
     def select_action(self, obs, evaluate=False):
         """Select action using softmax policy with adaptive temperature."""
         with torch.no_grad():
-            if self.encoder:
-                obs_encoded = self.encoder(obs.unsqueeze(0))
-            else:
-                obs_encoded = obs.unsqueeze(0)
-
+            obs_encoded = self.encoder(obs.unsqueeze(0)) if self.encoder else obs.unsqueeze(0)
             action_mask = self.get_current_action_mask()
             q1, q2 = self.q_network(obs_encoded, action_mask)
             q_values = torch.min(q1, q2)
 
-            if evaluate:
-                return self._greedy_action_selection(q_values)
-
-            return self._softmax_action_selection(q_values)
+            return self._greedy_action_selection(q_values) if evaluate else self._softmax_action_selection(q_values)
 
     def _greedy_action_selection(self, q_values):
         """Select greedy action for evaluation."""
@@ -147,9 +140,9 @@ class GrowingQNAgent(Logger):
             return self.action_discretizer.action_bins[
                 torch.arange(self.action_discretizer.action_dim, device=actions.device), actions
             ]
-        else:
-            action_idx = q_values.argmax(dim=1).squeeze(0).item()
-            return self.action_discretizer.action_bins[action_idx]
+
+        action_idx = q_values.argmax(dim=1).squeeze(0).item()
+        return self.action_discretizer.action_bins[action_idx]
 
     def _softmax_action_selection(self, q_values):
         """Select action using softmax with current temperature."""
@@ -161,10 +154,10 @@ class GrowingQNAgent(Logger):
             return self.action_discretizer.action_bins[
                 torch.arange(self.action_discretizer.action_dim, device=actions.device), actions
             ]
-        else:
-            probs = F.softmax(q_values / temperature, dim=1)
-            action_idx = torch.multinomial(probs.squeeze(0), 1).squeeze(0).item()
-            return self.action_discretizer.action_bins[action_idx]
+
+        probs = F.softmax(q_values / temperature, dim=1)
+        action_idx = torch.multinomial(probs.squeeze(0), 1).squeeze(0).item()
+        return self.action_discretizer.action_bins[action_idx]
 
     def observe_first(self, obs):
         """Store first observation of episode."""
@@ -188,7 +181,7 @@ class GrowingQNAgent(Logger):
         return action
 
     def maybe_grow_action_space(self, episode_return):
-        """Check and perform action space growth with temperature reset."""
+        """Check and perform action space growth with proper warmup."""
         if not self._should_check_growth():
             return False
 
@@ -200,12 +193,12 @@ class GrowingQNAgent(Logger):
     def _should_check_growth(self):
         """Determine if growth should be checked."""
         return (
-                self.episode_count > 200
+                self.episode_count > self.config.min_episodes_to_grow
                 and len(self.replay_buffer) > self.config.min_replay_size * 2
         )
 
     def _perform_growth(self):
-        """Perform action space growth with temperature reset."""
+        """Perform action space growth WITHOUT immediate target update."""
         old_bins = self.action_discretizer.num_bins
         growth_occurred = self.action_discretizer.grow_action_space()
 
@@ -213,21 +206,16 @@ class GrowingQNAgent(Logger):
             current_bins = self.action_discretizer.num_bins
             self.growth_history.append(current_bins)
             self.steps_since_growth = 0
-
-            self._update_target_network()
             self._clear_mask_cache()
 
             self.logger.info(
                 f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
             )
             self.logger.info(f"Temperature reset to {self.base_temperature}")
+            self.logger.info(f"Warmup period: {self.warmup_steps_after_growth} steps before target sync")
             return True
 
         return False
-
-    def _update_target_network(self):
-        """Update target network immediately after growth."""
-        self.target_q_network.load_state_dict(self.q_network.state_dict())
 
     def _clear_mask_cache(self):
         """Clear cached action mask."""
@@ -255,9 +243,7 @@ class GrowingQNAgent(Logger):
         )
 
         q1_selected, q2_selected = self._select_q_values(q1_current, q2_current, actions)
-        loss, td_errors = self._compute_loss(
-            q1_selected, q2_selected, targets, weights
-        )
+        loss, td_errors = self._compute_loss(q1_selected, q2_selected, targets, weights)
 
         self._optimize(loss)
         self._update_priorities(indices, td_errors)
@@ -273,22 +259,20 @@ class GrowingQNAgent(Logger):
         with torch.no_grad():
             q1_target, q2_target = self.target_q_network(next_obs_encoded, action_mask)
             q1_online, q2_online = self.q_network(next_obs_encoded, action_mask)
-
             q_min = torch.min(q1_online, q2_online)
 
             if self.config.decouple:
                 return self._compute_decoupled_targets(
                     q1_target, q2_target, q_min, rewards, dones, discounts
                 )
-            else:
-                return self._compute_coupled_targets(
-                    q1_target, q2_target, q_min, rewards, dones, discounts
-                )
+
+            return self._compute_coupled_targets(
+                q1_target, q2_target, q_min, rewards, dones, discounts
+            )
 
     def _compute_decoupled_targets(self, q1_target, q2_target, q_min, rewards, dones, discounts):
         """Compute targets for decoupled action space using min double Q."""
         next_actions = q_min.argmax(dim=2)
-
         batch_indices = torch.arange(q1_target.shape[0], device=self.device)
         dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
 
@@ -305,10 +289,8 @@ class GrowingQNAgent(Logger):
     def _compute_coupled_targets(self, q1_target, q2_target, q_min, rewards, dones, discounts):
         """Compute targets for coupled action space using min double Q."""
         next_actions = q_min.argmax(dim=1)
-
         q1_values = q1_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
         q2_values = q2_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
-
         q_target_values = torch.min(q1_values, q2_values)
         return rewards + discounts * q_target_values * ~dones
 
@@ -339,15 +321,12 @@ class GrowingQNAgent(Logger):
         """Compute weighted Huber loss for both Q-networks."""
         td_error1 = targets - q1_selected
         td_error2 = targets - q2_selected
-
         huber_loss = nn.SmoothL1Loss(reduction='none', beta=self.config.huber_loss_parameter)
 
         loss1 = huber_loss(q1_selected, targets)
         loss2 = huber_loss(q2_selected, targets)
-
         weighted_loss1 = (loss1 * weights).mean()
         weighted_loss2 = (loss2 * weights).mean()
-
         total_loss = weighted_loss1 + weighted_loss2
 
         self.q_optimizer.zero_grad()
@@ -355,9 +334,7 @@ class GrowingQNAgent(Logger):
             self.encoder_optimizer.zero_grad()
 
         total_loss.backward()
-
         td_errors = 0.5 * (torch.abs(td_error1) + torch.abs(td_error2))
-
         return total_loss, td_errors
 
     def _optimize(self, loss):
@@ -381,9 +358,10 @@ class GrowingQNAgent(Logger):
         self.replay_buffer.update_priorities(indices, priorities)
 
     def _maybe_update_target(self):
-        """Periodically update target network."""
-        if self.training_step % self.config.target_update_period == 0:
-            self.target_q_network.load_state_dict(self.q_network.state_dict())
+        """Periodically update target network with warmup after growth."""
+        if self.steps_since_growth >= self.warmup_steps_after_growth:
+            if self.training_step % self.config.target_update_period == 0:
+                self.target_q_network.load_state_dict(self.q_network.state_dict())
 
     def _compute_metrics(self, loss, td_errors, q1_selected, q2_selected):
         """Compute and return training metrics."""
@@ -404,11 +382,11 @@ class GrowingQNAgent(Logger):
 
     @property
     def epsilon(self):
-        """Compatibility property for logging. Returns current temperature instead."""
+        """Compatibility property for logging."""
         return self.get_temperature()
 
     def update_epsilon(self, decay_rate=0.995, min_epsilon=0.01):
-        """Compatibility method for train.py. Temperature decays automatically per step."""
+        """Compatibility method for train.py."""
         pass
 
     def get_growth_info(self):

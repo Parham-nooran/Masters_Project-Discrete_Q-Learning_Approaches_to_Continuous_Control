@@ -468,6 +468,12 @@ def parse_arguments():
         help="Save checkpoints every N episodes",
     )
     parser.add_argument(
+        "--min-episodes-to-grow",
+        type=int,
+        default=100,
+        help="Minimum number of episodes before starting to grow",
+    )
+    parser.add_argument(
         "--log-interval", type=int, default=10, help="Log progress every N episodes"
     )
     parser.add_argument(
