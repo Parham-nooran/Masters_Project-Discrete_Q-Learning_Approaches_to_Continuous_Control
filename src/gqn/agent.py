@@ -28,6 +28,7 @@ class GrowingQNAgent(Logger):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.obs_shape = obs_shape
         self.action_spec = action_spec
+
         self.action_discretizer = GrowingActionDiscretizer(
             action_spec, config.max_bins, config.decouple
         )
@@ -83,7 +84,6 @@ class GrowingQNAgent(Logger):
         self.base_temperature = 1.0
         self.min_temperature = 0.01
         self.temperature_decay = 0.9995
-        self.warmup_steps_after_growth = 1000
 
     def get_current_action_mask(self):
         """Get action mask for current resolution level with caching."""
@@ -181,7 +181,7 @@ class GrowingQNAgent(Logger):
         return action
 
     def maybe_grow_action_space(self, episode_return):
-        """Check and perform action space growth with proper warmup."""
+        """Check and perform action space growth with buffer cleanup."""
         if not self._should_check_growth():
             return False
 
@@ -193,12 +193,12 @@ class GrowingQNAgent(Logger):
     def _should_check_growth(self):
         """Determine if growth should be checked."""
         return (
-                self.episode_count > self.config.min_episodes_to_grow
+                self.episode_count > 200
                 and len(self.replay_buffer) > self.config.min_replay_size * 2
         )
 
     def _perform_growth(self):
-        """Perform action space growth WITHOUT immediate target update."""
+        """Perform action space growth with buffer cleanup and delayed target update."""
         old_bins = self.action_discretizer.num_bins
         growth_occurred = self.action_discretizer.grow_action_space()
 
@@ -206,16 +206,29 @@ class GrowingQNAgent(Logger):
             current_bins = self.action_discretizer.num_bins
             self.growth_history.append(current_bins)
             self.steps_since_growth = 0
+
+            self._clear_replay_buffer()
             self._clear_mask_cache()
 
             self.logger.info(
                 f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
             )
             self.logger.info(f"Temperature reset to {self.base_temperature}")
-            self.logger.info(f"Warmup period: {self.warmup_steps_after_growth} steps before target sync")
+            self.logger.info(f"Replay buffer cleared - refilling with new action space")
             return True
 
         return False
+
+    def _clear_replay_buffer(self):
+        """Clear replay buffer after growth to avoid action space mismatch."""
+        self.replay_buffer = PrioritizedReplayBuffer(
+            capacity=self.config.max_replay_size,
+            alpha=self.config.priority_exponent,
+            beta=self.config.importance_sampling_exponent,
+            n_step=self.config.adder_n_step,
+            discount=self.config.discount,
+        )
+        self.replay_buffer.device = self.device
 
     def _clear_mask_cache(self):
         """Clear cached action mask."""
@@ -358,10 +371,9 @@ class GrowingQNAgent(Logger):
         self.replay_buffer.update_priorities(indices, priorities)
 
     def _maybe_update_target(self):
-        """Periodically update target network with warmup after growth."""
-        if self.steps_since_growth >= self.warmup_steps_after_growth:
-            if self.training_step % self.config.target_update_period == 0:
-                self.target_q_network.load_state_dict(self.q_network.state_dict())
+        """Periodically update target network."""
+        if self.training_step % self.config.target_update_period == 0:
+            self.target_q_network.load_state_dict(self.q_network.state_dict())
 
     def _compute_metrics(self, loss, td_errors, q1_selected, q2_selected):
         """Compute and return training metrics."""
