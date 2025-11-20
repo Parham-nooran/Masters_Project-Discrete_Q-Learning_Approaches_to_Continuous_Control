@@ -181,7 +181,7 @@ class GrowingQNAgent(Logger):
         return action
 
     def maybe_grow_action_space(self, episode_return):
-        """Check and perform action space growth with buffer cleanup."""
+        """Check and perform action space growth."""
         if not self._should_check_growth():
             return False
 
@@ -198,7 +198,7 @@ class GrowingQNAgent(Logger):
         )
 
     def _perform_growth(self):
-        """Perform action space growth with buffer cleanup and delayed target update."""
+        """Perform action space growth with proper value inheritance."""
         old_bins = self.action_discretizer.num_bins
         growth_occurred = self.action_discretizer.grow_action_space()
 
@@ -207,28 +207,64 @@ class GrowingQNAgent(Logger):
             self.growth_history.append(current_bins)
             self.steps_since_growth = 0
 
-            self._clear_replay_buffer()
+            self._remap_replay_buffer_actions(old_bins, current_bins)
             self._clear_mask_cache()
 
             self.logger.info(
                 f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
             )
             self.logger.info(f"Temperature reset to {self.base_temperature}")
-            self.logger.info(f"Replay buffer cleared - refilling with new action space")
+            self.logger.info(f"Replay buffer actions remapped to new space")
             return True
 
         return False
 
-    def _clear_replay_buffer(self):
-        """Clear replay buffer after growth to avoid action space mismatch."""
-        self.replay_buffer = PrioritizedReplayBuffer(
-            capacity=self.config.max_replay_size,
-            alpha=self.config.priority_exponent,
-            beta=self.config.importance_sampling_exponent,
-            n_step=self.config.adder_n_step,
-            discount=self.config.discount,
-        )
-        self.replay_buffer.device = self.device
+    def _remap_replay_buffer_actions(self, old_bins, new_bins):
+        """Remap actions in replay buffer from old to new bin space."""
+        if len(self.replay_buffer.buffer) == 0:
+            return
+
+        old_action_bins = self.action_discretizer.all_action_bins[old_bins]
+        new_action_bins = self.action_discretizer.all_action_bins[new_bins]
+
+        for i in range(len(self.replay_buffer.buffer)):
+            if self.replay_buffer.buffer[i] is not None:
+                transition = self.replay_buffer.buffer[i]
+                old_action_indices = transition[1]
+
+                if self.config.decouple:
+                    new_action_indices = self._remap_decoupled_action(
+                        old_action_indices, old_action_bins, new_action_bins
+                    )
+                else:
+                    new_action_indices = self._remap_coupled_action(
+                        old_action_indices, old_action_bins, new_action_bins
+                    )
+
+                self.replay_buffer.buffer[i] = (
+                    transition[0],
+                    new_action_indices,
+                    transition[2],
+                    transition[3],
+                    transition[4]
+                )
+
+    def _remap_decoupled_action(self, old_indices, old_bins, new_bins):
+        """Remap decoupled action indices to nearest in new space."""
+        new_indices = torch.zeros_like(old_indices)
+
+        for dim in range(self.action_discretizer.action_dim):
+            old_value = old_bins[dim, old_indices[dim]]
+            distances = torch.abs(new_bins[dim] - old_value)
+            new_indices[dim] = torch.argmin(distances)
+
+        return new_indices
+
+    def _remap_coupled_action(self, old_index, old_bins, new_bins):
+        """Remap coupled action index to nearest in new space."""
+        old_action = old_bins[old_index]
+        distances = torch.norm(new_bins - old_action.unsqueeze(0), dim=1)
+        return torch.argmin(distances)
 
     def _clear_mask_cache(self):
         """Clear cached action mask."""

@@ -470,7 +470,7 @@ def parse_arguments():
     parser.add_argument(
         "--min-episodes-to-grow",
         type=int,
-        default=100,
+        default=50,
         help="Minimum number of episodes before starting to grow",
     )
     parser.add_argument(
