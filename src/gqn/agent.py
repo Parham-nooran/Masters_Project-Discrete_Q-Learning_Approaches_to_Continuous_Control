@@ -1,13 +1,15 @@
 import os
+
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 
 from src.common.encoder import VisionEncoder
 from src.common.logger import Logger
-from src.common.replay_buffer import PrioritizedReplayBuffer, Transition
+from src.common.replay_buffer import PrioritizedReplayBuffer
+from src.common.replay_buffer import Transition
 from src.common.training_utils import (
     continuous_to_discrete_action,
     get_batch_components,
@@ -193,7 +195,7 @@ class GrowingQNAgent(Logger):
     def _should_check_growth(self):
         """Determine if growth should be checked."""
         return (
-                self.episode_count > 200
+                self.episode_count > self.config.min_episodes_to_grow
                 and len(self.replay_buffer) > self.config.min_replay_size * 2
         )
 
@@ -241,8 +243,6 @@ class GrowingQNAgent(Logger):
                         old_action_indices, old_action_bins, new_action_bins
                     )
 
-
-                from src.common.replay_buffer import Transition
                 self.replay_buffer.buffer[i] = Transition(
                     obs=transition.obs,
                     action=new_action_indices,

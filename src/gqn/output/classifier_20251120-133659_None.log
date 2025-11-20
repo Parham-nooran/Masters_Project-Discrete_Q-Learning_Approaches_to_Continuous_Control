@@ -1,0 +1,16 @@
+2025-11-20 13:36:59 - src.common.logger - INFO - #Logging configured at level INFO
+2025-11-20 13:36:59 - src.common.logger - INFO - File logging: C:\Users\parha\Downloads\Masters_Project\Project\src\gqn\output\classifier_20251120-133659_None.log (max 10MB, 5 backups)
+2025-11-20 13:36:59 - src.common.logger - INFO - Console Logging: stdout
+2025-11-20 13:37:01 - src.common.logger - INFO - Growing Q-Networks Agent Setup:
+2025-11-20 13:37:01 - src.common.logger - INFO -   Task: walker_walk
+2025-11-20 13:37:01 - src.common.logger - INFO -   Decouple: True
+2025-11-20 13:37:01 - src.common.logger - INFO -   Action dimensions: 6
+2025-11-20 13:37:01 - src.common.logger - INFO -   Growing schedule: adaptive
+2025-11-20 13:37:01 - src.common.logger - INFO -   Growth sequence: [2, 3, 5, 9]
+2025-11-20 13:37:01 - src.common.logger - INFO -   Current bins: 2
+2025-11-20 13:37:01 - src.common.logger - INFO -   Action penalty: 0.1
+2025-11-20 13:37:01 - src.common.logger - INFO - Starting training from episode 0...
+2025-11-20 13:37:02 - src.common.logger - INFO - Episode    0 | Reward:   58.76 | Loss: 0.000000 | Bins: 2 | Growth history: [2]
+2025-11-20 13:37:02 - src.common.logger - INFO - Metrics saved to ./src/gqn/output/metrics\gqn_walker_walk.pkl
+2025-11-20 13:37:02 - src.common.logger - INFO - Checkpoint saved to ./src/gqn/output\checkpoints\walker_walk_0.pth
+2025-11-20 13:37:02 - src.common.logger - INFO - Checkpoint saved: ./src/gqn/output\checkpoints\walker_walk_0.pth
