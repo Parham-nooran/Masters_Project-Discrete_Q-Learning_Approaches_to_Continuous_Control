@@ -199,6 +199,34 @@ class GrowingQNAgent(Logger):
                 and len(self.replay_buffer) > self.config.min_replay_size * 2
         )
 
+    def _inherit_q_values(self, old_bins, new_bins):
+        """Initialize new action Q-values from nearest neighbors in old discretization."""
+        with torch.no_grad():
+            old_action_bins = self.action_discretizer.all_action_bins[old_bins]
+            new_action_bins = self.action_discretizer.all_action_bins[new_bins]
+
+            if self.config.decouple:
+                for dim in range(self.action_discretizer.action_dim):
+                    for new_idx in range(new_bins):
+                        distances = torch.abs(old_action_bins[dim] - new_action_bins[dim, new_idx])
+                        nearest_old_idx = torch.argmin(distances)
+
+                        old_output_idx = dim * old_bins + nearest_old_idx
+                        new_output_idx = dim * new_bins + new_idx
+
+                        self.q_network.q1_network[-1].weight.data[new_output_idx] = \
+                            self.q_network.q1_network[-1].weight.data[old_output_idx].clone()
+                        self.q_network.q1_network[-1].bias.data[new_output_idx] = \
+                            self.q_network.q1_network[-1].bias.data[old_output_idx].clone()
+
+                        if self.config.use_double_q:
+                            self.q_network.q2_network[-1].weight.data[new_output_idx] = \
+                                self.q_network.q2_network[-1].weight.data[old_output_idx].clone()
+                            self.q_network.q2_network[-1].bias.data[new_output_idx] = \
+                                self.q_network.q2_network[-1].bias.data[old_output_idx].clone()
+
+            self.target_q_network.load_state_dict(self.q_network.state_dict())
+
     def _perform_growth(self):
         """Perform action space growth with proper value inheritance."""
         old_bins = self.action_discretizer.num_bins
@@ -207,6 +235,7 @@ class GrowingQNAgent(Logger):
         if growth_occurred:
             current_bins = self.action_discretizer.num_bins
             self.growth_history.append(current_bins)
+            self._inherit_q_values(old_bins, current_bins)
             self.steps_since_growth = 0
 
             self._remap_replay_buffer_actions(old_bins, current_bins)
