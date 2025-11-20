@@ -230,7 +230,7 @@ class GrowingQNAgent(Logger):
         for i in range(len(self.replay_buffer.buffer)):
             if self.replay_buffer.buffer[i] is not None:
                 transition = self.replay_buffer.buffer[i]
-                old_action_indices = transition[1]
+                old_action_indices = transition.action
 
                 if self.config.decouple:
                     new_action_indices = self._remap_decoupled_action(
@@ -241,12 +241,16 @@ class GrowingQNAgent(Logger):
                         old_action_indices, old_action_bins, new_action_bins
                     )
 
+
+                from src.common.replay_buffer import Transition
                 self.replay_buffer.buffer[i] = Transition(
                     obs=transition.obs,
                     action=new_action_indices,
                     reward=transition.reward,
                     next_obs=transition.next_obs,
-                    done=transition.done
+                    done=transition.done,
+                    n_step_return=transition.n_step_return,
+                    n_step_discount=transition.n_step_discount,
                 )
 
     def _remap_decoupled_action(self, old_indices, old_bins, new_bins):

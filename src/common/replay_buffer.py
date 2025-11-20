@@ -12,12 +12,9 @@ def stack_actions(actions_list):
     try:
         return torch.stack(actions_list)
     except RuntimeError:
-        # Handle mixed shapes - find the target shape
         shapes = [a.shape for a in actions_list]
 
-        # Check if all actions are scalars or 1D with different lengths
         if all(len(shape) <= 1 for shape in shapes):
-            # Convert all to 1D tensors and find max length
             max_len = max(a.numel() for a in actions_list)
 
             padded_actions = []
@@ -91,14 +88,11 @@ class PrioritizedReplayBuffer:
         self.position = 0
         self.priorities = np.zeros(capacity, dtype=np.float32)
         self.max_priority = 1.0
-
-        # N-step tracking
         self.n_step_buffer = []
 
     def to_device(self, device):
         """Move the replay buffer to the specified device."""
         self.device = device
-        # Convert all stored tensors to the new device
         new_buffer = []
         for transition in self.buffer:
             if transition is not None:
@@ -118,7 +112,6 @@ class PrioritizedReplayBuffer:
 
     def add(self, obs, action, reward, next_obs, done):
         """Add transition with n-step returns."""
-        # Always store tensors on CPU for memory efficiency, but ensure they're detached
         obs = _ensure_tensor_on_cpu(obs)
         next_obs = _ensure_tensor_on_cpu(next_obs)
 
@@ -135,11 +128,8 @@ class PrioritizedReplayBuffer:
             return
 
         if done:
-            # Process remaining transitions properly when episode ends
             while len(self.n_step_buffer) > 0:
                 current_len = len(self.n_step_buffer)
-
-                # Calculate n-step return for current transition
                 n_step_return = 0.0
                 n_step_discount = 1.0
 
@@ -150,10 +140,8 @@ class PrioritizedReplayBuffer:
                     if d:
                         break
 
-                # Get the correct transition components
                 obs_0, action_0, reward_0, _, _ = self.n_step_buffer[0]
 
-                # For next_obs, use the observation from the appropriate step
                 if current_len < self.n_step:
                     _, _, _, next_obs_n, done_n = self.n_step_buffer[current_len - 1]
                 else:
@@ -169,7 +157,6 @@ class PrioritizedReplayBuffer:
                     n_step_discount,
                 )
 
-                # Store and update position
                 if len(self.buffer) < self.capacity:
                     self.buffer.append(transition)
                 else:
@@ -178,11 +165,8 @@ class PrioritizedReplayBuffer:
                 self.priorities[self.position] = self.max_priority
                 self.position = (self.position + 1) % self.capacity
 
-                # Remove the processed transition
                 self.n_step_buffer.pop(0)
-        # Regular n-step processing when buffer is full
         elif len(self.n_step_buffer) == self.n_step:
-            # Calculate n-step return
             n_step_return = 0.0
             n_step_discount = 1.0
 
@@ -193,7 +177,6 @@ class PrioritizedReplayBuffer:
                 if d:
                     break
 
-            # Get transition components
             obs_0, action_0, reward_0, _, _ = self.n_step_buffer[0]
             _, _, _, next_obs_n, done_n = self.n_step_buffer[-1]
 
@@ -215,8 +198,6 @@ class PrioritizedReplayBuffer:
 
             self.priorities[self.position] = self.max_priority
             self.position = (self.position + 1) % self.capacity
-
-            # Remove the oldest transition from n_step_buffer
             self.n_step_buffer.pop(0)
 
     def sample(self, batch_size):
@@ -224,7 +205,6 @@ class PrioritizedReplayBuffer:
         if len(self.buffer) < batch_size:
             return None
 
-        # Calculate probabilities (keep numpy for efficiency)
         priorities = self.priorities[: len(self.buffer)]
         probs = priorities**self.alpha
         probs = probs / probs.sum()
@@ -237,7 +217,6 @@ class PrioritizedReplayBuffer:
 
         batch = [self.buffer[idx] for idx in indices]
 
-        # Stack tensors that are now all on the same device
         obs = torch.stack([t.obs for t in batch]).to(self.device, non_blocking=True)
         next_obs = torch.stack([t.next_obs for t in batch]).to(
             self.device, non_blocking=True
