@@ -1,15 +1,13 @@
 import os
-
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
+import torch.nn.functional as F
 
 from src.common.encoder import VisionEncoder
 from src.common.logger import Logger
 from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.replay_buffer import Transition
 from src.common.training_utils import (
     continuous_to_discrete_action,
     get_batch_components,
@@ -34,7 +32,11 @@ class GrowingQNAgent(Logger):
         self.action_discretizer = GrowingActionDiscretizer(
             action_spec, config.max_bins, config.decouple
         )
-        self.scheduler = GrowingScheduler(config.num_episodes)
+        self.scheduler = GrowingScheduler(
+            config.num_episodes,
+            window_size=100,
+            min_episodes_between_growth=150
+        )
 
         self._init_networks(obs_shape, action_spec)
         self._init_replay_buffer()
@@ -194,110 +196,32 @@ class GrowingQNAgent(Logger):
 
     def _should_check_growth(self):
         """Determine if growth should be checked."""
+        min_episodes = max(self.config.min_episodes_to_grow, 200)
         return (
-                self.episode_count > self.config.min_episodes_to_grow
+                self.episode_count > min_episodes
                 and len(self.replay_buffer) > self.config.min_replay_size * 2
         )
 
-    def _inherit_q_values(self, old_bins, new_bins):
-        """Initialize new action Q-values from nearest neighbors in old discretization."""
-        with torch.no_grad():
-            old_action_bins = self.action_discretizer.all_action_bins[old_bins]
-            new_action_bins = self.action_discretizer.all_action_bins[new_bins]
-
-            if self.config.decouple:
-                for dim in range(self.action_discretizer.action_dim):
-                    for new_idx in range(new_bins):
-                        distances = torch.abs(old_action_bins[dim] - new_action_bins[dim, new_idx])
-                        nearest_old_idx = torch.argmin(distances)
-
-                        old_output_idx = dim * old_bins + nearest_old_idx
-                        new_output_idx = dim * new_bins + new_idx
-
-                        self.q_network.q1_network[-1].weight.data[new_output_idx] = \
-                            self.q_network.q1_network[-1].weight.data[old_output_idx].clone()
-                        self.q_network.q1_network[-1].bias.data[new_output_idx] = \
-                            self.q_network.q1_network[-1].bias.data[old_output_idx].clone()
-
-                        if self.config.use_double_q:
-                            self.q_network.q2_network[-1].weight.data[new_output_idx] = \
-                                self.q_network.q2_network[-1].weight.data[old_output_idx].clone()
-                            self.q_network.q2_network[-1].bias.data[new_output_idx] = \
-                                self.q_network.q2_network[-1].bias.data[old_output_idx].clone()
-
-            self.target_q_network.load_state_dict(self.q_network.state_dict())
-
     def _perform_growth(self):
-        """Perform action space growth with proper value inheritance."""
+        """Perform action space growth with immediate target sync."""
         old_bins = self.action_discretizer.num_bins
         growth_occurred = self.action_discretizer.grow_action_space()
 
         if growth_occurred:
             current_bins = self.action_discretizer.num_bins
             self.growth_history.append(current_bins)
-            self._inherit_q_values(old_bins, current_bins)
             self.steps_since_growth = 0
 
-            self._remap_replay_buffer_actions(old_bins, current_bins)
+            self.target_q_network.load_state_dict(self.q_network.state_dict())
             self._clear_mask_cache()
 
             self.logger.info(
                 f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
             )
             self.logger.info(f"Temperature reset to {self.base_temperature}")
-            self.logger.info(f"Replay buffer actions remapped to new space")
             return True
 
         return False
-
-    def _remap_replay_buffer_actions(self, old_bins, new_bins):
-        """Remap actions in replay buffer from old to new bin space."""
-        if len(self.replay_buffer.buffer) == 0:
-            return
-
-        old_action_bins = self.action_discretizer.all_action_bins[old_bins]
-        new_action_bins = self.action_discretizer.all_action_bins[new_bins]
-
-        for i in range(len(self.replay_buffer.buffer)):
-            if self.replay_buffer.buffer[i] is not None:
-                transition = self.replay_buffer.buffer[i]
-                old_action_indices = transition.action
-
-                if self.config.decouple:
-                    new_action_indices = self._remap_decoupled_action(
-                        old_action_indices, old_action_bins, new_action_bins
-                    )
-                else:
-                    new_action_indices = self._remap_coupled_action(
-                        old_action_indices, old_action_bins, new_action_bins
-                    )
-
-                self.replay_buffer.buffer[i] = Transition(
-                    obs=transition.obs,
-                    action=new_action_indices,
-                    reward=transition.reward,
-                    next_obs=transition.next_obs,
-                    done=transition.done,
-                    n_step_return=transition.n_step_return,
-                    n_step_discount=transition.n_step_discount,
-                )
-
-    def _remap_decoupled_action(self, old_indices, old_bins, new_bins):
-        """Remap decoupled action indices to nearest in new space."""
-        new_indices = torch.zeros_like(old_indices)
-
-        for dim in range(self.action_discretizer.action_dim):
-            old_value = old_bins[dim, old_indices[dim]]
-            distances = torch.abs(new_bins[dim] - old_value)
-            new_indices[dim] = torch.argmin(distances)
-
-        return new_indices
-
-    def _remap_coupled_action(self, old_index, old_bins, new_bins):
-        """Remap coupled action index to nearest in new space."""
-        old_action = old_bins[old_index]
-        distances = torch.norm(new_bins - old_action.unsqueeze(0), dim=1)
-        return torch.argmin(distances)
 
     def _clear_mask_cache(self):
         """Clear cached action mask."""
