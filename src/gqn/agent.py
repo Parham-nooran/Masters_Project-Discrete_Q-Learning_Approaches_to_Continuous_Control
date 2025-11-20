@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from src.common.encoder import VisionEncoder
 from src.common.logger import Logger
-from src.common.replay_buffer import PrioritizedReplayBuffer
+from src.common.replay_buffer import PrioritizedReplayBuffer, Transition
 from src.common.training_utils import (
     continuous_to_discrete_action,
     get_batch_components,
@@ -241,12 +241,12 @@ class GrowingQNAgent(Logger):
                         old_action_indices, old_action_bins, new_action_bins
                     )
 
-                self.replay_buffer.buffer[i] = (
-                    transition[0],
-                    new_action_indices,
-                    transition[2],
-                    transition[3],
-                    transition[4]
+                self.replay_buffer.buffer[i] = Transition(
+                    obs=transition.obs,
+                    action=new_action_indices,
+                    reward=transition.reward,
+                    next_obs=transition.next_obs,
+                    done=transition.done
                 )
 
     def _remap_decoupled_action(self, old_indices, old_bins, new_bins):
