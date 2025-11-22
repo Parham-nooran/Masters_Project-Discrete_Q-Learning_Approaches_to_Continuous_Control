@@ -318,9 +318,9 @@ class GQNTrainer(Logger):
             gc.collect()
 
         if episode % self.config.checkpoint_interval == 0:
-            metrics_tracker.save_metrics(self.agent_name, self.config.task)
+            metrics_tracker.save_metrics(self.agent_name, self.config.task, self.config.seed)
             checkpoint_path = self.checkpoint_manager.save_checkpoint(
-                agent, episode, self.config.task
+                agent, episode, self.config.task, self.config.seed
             )
             self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
@@ -335,9 +335,9 @@ class GQNTrainer(Logger):
             avg_episode_time = 0
             total_episodes = 0
 
-        metrics_tracker.save_metrics(self.agent_name, self.config.task)
+        metrics_tracker.save_metrics(self.agent_name, self.config.task, self.config.seed)
         final_checkpoint = self.checkpoint_manager.save_checkpoint(
-            agent, self.config.num_episodes, f"{self.config.task}_final"
+            agent, self.config.num_episodes, f"{self.config.task}_final", self.config.seed
         )
         self.logger.info(f"Final checkpoint saved: {final_checkpoint}")
 

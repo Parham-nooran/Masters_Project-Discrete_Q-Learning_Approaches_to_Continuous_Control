@@ -255,9 +255,9 @@ class CQNTrainer(Logger):
             metrics_tracker: Metrics tracking object.
             episode: Episode number for checkpoint naming.
         """
-        metrics_tracker.save_metrics(self.agent_name, self.config.task)
+        metrics_tracker.save_metrics(self.agent_name, self.config.task, self.config.seed)
         checkpoint_path = self.checkpoint_manager.save_checkpoint(
-            agent, episode, self.config.task
+            agent, episode, self.config.task, self.config.seed
         )
         self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
@@ -266,7 +266,7 @@ class CQNTrainer(Logger):
     ) -> None:
         """Save final checkpoint and metrics."""
         agent.save(f"{self.working_dir}/cqn_agent_final.pth")
-        metrics_tracker.save_metrics(self.agent_name, self.config.task)
+        metrics_tracker.save_metrics(self.agent_name, self.config.task, self.config.seed)
         self.logger.info("Training completed")
 
 

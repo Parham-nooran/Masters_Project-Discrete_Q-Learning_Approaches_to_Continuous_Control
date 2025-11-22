@@ -42,10 +42,10 @@ class CheckpointManager:
 
         return os.path.join(self.checkpoint_dir, checkpoint_files[0])
 
-    def save_checkpoint(self, agent, episode, task_name):
+    def save_checkpoint(self, agent, episode, task_name, seed):
         """Save agent checkpoint."""
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        checkpoint_path = os.path.join(self.checkpoint_dir, f"{task_name}_{episode}.pth")
+        checkpoint_path = os.path.join(self.checkpoint_dir, f"{task_name}_{seed}_{episode}.pth")
         agent.save_checkpoint(checkpoint_path, episode)
         return checkpoint_path
 

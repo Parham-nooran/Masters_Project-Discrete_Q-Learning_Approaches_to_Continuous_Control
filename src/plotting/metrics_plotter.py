@@ -52,8 +52,8 @@ class MetricsLoader:
         """
         Parse filename to extract algorithm and task.
         Expected formats:
-            - algorithm_task1_task2.pkl (e.g., gqn_walker_walk.pkl)
-            - algorithm1_algorithm2_task1_task2.pkl (e.g., bangbang_mpo_walker_walk.pkl)
+            - algorithm_task1_task2.pkl (e.g., gqn_walker_walk_42.pkl)
+            - algorithm1_algorithm2_task1_task2.pkl (e.g., bangbang_mpo_walker_walk_42.pkl)
 
         Returns:
             Tuple of (algorithm, task)
