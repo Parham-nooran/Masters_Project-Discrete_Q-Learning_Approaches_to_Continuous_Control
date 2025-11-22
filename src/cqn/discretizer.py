@@ -43,18 +43,19 @@ class CoarseToFineDiscretizer:
         self._create_hierarchical_bins()
 
     def _create_hierarchical_bins(self) -> None:
-        """Create bins for all levels and dimensions."""
-        for level in range(self.num_levels):
+        """Create bins for level 0 only. Other levels are computed dynamically."""
+        self.action_bins = {0: {}}
+        for dim in range(self.action_dim):
+            bins = torch.linspace(
+                self.action_min[dim],
+                self.action_max[dim],
+                self.num_bins,
+                device=self.device,
+                dtype=torch.float32,
+            )
+            self.action_bins[0][dim] = bins
+        for level in range(1, self.num_levels):
             self.action_bins[level] = {}
-            for dim in range(self.action_dim):
-                bins = torch.linspace(
-                    self.action_min[dim],
-                    self.action_max[dim],
-                    self.num_bins,
-                    device=self.device,
-                    dtype=torch.float32,
-                )
-                self.action_bins[level][dim] = bins
 
     def get_action_range_for_level(
         self, level: int, parent_actions: Optional[torch.Tensor] = None
@@ -92,43 +93,52 @@ class CoarseToFineDiscretizer:
             Refined range [2, action_dim].
         """
         parent_range_width = self.action_max - self.action_min
+        prev_level_bin_width = parent_range_width / (self.num_bins ** level)
 
-        refinement_factor = self.num_bins ** (level - 1)
-        refined_width = parent_range_width / refinement_factor
-
-        range_min = parent_actions - refined_width / 2
-        range_max = parent_actions + refined_width / 2
+        range_min = parent_actions - prev_level_bin_width / 2
+        range_max = parent_actions + prev_level_bin_width / 2
 
         range_min = torch.clamp(range_min, self.action_min, self.action_max)
         range_max = torch.clamp(range_max, self.action_min, self.action_max)
 
         return torch.stack([range_min, range_max], dim=0)
 
+
     def discrete_to_continuous(
-        self, discrete_actions: torch.Tensor, level: int
+            self, discrete_actions: torch.Tensor, level: int, parent_action: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
         Convert discrete action indices to continuous values.
-
-        Args:
-            discrete_actions: Discrete indices [batch_size, action_dim].
-            level: Hierarchy level (determines bin assignment).
-
-        Returns:
-            Continuous actions [batch_size, action_dim].
+        For level > 0, parent_action must be provided.
         """
         if discrete_actions.device != self.device:
             discrete_actions = discrete_actions.to(self.device)
 
         if len(discrete_actions.shape) == 1:
             discrete_actions = discrete_actions.unsqueeze(0)
-        bin_indices = torch.clamp(discrete_actions.long(), 0, self.num_bins - 1)
-        bin_width = (self.action_max - self.action_min) / self.num_bins
 
-        continuous_actions = (
-            self.action_min.unsqueeze(0)
-            + bin_indices * bin_width.unsqueeze(0)
-            + bin_width.unsqueeze(0) / 2
-        )
+        bin_indices = torch.clamp(discrete_actions.long(), 0, self.num_bins - 1)
+
+        if level == 0:
+            bin_width = (self.action_max - self.action_min) / self.num_bins
+            continuous_actions = (
+                    self.action_min.unsqueeze(0)
+                    + bin_indices * bin_width.unsqueeze(0)
+                    + bin_width.unsqueeze(0) / 2
+            )
+        else:
+            if parent_action is None:
+                raise ValueError(f"parent_action required for level {level}")
+
+            action_range = self.get_action_range_for_level(level, parent_action[0] if len(
+                parent_action.shape) > 1 else parent_action)
+            range_min, range_max = action_range[0], action_range[1]
+            bin_width = (range_max - range_min) / self.num_bins
+
+            continuous_actions = (
+                    range_min.unsqueeze(0)
+                    + bin_indices * bin_width.unsqueeze(0)
+                    + bin_width.unsqueeze(0) / 2
+            )
 
         return continuous_actions.to(self.device)

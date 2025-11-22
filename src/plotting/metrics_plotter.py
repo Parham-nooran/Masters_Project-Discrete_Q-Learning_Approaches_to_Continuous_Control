@@ -10,12 +10,10 @@ Usage:
 """
 
 import argparse
-import os
 import pickle
-import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
-from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np

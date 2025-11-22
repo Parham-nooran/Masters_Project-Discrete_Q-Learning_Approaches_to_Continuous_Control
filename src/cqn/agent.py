@@ -112,40 +112,37 @@ class CQNAgent:
         return obs.to(self.device)
 
     def _hierarchical_action_selection(
-        self, obs: torch.Tensor, evaluate: bool
+            self, obs: torch.Tensor, evaluate: bool
     ) -> torch.Tensor:
-        """
-        Perform hierarchical action selection across levels.
-
-        Args:
-            obs: Observation tensor.
-            evaluate: If True, use greedy selection.
-
-        Returns:
-            Final continuous action.
-        """
-        action_range = None
+        """Hierarchical action selection - keep this sequential for inference."""
         prev_action = None
         level_continuous = None
 
         for level in range(self.num_levels):
-            if level > 0 and prev_action is not None:
-                action_range = self.discretizer.get_action_range_for_level(
-                    level, prev_action.squeeze(0).to(self.device)
-                )
-
-            q1, q2 = self.network(obs, level, prev_action)
+            q1, q2 = self.network(obs, level, prev_action, use_target=False)
             q_combined = torch.max(q1, q2)
 
-            level_actions = self._select_level_actions(q_combined, evaluate, level)
+            if not evaluate and torch.rand(1).item() < self.epsilon:
+                level_actions = torch.randint(
+                    0, self.num_bins, (self.action_dim,), device=self.device
+                )
+            else:
+                level_actions = q_combined[0].argmax(dim=-1)
 
-            level_continuous = self._discretize_level_actions(
-                level_actions, level, action_range
-            )
+            if level == 0:
+                level_continuous = self.discretizer.discrete_to_continuous(
+                    level_actions.unsqueeze(0), level, parent_action=None
+                )[0]
+            else:
+                level_continuous = self.discretizer.discrete_to_continuous(
+                    level_actions.unsqueeze(0), level, parent_action=prev_action
+                )[0]
 
-            prev_action = level_continuous.unsqueeze(0).to(self.device)
+            if level < self.num_levels - 1:
+                prev_action = level_continuous.unsqueeze(0)
 
         return level_continuous
+
 
     def _select_level_actions(
         self, q_values: torch.Tensor, evaluate: bool, level: int
@@ -300,25 +297,127 @@ class CQNAgent:
             "q2_last": q2_last,
         }
 
+    def _continuous_to_discrete_all_levels(self, continuous_actions: torch.Tensor) -> torch.Tensor:
+        """
+        Convert continuous actions to discrete indices for ALL levels at once.
+        For level 0, use action_bins[0]. For level > 0, we need to compute bins dynamically.
+        Returns: [batch, num_levels, action_dim]
+        """
+        batch_size = continuous_actions.shape[0]
+        discrete_all = torch.zeros(batch_size, self.num_levels, self.action_dim,
+                                   dtype=torch.long, device=self.device)
+
+        bins_tensor_0 = torch.stack(
+            [self.discretizer.action_bins[0][dim] for dim in range(self.action_dim)],
+            dim=0,
+        )
+        distance_0 = torch.abs(continuous_actions.unsqueeze(2) - bins_tensor_0.unsqueeze(0))
+        discrete_all[:, 0, :] = distance_0.argmin(dim=2)
+
+
+        for level in range(1, self.num_levels):
+            parent_actions = self.discretizer.discrete_to_continuous(
+                discrete_all[:, level - 1, :], level - 1, parent_action=None if level == 1 else None
+            )
+
+            for b in range(batch_size):
+                action_range = self.discretizer.get_action_range_for_level(level, parent_actions[b])
+                range_min, range_max = action_range[0], action_range[1]
+
+                bins_for_level = []
+                for dim in range(self.action_dim):
+                    bins_dim = torch.linspace(
+                        range_min[dim], range_max[dim], self.num_bins, device=self.device
+                    )
+                    bins_for_level.append(bins_dim)
+                bins_tensor = torch.stack(bins_for_level, dim=0)
+
+
+                distance = torch.abs(continuous_actions[b].unsqueeze(1) - bins_tensor)
+                discrete_all[b, level, :] = distance.argmin(dim=1)
+
+        return discrete_all
+
+    def _compute_prev_actions_all_levels(self, discrete_actions_all: torch.Tensor) -> torch.Tensor:
+        """
+        Compute previous level actions for all levels.
+        Returns: [batch, num_levels, action_dim] where level 0 gets zeros
+        """
+        batch_size = discrete_actions_all.shape[0]
+        prev_actions = torch.zeros(batch_size, self.num_levels, self.action_dim,
+                                   dtype=torch.float32, device=self.device)  # FIX: float32, not long
+
+        for level in range(1, self.num_levels):
+            if level == 1:
+                prev_actions[:, level, :] = self.discretizer.discrete_to_continuous(
+                    discrete_actions_all[:, level - 1, :], level - 1, parent_action=None
+                )
+            else:
+                parent_for_prev = prev_actions[:, level - 1, :]
+                prev_actions[:, level, :] = self.discretizer.discrete_to_continuous(
+                    discrete_actions_all[:, level - 1, :], level - 1, parent_action=parent_for_prev
+                )
+
+        return prev_actions
+
+    def _forward_all_levels(self, obs_expanded, prev_actions_expanded, level_indices, use_target=False):
+        """
+        Modified forward pass that handles batched level indices.
+        You need to modify networks.py forward method to accept integer level indices instead of single level.
+        """
+        return self.network.forward_batched_levels(obs_expanded, level_indices, prev_actions_expanded, use_target)
+
+    def _compute_prev_actions_all_levels_from_next(self, next_obs: torch.Tensor) -> torch.Tensor:
+        """
+        Compute previous level actions for next states.
+        For next states, we need to select actions online first, then compute prev_actions.
+        This is a simplified version - we'll use greedy selection from current Q-values.
+
+        Returns: [batch, num_levels, action_dim]
+        """
+        batch_size = next_obs.shape[0]
+        prev_next_actions = torch.zeros(batch_size, self.num_levels, self.action_dim,
+                                        dtype=torch.float32, device=self.device)
+
+        for level in range(self.num_levels):
+            if level == 0:
+                prev_action_input = None
+            else:
+                prev_action_input = prev_next_actions[:, level - 1, :].unsqueeze(1) if level == 1 else \
+                prev_next_actions[:, level - 1, :]
+                if len(prev_action_input.shape) == 3:
+                    prev_action_input = prev_action_input.squeeze(1)
+
+            with torch.no_grad():
+                q1, q2 = self.network(next_obs, level, prev_action_input, use_target=False)
+                q_combined = torch.max(q1, q2)
+                next_actions_level = q_combined.argmax(dim=-1)
+
+                if level == 0:
+                    level_continuous = self.discretizer.discrete_to_continuous(
+                        next_actions_level, level, parent_action=None
+                    )
+                else:
+                    level_continuous = self.discretizer.discrete_to_continuous(
+                        next_actions_level, level,
+                        parent_action=prev_action_input[0] if len(prev_action_input.shape) > 1 else prev_action_input
+                    )
+
+                prev_next_actions[:, level, :] = level_continuous
+
+        return prev_next_actions
+
     def _compute_loss(
-        self,
-        obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        next_obs: torch.Tensor,
-        dones: torch.Tensor,
-        discounts: torch.Tensor,
-        weights: torch.Tensor,
+            self,
+            obs: torch.Tensor,
+            actions: torch.Tensor,
+            rewards: torch.Tensor,
+            next_obs: torch.Tensor,
+            dones: torch.Tensor,
+            discounts: torch.Tensor,
+            weights: torch.Tensor,
     ) -> Tuple[torch.Tensor, list, torch.Tensor, torch.Tensor]:
-        """
-        Compute hierarchical loss across all levels.
-
-        Args:
-            obs, actions, rewards, next_obs, dones, discounts, weights: Batch data.
-
-        Returns:
-            Total loss, TD errors, final Q-values.
-        """
+        """Compute hierarchical loss - optimized version."""
         obs = obs.float()
         actions = actions.float()
         next_obs = next_obs.float()
@@ -329,6 +428,9 @@ class CQNAgent:
         prev_next_action = None
         q1_last = None
         q2_last = None
+
+
+        discrete_actions_level0 = self._continuous_to_discrete(actions, 0)
 
         for level in range(self.num_levels):
             q1_current, q2_current = self.network(obs, level, prev_action, use_target=False)
@@ -344,13 +446,8 @@ class CQNAgent:
                     next_obs, level, prev_next_action, use_target=True
                 )
 
-                target_q1 = torch.gather(
-                    q1_next_target, 2, next_actions.unsqueeze(2)
-                ).squeeze(2)
-                target_q2 = torch.gather(
-                    q2_next_target, 2, next_actions.unsqueeze(2)
-                ).squeeze(2)
-
+                target_q1 = torch.gather(q1_next_target, 2, next_actions.unsqueeze(2)).squeeze(2)
+                target_q2 = torch.gather(q2_next_target, 2, next_actions.unsqueeze(2)).squeeze(2)
                 target_q = torch.min(target_q1, target_q2)
 
                 td_target = (
@@ -358,7 +455,10 @@ class CQNAgent:
                         + (1 - dones.float()).unsqueeze(1) * discounts.unsqueeze(1) * target_q
                 )
 
-            discrete_actions = self._continuous_to_discrete(actions, level)
+            if level == 0:
+                discrete_actions = discrete_actions_level0
+            else:
+                discrete_actions = self._continuous_to_discrete_at_level(actions, level, prev_action)
 
             current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
             current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
@@ -370,8 +470,7 @@ class CQNAgent:
             loss2 = huber_loss(td_error2, self.config.huber_loss_parameter)
 
             level_loss = ((loss1 + loss2) * weights.unsqueeze(1)).mean()
-
-            td_errors_level = torch.abs(td_error1).mean(dim=1) + torch.abs(td_error2).mean(dim=1)
+            td_errors_level = (torch.abs(td_error1) + torch.abs(td_error2)).mean(dim=1)
 
             total_loss += level_loss
             td_errors.append(td_errors_level)
@@ -381,89 +480,51 @@ class CQNAgent:
                 q2_last = current_q2
 
             if level < self.num_levels - 1:
-                discrete_actions_for_next = self._continuous_to_discrete(actions, level)
                 prev_action = self.discretizer.discrete_to_continuous(
-                    discrete_actions_for_next, level
+                    discrete_actions, level, parent_action=None if level == 0 else prev_action
                 )
 
                 with torch.no_grad():
                     prev_next_action = self.discretizer.discrete_to_continuous(
-                        next_actions, level
+                        next_actions, level, parent_action=None if level == 0 else prev_next_action
                     )
 
         total_loss = total_loss / self.num_levels
 
         return total_loss, td_errors, q1_last, q2_last
 
-    def _compute_level_loss(
-        self,
-        obs: torch.Tensor,
-        next_obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        dones: torch.Tensor,
-        discounts: torch.Tensor,
-        weights: torch.Tensor,
-        level: int,
-        prev_action: Optional[torch.Tensor],
-        prev_next_action: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Compute loss for a single hierarchy level.
+    def _continuous_to_discrete_at_level(
+            self, continuous_actions: torch.Tensor, level: int, parent_action: Optional[torch.Tensor]
+    ) -> torch.Tensor:
+        """Convert continuous actions to discrete at specific level with parent context."""
+        batch_size = continuous_actions.shape[0]
+        discrete_actions = torch.zeros(batch_size, self.action_dim, dtype=torch.long, device=self.device)
 
-        Args:
-            All batch data and level-specific information.
-
-        Returns:
-            Loss, TD errors, Q-values for this level.
-        """
-        q1_current, q2_current = self.network(obs, level, prev_action, use_target=False)
-
-        with torch.no_grad():
-            q1_next_online, q2_next_online = self.network(
-                next_obs, level, prev_next_action, use_target=False
+        if level == 0:
+            bins_tensor = torch.stack(
+                [self.discretizer.action_bins[0][dim] for dim in range(self.action_dim)],
+                dim=0,
             )
-            q_next_online = torch.max(q1_next_online, q2_next_online)
-            next_actions = q_next_online.argmax(dim=2)
+            distance = torch.abs(continuous_actions.unsqueeze(2) - bins_tensor.unsqueeze(0))
+            discrete_actions = distance.argmin(dim=2)
+        else:
+            for b in range(batch_size):
+                parent_b = parent_action[b] if parent_action is not None else None
+                action_range = self.discretizer.get_action_range_for_level(level, parent_b)
+                range_min, range_max = action_range[0], action_range[1]
 
-            q1_next_target, q2_next_target = self.network(
-                next_obs, level, prev_next_action, use_target=True
-            )
+                bins_for_sample = []
+                for dim in range(self.action_dim):
+                    bins_dim = torch.linspace(
+                        range_min[dim], range_max[dim], self.num_bins, device=self.device
+                    )
+                    bins_for_sample.append(bins_dim)
+                bins_tensor = torch.stack(bins_for_sample, dim=0)
 
-            target_q1 = torch.gather(
-                q1_next_target, 2, next_actions.unsqueeze(2)
-            ).squeeze(2)
-            target_q2 = torch.gather(
-                q2_next_target, 2, next_actions.unsqueeze(2)
-            ).squeeze(2)
+                distance = torch.abs(continuous_actions[b].unsqueeze(1) - bins_tensor)
+                discrete_actions[b] = distance.argmin(dim=1)
 
-            target_q = torch.min(target_q1, target_q2)
-
-            td_target = (
-                rewards.unsqueeze(1)
-                + (1 - dones.float()).unsqueeze(1) * discounts.unsqueeze(1) * target_q
-            )
-
-        discrete_actions = self._continuous_to_discrete(actions, level)
-
-        current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(
-            2
-        )
-        current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(
-            2
-        )
-
-        td_error1 = td_target - current_q1
-        td_error2 = td_target - current_q2
-
-        loss1 = huber_loss(td_error1, self.config.huber_loss_parameter)
-        loss2 = huber_loss(td_error2, self.config.huber_loss_parameter)
-
-        level_loss = ((loss1 + loss2) * weights.unsqueeze(1)).mean()
-
-        td_errors = torch.abs(td_error1).mean(dim=1) + torch.abs(td_error2).mean(dim=1)
-
-        return level_loss, td_errors, current_q1, current_q2
+        return discrete_actions
 
     def _continuous_to_discrete(
         self, continuous_actions: torch.Tensor, level: int

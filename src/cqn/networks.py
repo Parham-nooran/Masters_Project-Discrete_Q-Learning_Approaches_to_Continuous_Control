@@ -172,3 +172,43 @@ class CQNNetwork(nn.Module):
                 target_param.data.copy_(
                     tau * param.data + (1 - tau) * target_param.data
                 )
+
+    def forward_batched_levels(
+            self,
+            obs: torch.Tensor,
+            level_indices: torch.Tensor,
+            prev_action: Optional[torch.Tensor] = None,
+            use_target: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass with batched level indices.
+        obs: [batch * num_levels, ...]
+        level_indices: [batch * num_levels] - integer level for each sample
+        prev_action: [batch * num_levels, action_dim]
+        """
+        if self.encoder:
+            features = self.encoder(obs)
+        else:
+            features = obs.flatten(1)
+
+        batch_expanded = features.shape[0]
+        level_emb = self.level_embedding(level_indices)
+        if prev_action is not None:
+            prev_action_emb = self.prev_action_embedding(prev_action)
+        else:
+            prev_action_emb = torch.zeros(
+                batch_expanded, self.prev_action_embedding.out_features, device=obs.device
+            )
+        combined_features = torch.cat([features, level_emb, prev_action_emb], dim=-1)
+        q1_values = []
+        q2_values = []
+        critics1_to_use = self.target_critics if use_target else self.critics
+        critics2_to_use = self.target_critics2 if use_target else self.critics2
+        for dim in range(self.action_dim):
+            q1_dim = critics1_to_use[dim](combined_features)
+            q2_dim = critics2_to_use[dim](combined_features)
+            q1_values.append(q1_dim)
+            q2_values.append(q2_dim)
+        q1 = torch.stack(q1_values, dim=1)
+        q2 = torch.stack(q2_values, dim=1)
+        return q1, q2
