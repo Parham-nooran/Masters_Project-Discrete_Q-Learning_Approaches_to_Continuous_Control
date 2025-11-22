@@ -377,14 +377,14 @@ class CQNAgent:
         return prev_next_actions
 
     def _compute_loss(
-        self,
-        obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        next_obs: torch.Tensor,
-        dones: torch.Tensor,
-        discounts: torch.Tensor,
-        weights: torch.Tensor,
+            self,
+            obs: torch.Tensor,
+            actions: torch.Tensor,
+            rewards: torch.Tensor,
+            next_obs: torch.Tensor,
+            dones: torch.Tensor,
+            discounts: torch.Tensor,
+            weights: torch.Tensor,
     ) -> Tuple[torch.Tensor, list, torch.Tensor, torch.Tensor]:
         """
         Fully vectorized hierarchical loss computation across all levels simultaneously.
@@ -401,6 +401,14 @@ class CQNAgent:
         Returns:
             Tuple of (total_loss, td_errors_list, q1_last, q2_last)
         """
+        obs = obs.float()
+        actions = actions.float()
+        next_obs = next_obs.float()
+        rewards = rewards.float()
+        dones = dones.float()
+        discounts = discounts.float()
+        weights = weights.float()
+
         batch_size = obs.shape[0]
 
         discrete_actions_all = self._continuous_to_discrete_vectorized(actions)
@@ -443,9 +451,9 @@ class CQNAgent:
 
             target_q = target_q.view(batch_size, self.num_levels, self.action_dim)
             td_target = (
-                rewards.unsqueeze(1).unsqueeze(2) +
-                (1 - dones.float()).unsqueeze(1).unsqueeze(2) *
-                discounts.unsqueeze(1).unsqueeze(2) * target_q
+                    rewards.unsqueeze(1).unsqueeze(2) +
+                    (1 - dones).unsqueeze(1).unsqueeze(2) *
+                    discounts.unsqueeze(1).unsqueeze(2) * target_q
             )
             td_target = td_target.view(batch_size * self.num_levels, self.action_dim)
 
