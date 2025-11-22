@@ -16,7 +16,7 @@ class BangBangTrainer(Logger):
         self.working_dir = working_dir + "/" + args.algorithm
         self.args = args
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.agent_name = f"bangbang_{self.args.algorithm}_"
+        self.agent_name = f"bangbang_{self.args.algorithm}"
         self.checkpoint_manager = CheckpointManager(
             self.logger,
             checkpoint_dir=self.working_dir + "/checkpoints"
