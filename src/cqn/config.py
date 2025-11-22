@@ -15,8 +15,8 @@ class CQNConfig:
     seed: int = 42
 
     layer_size_bottleneck: int = 512
-    num_levels: int = 3
-    num_bins: int = 5
+    num_levels: int = 2
+    num_bins: int = 3
 
     lr: float = 1e-3
     batch_size: int = 512
