@@ -79,6 +79,32 @@ class CoarseToFineDiscretizer:
 
         return self._compute_refined_range(level, parent_actions)
 
+    def get_action_range_for_level_batch(self, level: int, parent_actions: torch.Tensor) -> torch.Tensor:
+        """
+        Vectorized computation of action ranges for a batch.
+
+        Args:
+            level: Current hierarchy level
+            parent_actions: [batch, action_dim]
+
+        Returns:
+            ranges: [batch, 2, action_dim] with [min, max] per sample
+        """
+        if level == 0:
+            batch_size = parent_actions.shape[0] if parent_actions is not None else 1
+            return torch.stack([self.action_min, self.action_max], dim=0).unsqueeze(0).expand(batch_size, -1, -1)
+
+        parent_range_width = self.action_max - self.action_min
+        prev_level_bin_width = parent_range_width / (self.num_bins ** level)
+
+        range_min = parent_actions - prev_level_bin_width / 2
+        range_max = parent_actions + prev_level_bin_width / 2
+
+        range_min = torch.clamp(range_min, self.action_min, self.action_max)
+        range_max = torch.clamp(range_max, self.action_min, self.action_max)
+
+        return torch.stack([range_min, range_max], dim=1)
+
     def _compute_refined_range(
         self, level: int, parent_actions: torch.Tensor
     ) -> torch.Tensor:

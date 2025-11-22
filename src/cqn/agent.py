@@ -308,7 +308,7 @@ class CQNAgent:
                 parent_action=None
             )
 
-            action_ranges = self.discretizer.get_action_range_for_level(level, parent_actions)
+            action_ranges = self.discretizer.get_action_range_for_level_batch(level, parent_actions)
             range_min, range_max = action_ranges[:, 0, :], action_ranges[:, 1, :]
 
             bin_width = (range_max - range_min) / self.num_bins
