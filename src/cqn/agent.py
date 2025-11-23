@@ -212,28 +212,37 @@ class CQNAgent:
     def _continuous_to_discrete_vectorized(self, continuous_actions: torch.Tensor) -> torch.Tensor:
         batch_size = continuous_actions.shape[0]
         discrete_all = torch.zeros(batch_size, self.num_levels, self.action_dim, dtype=torch.long, device=self.device)
+        parent_continuous = None
 
-        bins_level0 = torch.stack([self.discretizer.action_bins[0][dim] for dim in range(self.action_dim)], dim=0)
-        distance_0 = torch.abs(continuous_actions.unsqueeze(2) - bins_level0.unsqueeze(0))
-        discrete_all[:, 0, :] = distance_0.argmin(dim=2)
+        for level in range(self.num_levels):
+            if level == 0:
+                bins_level0 = torch.stack([self.discretizer.action_bins[0][dim] for dim in range(self.action_dim)],
+                                          dim=0)
+                distance_0 = torch.abs(continuous_actions.unsqueeze(2) - bins_level0.unsqueeze(0))
+                discrete_all[:, 0, :] = distance_0.argmin(dim=2)
 
-        for level in range(1, self.num_levels):
-            parent_actions = self.discretizer.discrete_to_continuous(
-                discrete_all[:, level - 1, :],
-                level - 1,
-                parent_action=None
-            )
+                parent_continuous = self.discretizer.discrete_to_continuous(
+                    discrete_all[:, 0, :],
+                    0,
+                    parent_action=None
+                )
+            else:
+                action_ranges = self.discretizer.get_action_range_for_level_batch(level, parent_continuous)
+                range_min, range_max = action_ranges[:, 0, :], action_ranges[:, 1, :]
 
-            action_ranges = self.discretizer.get_action_range_for_level_batch(level, parent_actions)
-            range_min, range_max = action_ranges[:, 0, :], action_ranges[:, 1, :]
+                bin_width = (range_max - range_min) / self.num_bins
+                bins_for_level = range_min.unsqueeze(2) + bin_width.unsqueeze(2) * torch.arange(
+                    self.num_bins, device=self.device
+                ).view(1, 1, self.num_bins)
 
-            bin_width = (range_max - range_min) / self.num_bins
-            bins_for_level = range_min.unsqueeze(2) + bin_width.unsqueeze(2) * torch.arange(
-                self.num_bins, device=self.device
-            ).view(1, 1, self.num_bins)
+                distance = torch.abs(continuous_actions.unsqueeze(2) - bins_for_level)
+                discrete_all[:, level, :] = distance.argmin(dim=2)
 
-            distance = torch.abs(continuous_actions.unsqueeze(2) - bins_for_level)
-            discrete_all[:, level, :] = distance.argmin(dim=2)
+                parent_continuous = self.discretizer.discrete_to_continuous(
+                    discrete_all[:, level, :],
+                    level,
+                    parent_action=parent_continuous
+                )
 
         return discrete_all
 
