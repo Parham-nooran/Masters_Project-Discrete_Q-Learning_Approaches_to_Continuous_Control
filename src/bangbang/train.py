@@ -167,7 +167,7 @@ if __name__ == "__main__":
         "--detailed-log-interval", type=int, default=50, help="Detailed log interval"
     )
     parser.add_argument(
-        "--checkpoint-interval", type=int, default=100, help="Checkpoint interval"
+        "--checkpoint-interval", type=int, default=1000, help="Checkpoint interval"
     )
 
     # Network architecture
