@@ -18,10 +18,6 @@ class CQNConfig:
     max_episodes: int = 1000
     discount: float = 0.99
 
-    initial_epsilon: float = 0.1
-    min_epsilon: float = 0.1
-    epsilon_decay: float = 1.0
-
     replay_buffer_size: int = 1000000
     min_buffer_size: int = 5000
     per_alpha: float = 0.6

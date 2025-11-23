@@ -56,9 +56,6 @@ class CQNAgent:
         self._setup_amp()
 
     def _initialize_training_state(self) -> None:
-        self.epsilon = self.config.initial_epsilon
-        self.epsilon_decay = self.config.epsilon_decay
-        self.min_epsilon = self.config.min_epsilon
         self.target_update_freq = self.config.target_update_freq
         self.training_steps = 0
 
@@ -104,12 +101,7 @@ class CQNAgent:
             q2_values = self.network.get_q_values(q2_dist)
             q_combined = torch.max(q1_values, q2_values)
 
-            if not evaluate and torch.rand(1).item() < self.epsilon:
-                level_actions = torch.randint(
-                    0, self.num_bins, (self.action_dim,), device=self.device
-                )
-            else:
-                level_actions = q_combined[0].argmax(dim=-1)
+            level_actions = q_combined[0].argmax(dim=-1)
 
             if level == 0:
                 level_continuous = self.discretizer.discrete_to_continuous(
@@ -122,6 +114,10 @@ class CQNAgent:
 
             if level < self.num_levels - 1:
                 prev_action = level_continuous.unsqueeze(0)
+
+        if not evaluate:
+            noise = torch.randn_like(level_continuous) * 0.01
+            level_continuous = level_continuous + noise
 
         return level_continuous
 
@@ -154,7 +150,6 @@ class CQNAgent:
 
         self._update_target_network()
         self._update_priorities(indices, metrics["td_errors"])
-        self._update_epsilon()
 
         self.training_steps += 1
 
@@ -427,13 +422,9 @@ class CQNAgent:
             indices, avg_td_error.detach().cpu().numpy()
         )
 
-    def _update_epsilon(self) -> None:
-        self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
-
     def _format_metrics(self, metrics: Dict) -> Dict[str, float]:
         return {
             "loss": metrics["loss"].item(),
-            "epsilon": self.epsilon,
             "q_mean": metrics["mean_q"].item(),
             "mean_abs_td_error": torch.stack(metrics["td_errors"]).mean().item(),
         }
@@ -448,7 +439,6 @@ class CQNAgent:
             "network_state_dict": self.network.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "training_steps": self.training_steps,
-            "epsilon": self.epsilon,
             "config": self.config,
         }
         save_ckpt(checkpoint, filepath, self.is_tpu)
@@ -458,7 +448,6 @@ class CQNAgent:
             "network_state_dict": self.network.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "training_steps": self.training_steps,
-            "epsilon": self.epsilon,
             "episode": episode,
             "config": self.config,
         }
@@ -469,7 +458,6 @@ class CQNAgent:
         self.network.load_state_dict(checkpoint["network_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.training_steps = checkpoint["training_steps"]
-        self.epsilon = checkpoint["epsilon"]
         return checkpoint.get("episode", 0)
 
     def load(self, filepath: str) -> None:
@@ -477,4 +465,3 @@ class CQNAgent:
         self.network.load_state_dict(checkpoint["network_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.training_steps = checkpoint["training_steps"]
-        self.epsilon = checkpoint["epsilon"]
