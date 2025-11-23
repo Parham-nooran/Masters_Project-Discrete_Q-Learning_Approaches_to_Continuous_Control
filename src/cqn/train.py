@@ -293,8 +293,8 @@ def parse_arguments() -> argparse.Namespace:
         "--learning-rate", type=float, default=1e-3, help="Learning rate"
     )
     parser.add_argument("--batch-size", type=int, default=512, help="Batch size")
-    parser.add_argument("--num-levels", type=int, default=2, help="Hierarchy levels")
-    parser.add_argument("--num-bins", type=int, default=3, help="Bins per level")
+    parser.add_argument("--num-levels", type=int, default=3, help="Hierarchy levels")
+    parser.add_argument("--num-bins", type=int, default=5, help="Bins per level")
     parser.add_argument(
         "--eval-frequency", type=int, default=50, help="Evaluation frequency (episodes)"
     )
