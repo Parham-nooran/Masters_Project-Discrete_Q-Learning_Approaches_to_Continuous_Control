@@ -161,14 +161,14 @@ class CQNAgent:
         return self._format_metrics(metrics)
 
     def _compute_and_apply_loss(
-        self,
-        obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        next_obs: torch.Tensor,
-        dones: torch.Tensor,
-        discounts: torch.Tensor,
-        weights: torch.Tensor,
+            self,
+            obs: torch.Tensor,
+            actions: torch.Tensor,
+            rewards: torch.Tensor,
+            next_obs: torch.Tensor,
+            dones: torch.Tensor,
+            discounts: torch.Tensor,
+            weights: torch.Tensor,
     ) -> Dict:
         if self.use_amp:
             with torch.amp.autocast('cuda', dtype=torch.float16):
@@ -239,7 +239,8 @@ class CQNAgent:
 
     def _compute_prev_actions_vectorized(self, discrete_actions_all: torch.Tensor) -> torch.Tensor:
         batch_size = discrete_actions_all.shape[0]
-        prev_actions = torch.zeros(batch_size, self.num_levels, self.action_dim, dtype=torch.float32, device=self.device)
+        prev_actions = torch.zeros(batch_size, self.num_levels, self.action_dim, dtype=torch.float32,
+                                   device=self.device)
 
         prev_actions[:, 0, :] = 0.0
 
@@ -321,13 +322,15 @@ class CQNAgent:
             q1_values_selected = self.network.get_q_values(q1_dist_selected.unsqueeze(2)).squeeze(2)
             q2_values_selected = self.network.get_q_values(q2_dist_selected.unsqueeze(2)).squeeze(2)
 
+            use_q1 = (q1_values_selected > q2_values_selected).unsqueeze(-1).expand_as(q1_dist_selected)
             target_dist_selector = torch.where(
-                q1_values_selected > q2_values_selected,
+                use_q1,
                 q1_dist_selected,
                 q2_dist_selected
             )
 
-            target_dist_selector = target_dist_selector.view(batch_size, self.num_levels, self.action_dim, self.network.num_atoms)
+            target_dist_selector = target_dist_selector.view(batch_size, self.num_levels, self.action_dim,
+                                                             self.network.num_atoms)
 
             rewards_expanded = rewards.unsqueeze(1).unsqueeze(2).unsqueeze(3).expand(
                 batch_size, self.num_levels, self.action_dim, self.network.num_atoms
@@ -353,7 +356,8 @@ class CQNAgent:
 
             target_dist = torch.zeros_like(target_dist_selector)
 
-            offset = torch.arange(batch_size * self.num_levels * self.action_dim, device=self.device) * self.network.num_atoms
+            offset = torch.arange(batch_size * self.num_levels * self.action_dim,
+                                  device=self.device) * self.network.num_atoms
             offset = offset.view(batch_size, self.num_levels, self.action_dim, 1).expand_as(l)
 
             target_dist_flat = target_dist.view(-1)
@@ -426,7 +430,7 @@ class CQNAgent:
         }
 
     def store_transition(
-        self, obs, action: float, reward: float, next_obs, done: bool
+            self, obs, action: float, reward: float, next_obs, done: bool
     ) -> None:
         self.replay_buffer.add(obs, action, reward, next_obs, done)
 
