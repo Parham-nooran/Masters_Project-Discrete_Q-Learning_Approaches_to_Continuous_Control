@@ -3,6 +3,7 @@ import torch.nn as nn
 from src.common.networks import LayerNormMLP
 
 
+
 class VisionEncoder(nn.Module):
     """Vision encoder based on DrQ-v2 architecture."""
 
@@ -22,7 +23,7 @@ class VisionEncoder(nn.Module):
             nn.Flatten(),
         )
 
-        # Calculate conv output size
+
         with torch.no_grad():
             dummy_input = torch.zeros(1, 3, shape, shape)
             conv_output_size = self.conv(dummy_input).shape[1]
@@ -34,11 +35,10 @@ class VisionEncoder(nn.Module):
     def forward(self, x):
         if not x.is_cuda and next(self.parameters()).is_cuda:
             x = x.cuda()
-        # Handle both normalized [0,1] and pixel [0,255] inputs
         if x.max() > 1.0:
-            x = x / 255.0 - 0.5  # Normalize to [-0.5, 0.5] for [0,255] inputs
+            x = x / 255.0 - 0.5
         else:
-            x = x - 0.5  # Assume already normalized to [0,1], shift to [-0.5, 0.5]
+            x = x - 0.5
 
         x = self.conv(x)
         return self.mlp(x)

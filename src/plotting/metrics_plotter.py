@@ -1,7 +1,6 @@
 """
-Enhanced plotting script for comparing multiple RL algorithms.
-Focuses on reward plots with elegant, publication-quality visualizations.
-Groups metrics by task and plots all algorithms for each task.
+Enhanced plotting script for comparing multiple RL algorithms with seed averaging.
+Groups metrics by task and algorithm, averages over seeds, and plots comparisons.
 
 Usage:
     python plot_comparison.py --metrics_dir metrics/
@@ -18,6 +17,7 @@ from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from scipy import interpolate
 
 plt.rcParams['figure.dpi'] = 300
 plt.rcParams['savefig.dpi'] = 300
@@ -48,15 +48,15 @@ class MetricsLoader:
     """Load and parse metrics files."""
 
     @staticmethod
-    def parse_filename(filename: str) -> Tuple[str, str]:
+    def parse_filename(filename: str) -> Tuple[str, str, int]:
         """
-        Parse filename to extract algorithm and task.
+        Parse filename to extract algorithm, task, and seed.
         Expected formats:
-            - algorithm_task1_task2.pkl (e.g., gqn_walker_walk_42.pkl)
-            - algorithm1_algorithm2_task1_task2.pkl (e.g., bangbang_mpo_walker_walk_42.pkl)
+            - algorithm_task1_task2_seed.pkl (e.g., gqn_walker_walk_0.pkl)
+            - algorithm1_algorithm2_task1_task2_seed.pkl (e.g., bangbang_mpo_walker_walk_42.pkl)
 
         Returns:
-            Tuple of (algorithm, task)
+            Tuple of (algorithm, task, seed)
 
         Raises:
             ValueError: If filename format is invalid
@@ -67,42 +67,41 @@ class MetricsLoader:
         name = filename[:-4]
         parts = name.split('_')
 
-        if len(parts) < 3:
+        if len(parts) < 4:
             raise ValueError(
                 f"Invalid filename format: {filename}. "
-                f"Expected format: algorithm_taskpart1_taskpart2.pkl or "
-                f"algorithm1_algorithm2_taskpart1_taskpart2.pkl"
+                f"Expected format: algorithm_taskpart1_taskpart2_seed.pkl"
             )
 
-        """
-        Strategy: Look for common task patterns to determine split point.
-        Common task domains: walker, cheetah, hopper, humanoid, reacher, finger, etc.
-        If we find these in the parts, everything before is algorithm, everything from that point is task.
-        """
+        try:
+            seed = int(parts[-1])
+        except ValueError:
+            raise ValueError(
+                f"Last part must be seed number: {filename}"
+            )
+
+        parts_without_seed = parts[:-1]
+
         task_domains = {
             'walker', 'cheetah', 'hopper', 'humanoid', 'reacher',
             'finger', 'cartpole', 'acrobot', 'pendulum', 'swimmer',
-            'ant', 'halfcheetah', 'standup', 'pointmass'
+            'ant', 'halfcheetah', 'standup', 'pointmass', 'fish'
         }
 
         split_idx = None
-        for i, part in enumerate(parts):
+        for i, part in enumerate(parts_without_seed):
             if part.lower() in task_domains:
                 split_idx = i
                 break
 
         if split_idx is None:
-            """
-            If no known domain found, assume last two parts are task (e.g., part1_part2)
-            and everything before is algorithm
-            """
-            if len(parts) >= 3:
-                split_idx = len(parts) - 2
+            if len(parts_without_seed) >= 3:
+                split_idx = len(parts_without_seed) - 2
             else:
                 split_idx = 1
 
-        algorithm_parts = parts[:split_idx]
-        task_parts = parts[split_idx:]
+        algorithm_parts = parts_without_seed[:split_idx]
+        task_parts = parts_without_seed[split_idx:]
 
         if not algorithm_parts or not task_parts:
             raise ValueError(
@@ -112,7 +111,7 @@ class MetricsLoader:
         algorithm = '_'.join(algorithm_parts).upper()
         task = '_'.join(task_parts)
 
-        return algorithm, task
+        return algorithm, task, seed
 
     @staticmethod
     def load_metrics(filepath: str) -> Dict:
@@ -126,6 +125,45 @@ class MetricsLoader:
         return np.cumsum(episode_steps)
 
 
+class SeedAverager:
+    """Average metrics across multiple seeds."""
+
+    @staticmethod
+    def interpolate_to_common_steps(seeds_data: List[Dict], num_points: int = 1000) -> Tuple[
+        np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Interpolate all seeds to common step points for averaging.
+
+        Args:
+            seeds_data: List of dictionaries containing 'steps' and 'rewards'
+            num_points: Number of interpolation points
+
+        Returns:
+            Tuple of (common_steps, mean_rewards, std_rewards)
+        """
+        min_steps = min(data['steps'][-1] for data in seeds_data)
+        max_steps = max(data['steps'][-1] for data in seeds_data)
+
+        common_steps = np.linspace(0, min_steps, num_points)
+
+        interpolated_rewards = []
+        for data in seeds_data:
+            f = interpolate.interp1d(
+                data['steps'],
+                data['rewards'],
+                kind='linear',
+                bounds_error=False,
+                fill_value='extrapolate'
+            )
+            interpolated_rewards.append(f(common_steps))
+
+        interpolated_rewards = np.array(interpolated_rewards)
+        mean_rewards = np.mean(interpolated_rewards, axis=0)
+        std_rewards = np.std(interpolated_rewards, axis=0)
+
+        return common_steps, mean_rewards, std_rewards
+
+
 class RewardPlotter:
     """Create publication-quality reward plots."""
 
@@ -133,96 +171,152 @@ class RewardPlotter:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         sns.set_style("whitegrid")
+        self.averager = SeedAverager()
 
-    def plot_task_comparison(
+    def plot_seed_averaged_comparison(
             self,
-            algorithms_data: Dict[str, Dict],
-            task: str,
-            window: int = 100
+            algorithms_data: Dict[str, List[Dict]],
+            task: str
     ):
         """
-        Plot comparison of multiple algorithms for a specific task.
+        Plot 1: Seed-averaged comparison (no window smoothing).
+        Each algorithm shows mean and std over seeds.
 
         Args:
-            algorithms_data: Dictionary mapping algorithm names to their data
+            algorithms_data: Dict mapping algorithm names to list of seed data
             task: Name of the task being plotted
-            window: Window size for moving average smoothing
         """
-        num_algorithms = len(algorithms_data)
-
-        if num_algorithms == 0:
-            return
-
-        fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 
         sorted_algorithms = sorted(algorithms_data.keys())
 
         for idx, algorithm in enumerate(sorted_algorithms):
             color = COLORS[idx % len(COLORS)]
-            data = algorithms_data[algorithm]
-            steps = data['steps'] / 1e6
-            rewards = data['rewards']
+            seeds_data = algorithms_data[algorithm]
 
-            axes[0].plot(
-                steps, rewards,
-                alpha=0.4,
+            if len(seeds_data) == 0:
+                continue
+
+            common_steps, mean_rewards, std_rewards = self.averager.interpolate_to_common_steps(seeds_data)
+            steps_m = common_steps / 1e6
+
+            ax.plot(
+                steps_m, mean_rewards,
                 color=color,
-                linewidth=0.8,
-                label=f'{algorithm}'
+                linewidth=2.5,
+                label=f'{algorithm} (n={len(seeds_data)})',
+                alpha=0.9
+            )
+            ax.fill_between(
+                steps_m,
+                mean_rewards - std_rewards,
+                mean_rewards + std_rewards,
+                alpha=0.2,
+                color=color
             )
 
-            if len(rewards) > window:
-                smoothed = self._compute_moving_average(rewards, window)
-                std = self._compute_moving_std(rewards, window)
-                steps_smoothed = steps[window - 1:]
+        task_title = task.replace("_", " ").title()
 
-                axes[1].plot(
-                    steps_smoothed, smoothed,
+        ax.set_xlabel('Training Steps (Millions)', fontweight='bold')
+        ax.set_ylabel('Episode Reward', fontweight='bold')
+        ax.set_title(
+            f'{task_title} - Seed-Averaged Rewards',
+            fontweight='bold',
+            pad=15
+        )
+        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.legend(loc='best', framealpha=0.95, edgecolor='gray', fancybox=True)
+        ax.set_facecolor('#FAFAFA')
+
+        plt.tight_layout()
+
+        filename = f'{task}_seed_averaged.pdf'
+        filepath = self.output_dir / filename
+        plt.savefig(filepath, format='pdf', bbox_inches='tight', dpi=300)
+        plt.close()
+
+        print(f"  Saved: {filename}")
+
+    def plot_smoothed_seed_averaged_comparison(
+            self,
+            algorithms_data: Dict[str, List[Dict]],
+            task: str,
+            window: int = 100
+    ):
+        """
+        Plot 2: Seed-averaged + window-smoothed comparison.
+        First averages over seeds, then applies moving average smoothing.
+
+        Args:
+            algorithms_data: Dict mapping algorithm names to list of seed data
+            task: Name of the task being plotted
+            window: Window size for moving average
+        """
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+        sorted_algorithms = sorted(algorithms_data.keys())
+
+        for idx, algorithm in enumerate(sorted_algorithms):
+            color = COLORS[idx % len(COLORS)]
+            seeds_data = algorithms_data[algorithm]
+
+            if len(seeds_data) == 0:
+                continue
+
+            common_steps, mean_rewards, std_rewards = self.averager.interpolate_to_common_steps(seeds_data)
+
+            if len(mean_rewards) > window:
+                smoothed_mean = self._compute_moving_average(mean_rewards, window)
+                smoothed_std = self._compute_moving_average(std_rewards, window)
+                steps_smoothed = common_steps[window - 1:] / 1e6
+
+                ax.plot(
+                    steps_smoothed, smoothed_mean,
                     color=color,
                     linewidth=2.5,
-                    label=f'{algorithm}',
+                    label=f'{algorithm} (n={len(seeds_data)})',
                     alpha=0.9
                 )
-                axes[1].fill_between(
+                ax.fill_between(
                     steps_smoothed,
-                    smoothed - std,
-                    smoothed + std,
-                    alpha=0.15,
+                    smoothed_mean - smoothed_std,
+                    smoothed_mean + smoothed_std,
+                    alpha=0.2,
                     color=color
                 )
             else:
-                axes[1].plot(
-                    steps, rewards,
+                steps_m = common_steps / 1e6
+                ax.plot(
+                    steps_m, mean_rewards,
                     color=color,
                     linewidth=2.5,
-                    label=f'{algorithm}',
+                    label=f'{algorithm} (n={len(seeds_data)})',
                     alpha=0.9
+                )
+                ax.fill_between(
+                    steps_m,
+                    mean_rewards - std_rewards,
+                    mean_rewards + std_rewards,
+                    alpha=0.2,
+                    color=color
                 )
 
         task_title = task.replace("_", " ").title()
 
-        axes[0].set_xlabel('Training Steps (Millions)', fontweight='bold')
-        axes[0].set_ylabel('Episode Reward', fontweight='bold')
-        axes[0].set_title(f'{task_title} - Raw Episode Rewards', fontweight='bold', pad=15)
-        axes[0].grid(True, alpha=0.3, linestyle='--')
-        axes[0].legend(loc='best', framealpha=0.95, edgecolor='gray', fancybox=True)
-
-        axes[1].set_xlabel('Training Steps (Millions)', fontweight='bold')
-        axes[1].set_ylabel('Episode Reward', fontweight='bold')
-        axes[1].set_title(
-            f'{task_title} - Smoothed Rewards (MA={window})',
+        ax.set_xlabel('Training Steps (Millions)', fontweight='bold')
+        ax.set_ylabel('Episode Reward', fontweight='bold')
+        ax.set_title(
+            f'{task_title} - Smoothed Seed-Averaged Rewards (MA={window})',
             fontweight='bold',
             pad=15
         )
-        axes[1].grid(True, alpha=0.3, linestyle='--')
-        axes[1].legend(loc='best', framealpha=0.95, edgecolor='gray', fancybox=True)
-
-        for ax in axes:
-            ax.set_facecolor('#FAFAFA')
+        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.legend(loc='best', framealpha=0.95, edgecolor='gray', fancybox=True)
+        ax.set_facecolor('#FAFAFA')
 
         plt.tight_layout()
 
-        filename = f'{task}_algorithm_comparison.pdf'
+        filename = f'{task}_smoothed_seed_averaged.pdf'
         filepath = self.output_dir / filename
         plt.savefig(filepath, format='pdf', bbox_inches='tight', dpi=300)
         plt.close()
@@ -236,22 +330,10 @@ class RewardPlotter:
             return data
         return np.convolve(data, np.ones(window) / window, mode='valid')
 
-    @staticmethod
-    def _compute_moving_std(data: np.ndarray, window: int) -> np.ndarray:
-        """Compute moving standard deviation."""
-        if len(data) < window:
-            return np.zeros_like(data)
-
-        result = []
-        for i in range(window - 1, len(data)):
-            window_data = data[i - window + 1:i + 1]
-            result.append(np.std(window_data))
-        return np.array(result)
-
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Plot and compare RL algorithm results grouped by task'
+        description='Plot and compare RL algorithm results with seed averaging'
     )
     parser.add_argument(
         '--metrics_dir',
@@ -263,7 +345,7 @@ def main():
         '--window',
         type=int,
         default=100,
-        help='Window size for moving average'
+        help='Window size for moving average smoothing'
     )
     parser.add_argument(
         '--tasks',
@@ -282,7 +364,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 70)
-    print("RL Algorithm Comparison Plotter - Grouped by Task")
+    print("RL Algorithm Comparison Plotter - Seed Averaging")
     print("=" * 70)
     print(f"Metrics directory: {args.metrics_dir}")
     print(f"Smoothing window: {args.window}")
@@ -306,7 +388,7 @@ def main():
     loader = MetricsLoader()
     plotter = RewardPlotter(args.output_dir)
 
-    task_algorithms = defaultdict(dict)
+    task_algorithm_seeds = defaultdict(lambda: defaultdict(list))
     skipped_files = []
 
     print("\n" + "-" * 70)
@@ -315,7 +397,7 @@ def main():
 
     for pkl_file in pkl_files:
         try:
-            algorithm, task = loader.parse_filename(pkl_file.name)
+            algorithm, task, seed = loader.parse_filename(pkl_file.name)
 
             if args.tasks and task not in args.tasks:
                 continue
@@ -323,6 +405,7 @@ def main():
             print(f"\n{pkl_file.name}")
             print(f"  Algorithm: {algorithm}")
             print(f"  Task: {task}")
+            print(f"  Seed: {seed}")
 
             metrics = loader.load_metrics(str(pkl_file))
 
@@ -344,14 +427,13 @@ def main():
             print(f"  Episodes: {len(episode_rewards):,}")
             print(f"  Total steps: {total_steps[-1]:,}")
             print(f"  Mean reward: {episode_rewards.mean():.2f} +/- {episode_rewards.std():.2f}")
-            print(f"  Max reward: {episode_rewards.max():.2f}")
-            print(f"  Min reward: {episode_rewards.min():.2f}")
 
-            task_algorithms[task][algorithm] = {
+            task_algorithm_seeds[task][algorithm].append({
                 'steps': total_steps,
                 'rewards': episode_rewards,
+                'seed': seed,
                 'filename': pkl_file.name
-            }
+            })
 
         except ValueError as e:
             print(f"\nSkipping {pkl_file.name}")
@@ -368,7 +450,7 @@ def main():
     print("Generating plots...")
     print("=" * 70)
 
-    if not task_algorithms:
+    if not task_algorithm_seeds:
         print("\nNo valid metrics found to plot!")
         if skipped_files:
             print("\nSkipped files:")
@@ -376,22 +458,28 @@ def main():
                 print(f"  {filename}: {reason}")
         return
 
-    for task_idx, (task, algorithms_data) in enumerate(sorted(task_algorithms.items()), 1):
-        print(f"\n[{task_idx}/{len(task_algorithms)}] Task: {task}")
-        print(f"  Algorithms: {', '.join(sorted(algorithms_data.keys()))}")
-        print(f"  Generating comparison plot...")
+    for task_idx, (task, algorithms_data) in enumerate(sorted(task_algorithm_seeds.items()), 1):
+        print(f"\n[{task_idx}/{len(task_algorithm_seeds)}] Task: {task}")
 
-        plotter.plot_task_comparison(
-            algorithms_data,
-            task,
-            window=args.window
-        )
+        for algo, seeds in algorithms_data.items():
+            print(f"  {algo}: {len(seeds)} seed(s)")
+
+        print(f"\n  Generating seed-averaged plot...")
+        plotter.plot_seed_averaged_comparison(algorithms_data, task)
+
+        print(f"  Generating smoothed seed-averaged plot...")
+        plotter.plot_smoothed_seed_averaged_comparison(algorithms_data, task, window=args.window)
 
     print("\n" + "=" * 70)
     print("Summary")
     print("=" * 70)
-    print(f"Tasks plotted: {len(task_algorithms)}")
-    print(f"Total algorithms: {sum(len(algs) for algs in task_algorithms.values())}")
+    print(f"Tasks plotted: {len(task_algorithm_seeds)}")
+
+    total_algorithms = sum(len(algs) for algs in task_algorithm_seeds.values())
+    total_runs = sum(len(seeds) for algs in task_algorithm_seeds.values() for seeds in algs.values())
+
+    print(f"Total unique algorithm-task pairs: {total_algorithms}")
+    print(f"Total runs (including seeds): {total_runs}")
     print(f"Output directory: {args.output_dir}")
 
     if skipped_files:
