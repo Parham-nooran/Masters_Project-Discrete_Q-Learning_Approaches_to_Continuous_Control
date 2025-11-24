@@ -1,10 +1,15 @@
-from typing import Dict, Tuple
+"""
+Coarse-to-Fine Q-Network Agent for continuous control.
+"""
+
+from typing import Dict, Tuple, Optional
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from src.common.replay_buffer import PrioritizedReplayBuffer
+from src.common.training_utils import huber_loss
 from src.cqn.discretizer import CoarseToFineDiscretizer
 from src.cqn.networks import CQNNetwork
 from src.common.device_utils import (
@@ -17,7 +22,22 @@ from src.common.device_utils import (
 
 
 class CQNAgent:
+    """
+    Coarse-to-fine Q-Network agent for continuous control.
+
+    Implements hierarchical action discretization where the agent iteratively
+    refines action selection from coarse to fine levels.
+    """
+
     def __init__(self, config, obs_shape: Tuple, action_spec: Dict):
+        """
+        Initialize CQN agent.
+
+        Args:
+            config: Configuration object with hyperparameters.
+            obs_shape: Shape of observations.
+            action_spec: Dictionary with 'low' and 'high' action bounds.
+        """
         self.config = config
         self.obs_shape = obs_shape
         self.action_spec = action_spec
@@ -41,7 +61,7 @@ class CQNAgent:
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.config.lr,
-            weight_decay=self.config.weight_decay
+            weight_decay=1e-5
         )
 
         self.replay_buffer = PrioritizedReplayBuffer(
@@ -56,6 +76,9 @@ class CQNAgent:
         self._setup_amp()
 
     def _initialize_training_state(self) -> None:
+        self.epsilon = self.config.initial_epsilon
+        self.epsilon_decay = self.config.epsilon_decay
+        self.min_epsilon = self.config.min_epsilon
         self.target_update_freq = self.config.target_update_freq
         self.training_steps = 0
 
@@ -66,15 +89,24 @@ class CQNAgent:
             self.scaler = None
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
+        """
+        Select action using hierarchical coarse-to-fine strategy.
+        Uses TARGET network for stability during evaluation and rollouts.
+        """
         obs = self._prepare_observation(obs)
 
         with torch.no_grad():
-            action = self._hierarchical_action_selection(obs, evaluate)
+            action = self._hierarchical_action_selection(obs, evaluate, use_target=True)
 
         action = action.cpu()
-        action_low = torch.tensor(self.action_spec["low"], device=action.device)
-        action_high = torch.tensor(self.action_spec["high"], device=action.device)
+        action_low = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=action.device)
+        action_high = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=action.device)
         action = torch.clamp(action, action_low, action_high)
+
+        if not evaluate:
+            noise = torch.randn_like(action) * 0.01
+            action = torch.clamp(action + noise, action_low, action_high)
+
         return action
 
     def _prepare_observation(self, obs: torch.Tensor) -> torch.Tensor:
@@ -89,45 +121,67 @@ class CQNAgent:
         return obs.to(self.device)
 
     def _hierarchical_action_selection(
-            self, obs: torch.Tensor, evaluate: bool
+        self, obs: torch.Tensor, evaluate: bool, use_target: bool = False
     ) -> torch.Tensor:
+        """
+        Perform hierarchical action selection across levels.
+
+        KEY FIX: At each level, we discretize the REFINED range from the parent level,
+        not the entire action space.
+        """
+        batch_size = obs.shape[0]
+
+        range_min = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        range_max = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
+
         prev_action = None
-        level_continuous = None
 
         for level in range(self.num_levels):
-            q1_dist, q2_dist = self.network(obs, level, prev_action, use_target=True)
+            q1, q2 = self.network(obs, level, prev_action, use_target=use_target)
+            q_combined = torch.max(q1, q2)
 
-            q1_values = self.network.get_q_values(q1_dist)
-            q2_values = self.network.get_q_values(q2_dist)
-            q_combined = torch.max(q1_values, q2_values)
-
-            level_actions = q_combined[0].argmax(dim=-1)
-
-            if level == 0:
-                level_continuous = self.discretizer.discrete_to_continuous(
-                    level_actions.unsqueeze(0), level, parent_action=None
-                )[0]
+            if not evaluate and torch.rand(1).item() < self.epsilon:
+                level_actions = torch.randint(
+                    0, self.num_bins, (batch_size, self.action_dim), device=self.device
+                )
             else:
-                level_continuous = self.discretizer.discrete_to_continuous(
-                    level_actions.unsqueeze(0), level, parent_action=prev_action
-                )[0]
+                level_actions = q_combined.argmax(dim=-1)
+
+            bin_width = (range_max - range_min) / self.num_bins
+            level_continuous = (range_min + (level_actions.float() + 0.5) * bin_width).float()
 
             if level < self.num_levels - 1:
-                prev_action = level_continuous.unsqueeze(0)
+                range_min = range_min + level_actions.float() * bin_width
+                range_max = range_min + bin_width
 
-        if not evaluate:
-            noise = torch.randn_like(level_continuous) * 0.01
-            level_continuous = level_continuous + noise
+                range_min = torch.clamp(
+                    range_min,
+                    torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device),
+                    torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device)
+                )
+                range_max = torch.clamp(
+                    range_max,
+                    torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device),
+                    torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device)
+                )
 
-        return level_continuous
+            prev_action = level_continuous
+
+        return prev_action[0]
 
     def get_current_bin_widths(self) -> Dict[str, float]:
+        """
+        Calculate current effective bin widths at finest level.
+        With hierarchical refinement, the finest level has bin width = full_range / (num_bins^num_levels)
+        """
         parent_range_width = torch.tensor(
-            self.action_spec["high"], device=self.device
-        ) - torch.tensor(self.action_spec["low"], device=self.device)
+            self.action_spec["high"], dtype=torch.float32, device=self.device
+        ) - torch.tensor(
+            self.action_spec["low"], dtype=torch.float32, device=self.device
+        )
 
-        finest_level_factor = self.num_bins ** (self.num_levels - 1)
-        finest_bin_width = parent_range_width / finest_level_factor / self.num_bins
+        finest_level_factor = self.num_bins ** self.num_levels
+        finest_bin_width = parent_range_width / finest_level_factor
 
         return {
             f"bin_width_dim_{i}": finest_bin_width[i].item()
@@ -150,24 +204,25 @@ class CQNAgent:
 
         self._update_target_network()
         self._update_priorities(indices, metrics["td_errors"])
+        self._update_epsilon()
 
         self.training_steps += 1
 
         return self._format_metrics(metrics)
 
     def _compute_and_apply_loss(
-            self,
-            obs: torch.Tensor,
-            actions: torch.Tensor,
-            rewards: torch.Tensor,
-            next_obs: torch.Tensor,
-            dones: torch.Tensor,
-            discounts: torch.Tensor,
-            weights: torch.Tensor,
+        self,
+        obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        next_obs: torch.Tensor,
+        dones: torch.Tensor,
+        discounts: torch.Tensor,
+        weights: torch.Tensor,
     ) -> Dict:
         if self.use_amp:
             with torch.amp.autocast('cuda', dtype=torch.float16):
-                total_loss, td_errors, mean_q = self._compute_c51_loss(
+                total_loss, td_errors, q1_last, q2_last = self._compute_loss(
                     obs, actions, rewards, next_obs, dones, discounts, weights
                 )
 
@@ -183,7 +238,7 @@ class CQNAgent:
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
-            total_loss, td_errors, mean_q = self._compute_c51_loss(
+            total_loss, td_errors, q1_last, q2_last = self._compute_loss(
                 obs, actions, rewards, next_obs, dones, discounts, weights
             )
 
@@ -201,216 +256,112 @@ class CQNAgent:
         return {
             "loss": total_loss,
             "td_errors": td_errors,
-            "mean_q": mean_q,
+            "q1_last": q1_last,
+            "q2_last": q2_last,
         }
 
-    def _continuous_to_discrete_vectorized(self, continuous_actions: torch.Tensor) -> torch.Tensor:
-        batch_size = continuous_actions.shape[0]
-        discrete_all = torch.zeros(batch_size, self.num_levels, self.action_dim, dtype=torch.long, device=self.device)
-        parent_continuous = None
+    def _compute_loss(
+        self,
+        obs: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        next_obs: torch.Tensor,
+        dones: torch.Tensor,
+        discounts: torch.Tensor,
+        weights: torch.Tensor,
+    ) -> Tuple[torch.Tensor, list, torch.Tensor, torch.Tensor]:
+        """
+        Compute hierarchical loss across all levels.
 
-        for level in range(self.num_levels):
-            if level == 0:
-                bins_level0 = torch.stack([self.discretizer.action_bins[0][dim] for dim in range(self.action_dim)],
-                                          dim=0)
-                distance_0 = torch.abs(continuous_actions.unsqueeze(2) - bins_level0.unsqueeze(0))
-                discrete_all[:, 0, :] = distance_0.argmin(dim=2)
-
-                parent_continuous = self.discretizer.discrete_to_continuous(
-                    discrete_all[:, 0, :],
-                    0,
-                    parent_action=None
-                )
-            else:
-                action_ranges = self.discretizer.get_action_range_for_level_batch(level, parent_continuous)
-                range_min, range_max = action_ranges[:, 0, :], action_ranges[:, 1, :]
-
-                bin_width = (range_max - range_min) / self.num_bins
-                bins_for_level = range_min.unsqueeze(2) + bin_width.unsqueeze(2) * torch.arange(
-                    self.num_bins, device=self.device
-                ).view(1, 1, self.num_bins)
-
-                distance = torch.abs(continuous_actions.unsqueeze(2) - bins_for_level)
-                discrete_all[:, level, :] = distance.argmin(dim=2)
-
-                parent_continuous = self.discretizer.discrete_to_continuous(
-                    discrete_all[:, level, :],
-                    level,
-                    parent_action=parent_continuous
-                )
-
-        return discrete_all
-
-    def _compute_prev_actions_vectorized(self, discrete_actions_all: torch.Tensor) -> torch.Tensor:
-        batch_size = discrete_actions_all.shape[0]
-        prev_actions = torch.zeros(batch_size, self.num_levels, self.action_dim, dtype=torch.float32,
-                                   device=self.device)
-
-        prev_actions[:, 0, :] = 0.0
-
-        for level in range(1, self.num_levels):
-            parent_action_input = prev_actions[:, level - 1, :] if level > 1 else None
-            prev_actions[:, level, :] = self.discretizer.discrete_to_continuous(
-                discrete_actions_all[:, level - 1, :],
-                level - 1,
-                parent_action=parent_action_input
-            )
-
-        return prev_actions
-
-    def _compute_c51_loss(
-            self,
-            obs: torch.Tensor,
-            actions: torch.Tensor,
-            rewards: torch.Tensor,
-            next_obs: torch.Tensor,
-            dones: torch.Tensor,
-            discounts: torch.Tensor,
-            weights: torch.Tensor,
-    ) -> Tuple[torch.Tensor, list, torch.Tensor]:
+        KEY FIX: Use ONLINE network for next action selection (Double Q-Learning)
+        and TARGET network for value estimation.
+        """
         obs = obs.float()
         actions = actions.float()
         next_obs = next_obs.float()
-        rewards = rewards.float()
-        dones = dones.float()
-        discounts = discounts.float()
-        weights = weights.float()
-
         batch_size = obs.shape[0]
 
-        discrete_actions_all = self._continuous_to_discrete_vectorized(actions)
+        total_loss = 0.0
+        td_errors = []
 
-        obs_expanded = obs.unsqueeze(1).expand(batch_size, self.num_levels, -1).reshape(
-            batch_size * self.num_levels, -1
-        )
-        next_obs_expanded = next_obs.unsqueeze(1).expand(batch_size, self.num_levels, -1).reshape(
-            batch_size * self.num_levels, -1
-        )
+        range_min_curr = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        range_max_curr = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
 
-        prev_actions_all = self._compute_prev_actions_vectorized(discrete_actions_all)
-        prev_actions_expanded = prev_actions_all.reshape(batch_size * self.num_levels, self.action_dim)
+        range_min_next = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        range_max_next = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
 
-        level_indices = torch.arange(self.num_levels, device=self.device).unsqueeze(0).expand(
-            batch_size, -1
-        ).reshape(-1)
+        prev_action = None
+        prev_next_action = None
+        q1_last = None
+        q2_last = None
 
-        q1_dist_current, q2_dist_current = self.network.forward_batched_levels(
-            obs_expanded, level_indices, prev_actions_expanded, use_target=False
-        )
+        for level in range(self.num_levels):
+            q1_current, q2_current = self.network(obs, level, prev_action, use_target=False)
 
-        with torch.no_grad():
-            prev_next_actions_all = self._compute_prev_actions_vectorized(discrete_actions_all)
-            prev_next_actions_expanded = prev_next_actions_all.reshape(batch_size * self.num_levels, self.action_dim)
+            with torch.no_grad():
+                q1_next_online, q2_next_online = self.network(
+                    next_obs, level, prev_next_action, use_target=False
+                )
+                q_next_online = torch.max(q1_next_online, q2_next_online)
+                next_actions = q_next_online.argmax(dim=2)
 
-            q1_dist_next_online, q2_dist_next_online = self.network.forward_batched_levels(
-                next_obs_expanded, level_indices, prev_next_actions_expanded, use_target=False
-            )
+                q1_next_target, q2_next_target = self.network(
+                    next_obs, level, prev_next_action, use_target=True
+                )
 
-            q1_next_online = self.network.get_q_values(q1_dist_next_online)
-            q2_next_online = self.network.get_q_values(q2_dist_next_online)
-            q_next_online = torch.max(q1_next_online, q2_next_online)
-            next_actions = q_next_online.argmax(dim=2)
+                target_q1 = torch.gather(
+                    q1_next_target, 2, next_actions.unsqueeze(2)
+                ).squeeze(2)
+                target_q2 = torch.gather(
+                    q2_next_target, 2, next_actions.unsqueeze(2)
+                ).squeeze(2)
 
-            q1_dist_next_target, q2_dist_next_target = self.network.forward_batched_levels(
-                next_obs_expanded, level_indices, prev_next_actions_expanded, use_target=True
-            )
+                target_q = torch.min(target_q1, target_q2)
 
-            batch_idx = torch.arange(batch_size * self.num_levels, device=self.device)
-            dim_idx = torch.arange(self.action_dim, device=self.device).unsqueeze(0).expand(
-                batch_size * self.num_levels, -1
-            )
+                td_target = (
+                    rewards.unsqueeze(1)
+                    + (1 - dones.float()).unsqueeze(1) * discounts.unsqueeze(1) * target_q
+                )
 
-            q1_dist_selected = q1_dist_next_target[batch_idx.unsqueeze(1), dim_idx, next_actions]
-            q2_dist_selected = q2_dist_next_target[batch_idx.unsqueeze(1), dim_idx, next_actions]
+            bin_width_curr = (range_max_curr - range_min_curr) / self.num_bins
+            discrete_actions = torch.floor((actions - range_min_curr) / bin_width_curr).long()
+            discrete_actions = torch.clamp(discrete_actions, 0, self.num_bins - 1)
 
-            q1_values_selected = self.network.get_q_values(q1_dist_selected.unsqueeze(2)).squeeze(2)
-            q2_values_selected = self.network.get_q_values(q2_dist_selected.unsqueeze(2)).squeeze(2)
+            current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
+            current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
 
-            use_q1 = (q1_values_selected > q2_values_selected).unsqueeze(-1).expand_as(q1_dist_selected)
-            target_dist_selector = torch.where(
-                use_q1,
-                q1_dist_selected,
-                q2_dist_selected
-            )
+            td_error1 = td_target - current_q1
+            td_error2 = td_target - current_q2
 
-            target_dist_selector = target_dist_selector.view(batch_size, self.num_levels, self.action_dim,
-                                                             self.network.num_atoms)
+            loss1 = huber_loss(td_error1, self.config.huber_loss_parameter)
+            loss2 = huber_loss(td_error2, self.config.huber_loss_parameter)
 
-            rewards_expanded = rewards.unsqueeze(1).unsqueeze(2).unsqueeze(3).expand(
-                batch_size, self.num_levels, self.action_dim, self.network.num_atoms
-            )
-            dones_expanded = dones.unsqueeze(1).unsqueeze(2).unsqueeze(3).expand(
-                batch_size, self.num_levels, self.action_dim, self.network.num_atoms
-            )
-            discounts_expanded = discounts.unsqueeze(1).unsqueeze(2).unsqueeze(3).expand(
-                batch_size, self.num_levels, self.action_dim, self.network.num_atoms
-            )
+            level_loss = ((loss1 + loss2) * weights.unsqueeze(1)).mean()
 
-            support = self.network.support.to(self.device)
+            td_errors_level = torch.abs(td_error1).mean(dim=1) + torch.abs(td_error2).mean(dim=1)
 
-            tz = rewards_expanded + (1 - dones_expanded) * discounts_expanded * support.view(1, 1, 1, -1)
-            tz = torch.clamp(tz, self.network.v_min, self.network.v_max)
+            total_loss += level_loss
+            td_errors.append(td_errors_level)
 
-            b = (tz - self.network.v_min) / self.network.delta_z
-            l = b.floor().long()
-            u = b.ceil().long()
+            if level == self.num_levels - 1:
+                q1_last = current_q1
+                q2_last = current_q2
 
-            l = torch.clamp(l, 0, self.network.num_atoms - 1)
-            u = torch.clamp(u, 0, self.network.num_atoms - 1)
+            if level < self.num_levels - 1:
+                range_min_curr = range_min_curr + discrete_actions.float() * bin_width_curr
+                range_max_curr = range_min_curr + bin_width_curr
 
-            target_dist = torch.zeros_like(target_dist_selector)
+                prev_action = (range_min_curr + 0.5 * bin_width_curr).float()
 
-            offset = torch.arange(batch_size * self.num_levels * self.action_dim,
-                                  device=self.device) * self.network.num_atoms
-            offset = offset.view(batch_size, self.num_levels, self.action_dim, 1).expand_as(l)
+                with torch.no_grad():
+                    bin_width_next = (range_max_next - range_min_next) / self.num_bins
+                    range_min_next = range_min_next + next_actions.float() * bin_width_next
+                    range_max_next = range_min_next + bin_width_next
+                    prev_next_action = (range_min_next + 0.5 * bin_width_next).float()
 
-            target_dist_flat = target_dist.view(-1)
-            target_dist_selector_flat = target_dist_selector.view(batch_size, self.num_levels, self.action_dim, -1)
+        total_loss = total_loss / self.num_levels
 
-            l_flat = (l + offset).view(-1)
-            u_flat = (u + offset).view(-1)
-
-            m_l = target_dist_selector_flat * (u.float() - b)
-            m_u = target_dist_selector_flat * (b - l.float())
-
-            target_dist_flat.index_add_(0, l_flat, m_l.view(-1))
-            target_dist_flat.index_add_(0, u_flat, m_u.view(-1))
-
-            target_dist = target_dist_flat.view(batch_size, self.num_levels, self.action_dim, self.network.num_atoms)
-            target_dist = target_dist.view(batch_size * self.num_levels, self.action_dim, self.network.num_atoms)
-
-        discrete_actions_expanded = discrete_actions_all.reshape(batch_size * self.num_levels, self.action_dim)
-
-        current_dist_selected = q1_dist_current[batch_idx.unsqueeze(1), dim_idx, discrete_actions_expanded]
-        current_dist2_selected = q2_dist_current[batch_idx.unsqueeze(1), dim_idx, discrete_actions_expanded]
-
-        log_p1 = torch.log(current_dist_selected + 1e-8)
-        log_p2 = torch.log(current_dist2_selected + 1e-8)
-
-        loss1 = -(target_dist * log_p1).sum(dim=-1)
-        loss2 = -(target_dist * log_p2).sum(dim=-1)
-
-        weights_expanded = weights.unsqueeze(1).unsqueeze(2).expand(
-            batch_size, self.num_levels, self.action_dim
-        ).reshape(batch_size * self.num_levels, self.action_dim)
-
-        weighted_loss = (loss1 + loss2) * weights_expanded
-        total_loss = weighted_loss.sum() / (batch_size * self.num_levels * self.action_dim)
-
-        with torch.no_grad():
-            current_q1 = self.network.get_q_values(current_dist_selected.unsqueeze(2)).squeeze(2)
-            current_q2 = self.network.get_q_values(current_dist2_selected.unsqueeze(2)).squeeze(2)
-
-            target_q = self.network.get_q_values(target_dist.unsqueeze(2)).squeeze(2)
-
-            td_error1 = torch.abs(target_q - current_q1)
-            td_error2 = torch.abs(target_q - current_q2)
-            td_errors_combined = (td_error1 + td_error2).view(batch_size, self.num_levels, self.action_dim)
-            td_errors_list = [td_errors_combined[:, i, :].mean(dim=1) for i in range(self.num_levels)]
-
-            mean_q = (current_q1.mean() + current_q2.mean()) / 2
-
-        return total_loss, td_errors_list, mean_q
+        return total_loss, td_errors, q1_last, q2_last
 
     def _update_target_network(self) -> None:
         if self.training_steps % self.target_update_freq == 0:
@@ -422,32 +373,28 @@ class CQNAgent:
             indices, avg_td_error.detach().cpu().numpy()
         )
 
+    def _update_epsilon(self) -> None:
+        self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
+
     def _format_metrics(self, metrics: Dict) -> Dict[str, float]:
         return {
             "loss": metrics["loss"].item(),
-            "q_mean": metrics["mean_q"].item(),
-            "mean_abs_td_error": torch.stack(metrics["td_errors"]).mean().item(),
+            "epsilon": self.epsilon,
+            "q_mean": (metrics["q1_last"].mean() + metrics["q2_last"].mean()).item() / 2,
+            "mean_abs_td_error": torch.stack(metrics["td_errors"]).mean(dim=0).mean().item(),
         }
 
     def store_transition(
-            self, obs, action: float, reward: float, next_obs, done: bool
+        self, obs, action: float, reward: float, next_obs, done: bool
     ) -> None:
         self.replay_buffer.add(obs, action, reward, next_obs, done)
-
-    def save(self, filepath: str) -> None:
-        checkpoint = {
-            "network_state_dict": self.network.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "training_steps": self.training_steps,
-            "config": self.config,
-        }
-        save_ckpt(checkpoint, filepath, self.is_tpu)
 
     def save_checkpoint(self, filepath: str, episode: int) -> None:
         checkpoint = {
             "network_state_dict": self.network.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "training_steps": self.training_steps,
+            "epsilon": self.epsilon,
             "episode": episode,
             "config": self.config,
         }
@@ -458,10 +405,5 @@ class CQNAgent:
         self.network.load_state_dict(checkpoint["network_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.training_steps = checkpoint["training_steps"]
+        self.epsilon = checkpoint["epsilon"]
         return checkpoint.get("episode", 0)
-
-    def load(self, filepath: str) -> None:
-        checkpoint = load_ckpt(filepath, self.device, self.is_tpu)
-        self.network.load_state_dict(checkpoint["network_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        self.training_steps = checkpoint["training_steps"]
