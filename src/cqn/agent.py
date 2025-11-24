@@ -98,16 +98,15 @@ class CQNAgent:
         with torch.no_grad():
             action = self._hierarchical_action_selection(obs, evaluate, use_target=True)
 
-        action = action.cpu()
-        action_low = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=action.device)
-        action_high = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=action.device)
+        action_low = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device)
+        action_high = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device)
         action = torch.clamp(action, action_low, action_high)
 
         if not evaluate:
             noise = torch.randn_like(action) * 0.01
             action = torch.clamp(action + noise, action_low, action_high)
 
-        return action
+        return action.cpu()
 
     def _prepare_observation(self, obs: torch.Tensor) -> torch.Tensor:
         if isinstance(obs, np.ndarray):
@@ -130,9 +129,13 @@ class CQNAgent:
         not the entire action space.
         """
         batch_size = obs.shape[0]
+        device = obs.device
 
-        range_min = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
-        range_max = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        action_low = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=device)
+        action_high = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=device)
+
+        range_min = action_low.unsqueeze(0).expand(batch_size, -1)
+        range_max = action_high.unsqueeze(0).expand(batch_size, -1)
 
         prev_action = None
 
@@ -142,7 +145,7 @@ class CQNAgent:
 
             if not evaluate and torch.rand(1).item() < self.epsilon:
                 level_actions = torch.randint(
-                    0, self.num_bins, (batch_size, self.action_dim), device=self.device
+                    0, self.num_bins, (batch_size, self.action_dim), device=device
                 )
             else:
                 level_actions = q_combined.argmax(dim=-1)
@@ -154,16 +157,8 @@ class CQNAgent:
                 range_min = range_min + level_actions.float() * bin_width
                 range_max = range_min + bin_width
 
-                range_min = torch.clamp(
-                    range_min,
-                    torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device),
-                    torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device)
-                )
-                range_max = torch.clamp(
-                    range_max,
-                    torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device),
-                    torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device)
-                )
+                range_min = torch.clamp(range_min, action_low, action_high)
+                range_max = torch.clamp(range_max, action_low, action_high)
 
             prev_action = level_continuous
 
@@ -174,10 +169,9 @@ class CQNAgent:
         Calculate current effective bin widths at finest level.
         With hierarchical refinement, the finest level has bin width = full_range / (num_bins^num_levels)
         """
-        parent_range_width = torch.tensor(
-            self.action_spec["high"], dtype=torch.float32, device=self.device
-        ) - torch.tensor(
-            self.action_spec["low"], dtype=torch.float32, device=self.device
+        parent_range_width = (
+            torch.tensor(self.action_spec["high"], dtype=torch.float32) -
+            torch.tensor(self.action_spec["low"], dtype=torch.float32)
         )
 
         finest_level_factor = self.num_bins ** self.num_levels
@@ -280,15 +274,19 @@ class CQNAgent:
         actions = actions.float()
         next_obs = next_obs.float()
         batch_size = obs.shape[0]
+        device = obs.device
 
         total_loss = 0.0
         td_errors = []
 
-        range_min_curr = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
-        range_max_curr = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        action_low = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=device)
+        action_high = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=device)
 
-        range_min_next = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
-        range_max_next = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        range_min_curr = action_low.unsqueeze(0).expand(batch_size, -1)
+        range_max_curr = action_high.unsqueeze(0).expand(batch_size, -1)
+
+        range_min_next = action_low.unsqueeze(0).expand(batch_size, -1)
+        range_max_next = action_high.unsqueeze(0).expand(batch_size, -1)
 
         prev_action = None
         prev_next_action = None
