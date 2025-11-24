@@ -161,16 +161,16 @@ class CQNNetwork(nn.Module):
 
         batch_size = features.shape[0]
 
-        level_tensor = torch.full(
-            (batch_size,), level, dtype=torch.long, device=obs.device
-        )
+        level_tensor = torch.tensor([level] * batch_size, dtype=torch.long, device=obs.device)
         level_emb = self.level_embedding(level_tensor)
 
         if prev_action is not None:
+            prev_action = prev_action.float()
             prev_action_emb = self.prev_action_embedding(prev_action)
         else:
             prev_action_emb = torch.zeros(
-                batch_size, self.prev_action_embedding.out_features, device=obs.device
+                batch_size, self.prev_action_embedding.out_features,
+                dtype=torch.float32, device=obs.device
             )
 
         combined_features = torch.cat([features, level_emb, prev_action_emb], dim=-1)
