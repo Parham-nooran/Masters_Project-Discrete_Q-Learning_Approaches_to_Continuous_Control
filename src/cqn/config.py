@@ -1,14 +1,9 @@
-"""
-Configuration for Coarse-to-Fine Q-Network agent.
-"""
-
 import argparse
 from dataclasses import dataclass
 
 
 @dataclass
 class CQNConfig:
-    """CQN agent and training hyperparameters."""
 
     env_name: str = "walker_walk"
     task: str = "walker_walk"
@@ -18,8 +13,8 @@ class CQNConfig:
     num_levels: int = 3
     num_bins: int = 5
 
-    lr: float = 1e-3
-    batch_size: int = 512
+    lr: float = 1e-4
+    batch_size: int = 256
     max_episodes: int = 1000
     discount: float = 0.99
 
@@ -38,6 +33,10 @@ class CQNConfig:
     huber_loss_parameter: float = 1.0
     max_grad_norm: float = 10.0
 
+    num_atoms: int = 51
+    v_min: float = 0.0
+    v_max: float = 200.0
+
     eval_frequency: int = 50
     save_frequency: int = 100
 
@@ -46,15 +45,6 @@ class CQNConfig:
 
 
 def create_config(args: argparse.Namespace) -> CQNConfig:
-    """
-    Create CQNConfig from parsed arguments.
-
-    Args:
-        args: Parsed command line arguments.
-
-    Returns:
-        CQNConfig instance.
-    """
     config = CQNConfig()
     for key, value in vars(args).items():
         setattr(config, key.replace("-", "_"), value)

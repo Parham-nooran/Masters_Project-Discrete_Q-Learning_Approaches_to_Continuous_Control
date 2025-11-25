@@ -1,17 +1,9 @@
-"""
-Coarse-to-Fine Q-Network Agent for continuous control.
-"""
-
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.common.replay_buffer import PrioritizedReplayBuffer
-from src.common.training_utils import huber_loss
-from src.cqn.discretizer import CoarseToFineDiscretizer
-from src.cqn.networks import CQNNetwork
 from src.common.device_utils import (
     get_device,
     optimizer_step,
@@ -19,25 +11,14 @@ from src.common.device_utils import (
     save_checkpoint as save_ckpt,
     load_checkpoint as load_ckpt
 )
+from src.common.replay_buffer import PrioritizedReplayBuffer
+from src.cqn.discretizer import CoarseToFineDiscretizer
+from src.cqn.networks import CQNNetwork
 
 
 class CQNAgent:
-    """
-    Coarse-to-fine Q-Network agent for continuous control.
-
-    Implements hierarchical action discretization where the agent iteratively
-    refines action selection from coarse to fine levels.
-    """
 
     def __init__(self, config, obs_shape: Tuple, action_spec: Dict):
-        """
-        Initialize CQN agent.
-
-        Args:
-            config: Configuration object with hyperparameters.
-            obs_shape: Shape of observations.
-            action_spec: Dictionary with 'low' and 'high' action bounds.
-        """
         self.config = config
         self.obs_shape = obs_shape
         self.action_spec = action_spec
@@ -61,7 +42,7 @@ class CQNAgent:
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.config.lr,
-            weight_decay=1e-5
+            weight_decay=0.1
         )
 
         self.replay_buffer = PrioritizedReplayBuffer(
@@ -89,10 +70,6 @@ class CQNAgent:
             self.scaler = None
 
     def select_action(self, obs: torch.Tensor, evaluate: bool = False) -> torch.Tensor:
-        """
-        Select action using hierarchical coarse-to-fine strategy.
-        Uses TARGET network for stability during evaluation and rollouts.
-        """
         obs = self._prepare_observation(obs)
 
         with torch.no_grad():
@@ -120,58 +97,49 @@ class CQNAgent:
         return obs.to(self.device)
 
     def _hierarchical_action_selection(
-        self, obs: torch.Tensor, evaluate: bool, use_target: bool = False
+            self, obs: torch.Tensor, evaluate: bool, use_target: bool = False
     ) -> torch.Tensor:
-        """
-        Perform hierarchical action selection across levels.
-
-        KEY FIX: At each level, we discretize the REFINED range from the parent level,
-        not the entire action space.
-        """
         batch_size = obs.shape[0]
         device = obs.device
 
         action_low = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=device)
         action_high = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=device)
 
-        range_min = action_low.unsqueeze(0).expand(batch_size, -1)
-        range_max = action_high.unsqueeze(0).expand(batch_size, -1)
+        low = action_low.unsqueeze(0).expand(batch_size, -1)
+        high = action_high.unsqueeze(0).expand(batch_size, -1)
 
-        prev_action = None
+        prev_action = torch.zeros(batch_size, self.action_dim, device=device)
 
         for level in range(self.num_levels):
-            q1, q2 = self.network(obs, level, prev_action, use_target=use_target)
-            q_combined = torch.max(q1, q2)
+            q_logits = self.network(obs, level, prev_action, use_target=use_target)
+
+            q_probs = F.softmax(q_logits, dim=-1)
+            qs = (q_probs * self.network.support.unsqueeze(0).unsqueeze(0).unsqueeze(0)).sum(-1)
 
             if not evaluate and torch.rand(1).item() < self.epsilon:
                 level_actions = torch.randint(
                     0, self.num_bins, (batch_size, self.action_dim), device=device
                 )
             else:
-                level_actions = q_combined.argmax(dim=-1)
+                level_actions = qs.argmax(dim=-1)
 
-            bin_width = (range_max - range_min) / self.num_bins
-            level_continuous = (range_min + (level_actions.float() + 0.5) * bin_width).float()
+            bin_width = (high - low) / self.num_bins
+            level_continuous = low + (level_actions.float() + 0.5) * bin_width
 
             if level < self.num_levels - 1:
-                range_min = range_min + level_actions.float() * bin_width
-                range_max = range_min + bin_width
+                low = low + level_actions.float() * bin_width
+                high = low + bin_width
+                low = torch.clamp(low, action_low, action_high)
+                high = torch.clamp(high, action_low, action_high)
 
-                range_min = torch.clamp(range_min, action_low, action_high)
-                range_max = torch.clamp(range_max, action_low, action_high)
-
-            prev_action = level_continuous
+            prev_action = (low + high) / 2.0
 
         return prev_action[0]
 
     def get_current_bin_widths(self) -> Dict[str, float]:
-        """
-        Calculate current effective bin widths at finest level.
-        With hierarchical refinement, the finest level has bin width = full_range / (num_bins^num_levels)
-        """
         parent_range_width = (
-            torch.tensor(self.action_spec["high"], dtype=torch.float32) -
-            torch.tensor(self.action_spec["low"], dtype=torch.float32)
+                torch.tensor(self.action_spec["high"], dtype=torch.float32) -
+                torch.tensor(self.action_spec["low"], dtype=torch.float32)
         )
 
         finest_level_factor = self.num_bins ** self.num_levels
@@ -205,18 +173,18 @@ class CQNAgent:
         return self._format_metrics(metrics)
 
     def _compute_and_apply_loss(
-        self,
-        obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        next_obs: torch.Tensor,
-        dones: torch.Tensor,
-        discounts: torch.Tensor,
-        weights: torch.Tensor,
+            self,
+            obs: torch.Tensor,
+            actions: torch.Tensor,
+            rewards: torch.Tensor,
+            next_obs: torch.Tensor,
+            dones: torch.Tensor,
+            discounts: torch.Tensor,
+            weights: torch.Tensor,
     ) -> Dict:
         if self.use_amp:
             with torch.amp.autocast('cuda', dtype=torch.float16):
-                total_loss, td_errors, q1_last, q2_last = self._compute_loss(
+                total_loss, td_errors = self._compute_loss(
                     obs, actions, rewards, next_obs, dones, discounts, weights
                 )
 
@@ -232,7 +200,7 @@ class CQNAgent:
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
-            total_loss, td_errors, q1_last, q2_last = self._compute_loss(
+            total_loss, td_errors = self._compute_loss(
                 obs, actions, rewards, next_obs, dones, discounts, weights
             )
 
@@ -250,116 +218,190 @@ class CQNAgent:
         return {
             "loss": total_loss,
             "td_errors": td_errors,
-            "q1_last": q1_last,
-            "q2_last": q2_last,
         }
 
     def _compute_loss(
-        self,
-        obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        next_obs: torch.Tensor,
-        dones: torch.Tensor,
-        discounts: torch.Tensor,
-        weights: torch.Tensor,
-    ) -> Tuple[torch.Tensor, list, torch.Tensor, torch.Tensor]:
-        """
-        Compute hierarchical loss across all levels.
-
-        KEY FIX: Use ONLINE network for next action selection (Double Q-Learning)
-        and TARGET network for value estimation.
-        """
+            self,
+            obs: torch.Tensor,
+            actions: torch.Tensor,
+            rewards: torch.Tensor,
+            next_obs: torch.Tensor,
+            dones: torch.Tensor,
+            discounts: torch.Tensor,
+            weights: torch.Tensor,
+    ) -> Tuple[torch.Tensor, list]:
         obs = obs.float()
         actions = actions.float()
         next_obs = next_obs.float()
         batch_size = obs.shape[0]
         device = obs.device
 
-        total_loss = 0.0
-        td_errors = []
-
         action_low = torch.tensor(self.action_spec["low"], dtype=torch.float32, device=device)
         action_high = torch.tensor(self.action_spec["high"], dtype=torch.float32, device=device)
 
-        range_min_curr = action_low.unsqueeze(0).expand(batch_size, -1)
-        range_max_curr = action_high.unsqueeze(0).expand(batch_size, -1)
+        discrete_actions = self._encode_action(actions, action_low, action_high)
 
-        range_min_next = action_low.unsqueeze(0).expand(batch_size, -1)
-        range_max_next = action_high.unsqueeze(0).expand(batch_size, -1)
+        with torch.no_grad():
+            next_action, _ = self._get_next_action(next_obs, action_low, action_high)
+            next_discrete_actions = self._encode_action(next_action, action_low, action_high)
 
-        prev_action = None
-        prev_next_action = None
-        q1_last = None
-        q2_last = None
+        low = action_low.unsqueeze(0).expand(batch_size, -1)
+        high = action_high.unsqueeze(0).expand(batch_size, -1)
+
+        low_next = action_low.unsqueeze(0).expand(batch_size, -1)
+        high_next = action_high.unsqueeze(0).expand(batch_size, -1)
+
+        prev_action = torch.zeros(batch_size, self.action_dim, device=device)
+        prev_next_action = torch.zeros(batch_size, self.action_dim, device=device)
+
+        total_loss = 0.0
+        td_errors = []
 
         for level in range(self.num_levels):
-            q1_current, q2_current = self.network(obs, level, prev_action, use_target=False)
+            q_logits_current = self.network(obs, level, prev_action, use_target=False)
 
             with torch.no_grad():
-                q1_next_online, q2_next_online = self.network(
-                    next_obs, level, prev_next_action, use_target=False
-                )
-                q_next_online = torch.max(q1_next_online, q2_next_online)
-                next_actions = q_next_online.argmax(dim=2)
+                q_logits_next = self.network(next_obs, level, prev_next_action, use_target=True)
 
-                q1_next_target, q2_next_target = self.network(
-                    next_obs, level, prev_next_action, use_target=True
+                next_q_probs = F.softmax(q_logits_next, dim=-1)
+
+                target_dist = self._compute_target_distribution(
+                    next_q_probs, next_discrete_actions[:, level, :], rewards, discounts, dones
                 )
 
-                target_q1 = torch.gather(
-                    q1_next_target, 2, next_actions.unsqueeze(2)
-                ).squeeze(2)
-                target_q2 = torch.gather(
-                    q2_next_target, 2, next_actions.unsqueeze(2)
-                ).squeeze(2)
+            current_action_indices = discrete_actions[:, level, :].long()
 
-                target_q = torch.min(target_q1, target_q2)
+            log_q_probs = F.log_softmax(q_logits_current, dim=-1)
+            log_q_probs_a = torch.gather(
+                log_q_probs,
+                dim=-2,
+                index=current_action_indices.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, 1, self.network.num_atoms)
+            ).squeeze(-2)
 
-                td_target = (
-                    rewards.unsqueeze(1)
-                    + (1 - dones.float()).unsqueeze(1) * discounts.unsqueeze(1) * target_q
-                )
+            loss = -(target_dist * log_q_probs_a).sum(-1).mean(-1)
 
-            bin_width_curr = (range_max_curr - range_min_curr) / self.num_bins
-            discrete_actions = torch.floor((actions - range_min_curr) / bin_width_curr).long()
-            discrete_actions = torch.clamp(discrete_actions, 0, self.num_bins - 1)
+            weighted_loss = (loss * weights).mean()
+            total_loss += weighted_loss
 
-            current_q1 = torch.gather(q1_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
-            current_q2 = torch.gather(q2_current, 2, discrete_actions.unsqueeze(2)).squeeze(2)
-
-            td_error1 = td_target - current_q1
-            td_error2 = td_target - current_q2
-
-            loss1 = huber_loss(td_error1, self.config.huber_loss_parameter)
-            loss2 = huber_loss(td_error2, self.config.huber_loss_parameter)
-
-            level_loss = ((loss1 + loss2) * weights.unsqueeze(1)).mean()
-
-            td_errors_level = torch.abs(td_error1).mean(dim=1) + torch.abs(td_error2).mean(dim=1)
-
-            total_loss += level_loss
-            td_errors.append(td_errors_level)
-
-            if level == self.num_levels - 1:
-                q1_last = current_q1
-                q2_last = current_q2
+            td_errors.append(loss.detach())
 
             if level < self.num_levels - 1:
-                range_min_curr = range_min_curr + discrete_actions.float() * bin_width_curr
-                range_max_curr = range_min_curr + bin_width_curr
+                bin_width = (high - low) / self.num_bins
+                low = low + current_action_indices.float() * bin_width
+                high = low + bin_width
+                prev_action = (low + high) / 2.0
 
-                prev_action = (range_min_curr + 0.5 * bin_width_curr).float()
-
-                with torch.no_grad():
-                    bin_width_next = (range_max_next - range_min_next) / self.num_bins
-                    range_min_next = range_min_next + next_actions.float() * bin_width_next
-                    range_max_next = range_min_next + bin_width_next
-                    prev_next_action = (range_min_next + 0.5 * bin_width_next).float()
+                bin_width_next = (high_next - low_next) / self.num_bins
+                low_next = low_next + next_discrete_actions[:, level, :].float() * bin_width_next
+                high_next = low_next + bin_width_next
+                prev_next_action = (low_next + high_next) / 2.0
 
         total_loss = total_loss / self.num_levels
 
-        return total_loss, td_errors, q1_last, q2_last
+        return total_loss, td_errors
+
+    def _encode_action(self, continuous_action, action_low, action_high):
+        batch_size = continuous_action.shape[0]
+        device = continuous_action.device
+
+        low = action_low.unsqueeze(0).expand(batch_size, -1)
+        high = action_high.unsqueeze(0).expand(batch_size, -1)
+
+        discrete_actions = []
+
+        for level in range(self.num_levels):
+            bin_width = (high - low) / self.num_bins
+            idx = torch.floor((continuous_action - low) / bin_width)
+            idx = torch.clamp(idx, 0, self.num_bins - 1)
+            discrete_actions.append(idx)
+
+            recalculated_action = low + bin_width * idx
+            low = recalculated_action
+            high = recalculated_action + bin_width
+            low = torch.clamp(low, action_low, action_high)
+            high = torch.clamp(high, action_low, action_high)
+
+        return torch.stack(discrete_actions, dim=1)
+
+    def _get_next_action(self, next_obs, action_low, action_high):
+        batch_size = next_obs.shape[0]
+        device = next_obs.device
+
+        low = action_low.unsqueeze(0).expand(batch_size, -1)
+        high = action_high.unsqueeze(0).expand(batch_size, -1)
+        prev_action = torch.zeros(batch_size, self.action_dim, device=device)
+
+        for level in range(self.num_levels):
+            q_logits = self.network(next_obs, level, prev_action, use_target=False)
+            q_probs = F.softmax(q_logits, dim=-1)
+            qs = (q_probs * self.network.support.unsqueeze(0).unsqueeze(0).unsqueeze(0)).sum(-1)
+
+            argmax_q = qs.argmax(dim=-1)
+
+            bin_width = (high - low) / self.num_bins
+
+            if level < self.num_levels - 1:
+                low = low + argmax_q.float() * bin_width
+                high = low + bin_width
+                prev_action = (low + high) / 2.0
+
+        continuous_action = (high + low) / 2.0
+        return continuous_action, {}
+
+    def _compute_target_distribution(self, next_q_probs, next_actions, rewards, discounts, dones):
+        batch_size = next_q_probs.shape[0]
+
+        next_q_probs_a = torch.gather(
+            next_q_probs,
+            dim=-2,
+            index=next_actions.long().unsqueeze(-1).unsqueeze(-1).repeat(1, 1, 1, self.network.num_atoms)
+        ).squeeze(-2)
+
+        shape = next_q_probs_a.shape
+        next_q_probs_a = next_q_probs_a.view(-1, self.network.num_atoms)
+        batch_size_flat = next_q_probs_a.shape[0]
+
+        Tz = rewards.unsqueeze(1) + (1 - dones.float()).unsqueeze(1) * discounts.unsqueeze(
+            1) * self.network.support.unsqueeze(0)
+        Tz = Tz.clamp(min=self.network.v_min, max=self.network.v_max)
+
+        b = (Tz - self.network.v_min) / self.network.delta_z
+        lower, upper = b.floor().to(torch.int64), b.ceil().to(torch.int64)
+
+        lower[(upper > 0) * (lower == upper)] -= 1
+        upper[(lower < (self.network.num_atoms - 1)) * (lower == upper)] += 1
+
+        multiplier = batch_size_flat // lower.shape[0]
+        b = torch.repeat_interleave(b, multiplier, 0)
+        lower = torch.repeat_interleave(lower, multiplier, 0)
+        upper = torch.repeat_interleave(upper, multiplier, 0)
+
+        m = torch.zeros_like(next_q_probs_a)
+        offset = (
+            torch.linspace(
+                0,
+                ((batch_size_flat - 1) * self.network.num_atoms),
+                batch_size_flat,
+                device=lower.device,
+                dtype=lower.dtype,
+            )
+            .unsqueeze(1)
+            .expand(batch_size_flat, self.network.num_atoms)
+        )
+
+        m.view(-1).index_add_(
+            0,
+            (lower + offset).view(-1),
+            (next_q_probs_a * (upper.float() - b)).view(-1),
+        )
+        m.view(-1).index_add_(
+            0,
+            (upper + offset).view(-1),
+            (next_q_probs_a * (b - lower.float())).view(-1),
+        )
+
+        m = m.view(*shape)
+        return m
 
     def _update_target_network(self) -> None:
         if self.training_steps % self.target_update_freq == 0:
@@ -378,12 +420,11 @@ class CQNAgent:
         return {
             "loss": metrics["loss"].item(),
             "epsilon": self.epsilon,
-            "q_mean": (metrics["q1_last"].mean() + metrics["q2_last"].mean()).item() / 2,
             "mean_abs_td_error": torch.stack(metrics["td_errors"]).mean(dim=0).mean().item(),
         }
 
     def store_transition(
-        self, obs, action: float, reward: float, next_obs, done: bool
+            self, obs, action: float, reward: float, next_obs, done: bool
     ) -> None:
         self.replay_buffer.add(obs, action, reward, next_obs, done)
 
