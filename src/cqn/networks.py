@@ -337,6 +337,8 @@ class C2FCritic(nn.Module):
         low = self.initial_low.repeat(obs.shape[0], 1).detach()
         high = self.initial_high.repeat(obs.shape[0], 1).detach()
 
+        selected_bins = {level: [] for level in range(self.levels)}
+
         for level in range(self.levels):
             q_logits = self.network(level, obs, (low + high) / 2)
             q_probs = F.softmax(q_logits, 3)
@@ -346,12 +348,18 @@ class C2FCritic(nn.Module):
             if argmax_q is None:
                 argmax_q = qs.max(-1)[1]
 
+            selected_bins[level] = argmax_q.cpu().numpy().tolist()
+
             low, high = zoom_in(low, high, argmax_q, self.bins)
 
             qs_a = torch.gather(qs, dim=-1, index=argmax_q.unsqueeze(-1))[..., 0]
             metrics[f"critic_target_q_level{level}"] = qs_a.mean().item()
+            metrics[f"action_range_low_level{level}"] = low.mean().item()
+            metrics[f"action_range_high_level{level}"] = high.mean().item()
+            metrics[f"action_range_width_level{level}"] = (high - low).mean().item()
 
         continuous_action = (high + low) / 2.0
+        metrics["selected_bins"] = selected_bins
         return continuous_action, metrics
 
     def forward(

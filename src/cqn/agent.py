@@ -102,6 +102,10 @@ class CQNAgent:
         )
 
         self._initialize_training_state()
+        
+        self.bin_selection_history = {level: {dim: [] for dim in range(self.action_dim)} 
+                                     for level in range(self.num_levels)}
+        self.action_range_history = []
 
     def _initialize_training_state(self) -> None:
         """Initialize training state variables."""
@@ -131,7 +135,7 @@ class CQNAgent:
                 obs_features = obs.flatten(1)
 
             stddev = self._get_stddev(step)
-            action, _ = self.target_network.critic.get_action(obs_features)
+            action, action_metrics = self.network.critic.get_action(obs_features)
 
             if eval_mode:
                 action = action
@@ -322,6 +326,8 @@ class CQNAgent:
             "training_steps": self.training_steps,
             "episode": episode,
             "config": self.config,
+            "bin_selection_history": self.bin_selection_history,
+            "action_range_history": self.action_range_history,
         }
         if self.encoder_opt is not None:
             checkpoint["encoder_opt_state_dict"] = self.encoder_opt.state_dict()
@@ -345,4 +351,28 @@ class CQNAgent:
         if self.encoder_opt is not None and "encoder_opt_state_dict" in checkpoint:
             self.encoder_opt.load_state_dict(checkpoint["encoder_opt_state_dict"])
         self.training_steps = checkpoint["training_steps"]
+        
+        if "bin_selection_history" in checkpoint:
+            self.bin_selection_history = checkpoint["bin_selection_history"]
+        if "action_range_history" in checkpoint:
+            self.action_range_history = checkpoint["action_range_history"]
+            
         return checkpoint.get("episode", 0)
+
+    def get_exploration_stats(self) -> Dict[str, any]:
+        stats = {}
+        
+        for level in range(self.num_levels):
+            for dim in range(self.action_dim):
+                history = self.bin_selection_history[level][dim]
+                if history:
+                    unique_bins = len(set(history))
+                    stats[f"level{level}_dim{dim}_unique_bins"] = unique_bins
+                    stats[f"level{level}_dim{dim}_coverage"] = unique_bins / self.num_bins
+                    
+                    bin_counts = {}
+                    for bin_idx in history:
+                        bin_counts[bin_idx] = bin_counts.get(bin_idx, 0) + 1
+                    stats[f"level{level}_dim{dim}_most_selected"] = max(bin_counts.items(), key=lambda x: x[1])[0]
+        
+        return stats

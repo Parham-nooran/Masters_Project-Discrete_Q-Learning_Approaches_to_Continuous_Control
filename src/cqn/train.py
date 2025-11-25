@@ -200,6 +200,9 @@ class CQNTrainer(Logger):
 
             if episode % self.config.save_frequency == 0 and episode > 0:
                 self._save_checkpoint(agent, metrics_tracker, episode)
+            
+            exploration_stats = agent.get_exploration_stats()
+            episode_metrics.update(exploration_stats)
 
             metrics_tracker.log_episode(episode=episode, **episode_metrics)
 
@@ -228,6 +231,10 @@ class CQNTrainer(Logger):
         obs = _extract_observation(time_step)
         episode_reward = 0.0
         update_metrics = {}
+        
+        episode_bin_selections = []
+        episode_action_ranges = []
+        q_values_by_level = {}
 
         while not time_step.last():
             action = agent.act(obs, global_step + steps, eval_mode=False)
@@ -240,6 +247,19 @@ class CQNTrainer(Logger):
 
             if len(agent.replay_buffer) > self.config.min_buffer_size:
                 update_metrics = agent.update(replay_iter, global_step + steps)
+                
+                if 'selected_bins' in update_metrics:
+                    episode_bin_selections.append(update_metrics['selected_bins'])
+                    del update_metrics['selected_bins']
+                
+                for key in list(update_metrics.keys()):
+                    if key.startswith('action_range'):
+                        episode_action_ranges.append({key: update_metrics[key]})
+                    elif key.startswith('critic_target_q_level'):
+                        level = int(key.split('level')[1])
+                        if level not in q_values_by_level:
+                            q_values_by_level[level] = []
+                        q_values_by_level[level].append(update_metrics[key])
 
             obs = next_obs
             episode_reward += reward
@@ -252,6 +272,9 @@ class CQNTrainer(Logger):
             "steps": steps,
             "episode_time": episode_time,
             "buffer_size": len(agent.replay_buffer),
+            "selected_bins": episode_bin_selections[-1] if episode_bin_selections else None,
+            "action_ranges": episode_action_ranges[-1] if episode_action_ranges else None,
+            "q_values_by_level": {k: np.mean(v) for k, v in q_values_by_level.items()} if q_values_by_level else None,
         }
         metrics.update(update_metrics)
 
@@ -288,6 +311,10 @@ class CQNTrainer(Logger):
 
             if 'critic_loss' in metrics:
                 log_str += f", Loss={metrics['critic_loss']:.4f}"
+            
+            for level in range(3):
+                if f'action_range_width_level{level}' in metrics:
+                    log_str += f", RangeWidth_L{level}={metrics[f'action_range_width_level{level}']:.4f}"
 
             self.logger.info(log_str)
 

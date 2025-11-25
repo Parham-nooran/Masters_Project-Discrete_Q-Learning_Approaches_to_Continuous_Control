@@ -1,5 +1,6 @@
 import os
 import pickle
+import json
 
 
 class MetricsTracker:
@@ -19,23 +20,32 @@ class MetricsTracker:
         self.episode_bin_widths = []
         self.episode_current_bins = []
         self.episode_growth_history = []
+
+        self.bin_selection_per_episode = []
+        self.action_range_per_episode = []
+        self.q_values_per_level = {i: [] for i in range(10)}
+        self.unique_bins_explored = {i: {j: set() for j in range(10)} for i in range(10)}
+
         os.makedirs(save_dir, exist_ok=True)
 
     def log_episode(
-        self,
-        episode,
-        reward,
-        steps,
-        mse_loss=0.0,
-        loss=0.0,
-        mean_abs_td_error=0.0,
-        mean_squared_td_error=0.0,
-        q_mean=0.0,
-        epsilon=0.0,
-        episode_time=0.0,
-        current_bins=None,
-        growth_history=None,
-        **kwargs,
+            self,
+            episode,
+            reward,
+            steps,
+            mse_loss=0.0,
+            loss=0.0,
+            mean_abs_td_error=0.0,
+            mean_squared_td_error=0.0,
+            q_mean=0.0,
+            epsilon=0.0,
+            episode_time=0.0,
+            current_bins=None,
+            growth_history=None,
+            selected_bins=None,
+            action_ranges=None,
+            q_values_by_level=None,
+            **kwargs,
     ):
         self.episodes.append(episode)
         self.episode_rewards.append(reward)
@@ -54,6 +64,22 @@ class MetricsTracker:
             growth_history if growth_history is not None else "[]"
         )
 
+        if selected_bins is not None:
+            self.bin_selection_per_episode.append({
+                'episode': episode,
+                'bins': selected_bins
+            })
+
+        if action_ranges is not None:
+            self.action_range_per_episode.append({
+                'episode': episode,
+                'ranges': action_ranges
+            })
+
+        if q_values_by_level is not None:
+            for level, q_val in q_values_by_level.items():
+                self.q_values_per_level[level].append(q_val)
+
     def save_metrics(self, agent, task_name, seed):
         metrics_data = {
             "episodes": self.episodes,
@@ -69,6 +95,9 @@ class MetricsTracker:
             "episode_bin_widths": self.episode_bin_widths,
             "episode_current_bins": self.episode_current_bins,
             "episode_growth_history": self.episode_growth_history,
+            "bin_selection_per_episode": self.bin_selection_per_episode,
+            "action_range_per_episode": self.action_range_per_episode,
+            "q_values_per_level": self.q_values_per_level,
         }
 
         os.makedirs(self.save_dir, exist_ok=True)
@@ -76,7 +105,19 @@ class MetricsTracker:
         with open(metrics_path, "wb") as f:
             pickle.dump(metrics_data, f)
 
+        json_path = os.path.join(self.save_dir, f"{agent}_{task_name}_{seed}_exploration.json")
+        exploration_data = {
+            "bin_selections": [
+                {k: v for k, v in item.items() if k != 'bins'}
+                for item in self.bin_selection_per_episode[-100:]
+            ],
+            "action_ranges": self.action_range_per_episode[-100:],
+        }
+        with open(json_path, "w") as f:
+            json.dump(exploration_data, f, indent=2)
+
         self.logger.info(f"Metrics saved to {metrics_path}")
+        self.logger.info(f"Exploration data saved to {json_path}")
 
     def load_metrics(self, path=None):
         if path is None:
@@ -105,6 +146,15 @@ class MetricsTracker:
                 self.episode_current_bins = metrics_data.get("episode_current_bins", [])
                 self.episode_growth_history = metrics_data.get(
                     "episode_growth_history", []
+                )
+                self.bin_selection_per_episode = metrics_data.get(
+                    "bin_selection_per_episode", []
+                )
+                self.action_range_per_episode = metrics_data.get(
+                    "action_range_per_episode", []
+                )
+                self.q_values_per_level = metrics_data.get(
+                    "q_values_per_level", {i: [] for i in range(10)}
                 )
 
                 self.logger.info(f"Loaded metrics for {len(self.episodes)} episodes")
@@ -137,3 +187,16 @@ class MetricsTracker:
                 continue
 
         return growth_events
+
+    def get_exploration_summary(self):
+        if not self.bin_selection_per_episode:
+            return {}
+
+        recent_selections = self.bin_selection_per_episode[-100:]
+
+        summary = {
+            "total_episodes_tracked": len(self.bin_selection_per_episode),
+            "recent_episodes": len(recent_selections),
+        }
+
+        return summary
