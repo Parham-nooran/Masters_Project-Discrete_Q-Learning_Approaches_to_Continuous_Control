@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from src.common.checkpoint_manager import CheckpointManager
+from src.common.device_utils import get_device
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.training_utils import (
@@ -19,7 +20,6 @@ from src.common.training_utils import (
 )
 from src.cqn.agent import CQNAgent
 from src.cqn.config import CQNConfig, create_config
-from src.common.device_utils import get_device
 
 
 def _extract_observation(time_step) -> np.ndarray:
@@ -142,7 +142,7 @@ class CQNTrainer(Logger):
 
         try:
             self._run_training_loop(env, agent, metrics_tracker, start_episode)
-            self._finalize_training(agent, metrics_tracker)
+            self._finalize_training(metrics_tracker)
         except KeyboardInterrupt:
             self.logger.info("Training interrupted by user")
         except Exception as e:
@@ -169,11 +169,11 @@ class CQNTrainer(Logger):
         self.logger.info(f"  Learning rate: {self.config.lr}")
 
     def _run_training_loop(
-        self,
-        env,
-        agent: CQNAgent,
-        metrics_tracker: MetricsTracker,
-        start_episode: int
+            self,
+            env,
+            agent: CQNAgent,
+            metrics_tracker: MetricsTracker,
+            start_episode: int
     ) -> None:
         """
         Execute training loop for specified episodes.
@@ -204,11 +204,11 @@ class CQNTrainer(Logger):
             metrics_tracker.log_episode(episode=episode, **episode_metrics)
 
     def _run_episode(
-        self,
-        env,
-        agent: CQNAgent,
-        replay_iter,
-        global_step: int
+            self,
+            env,
+            agent: CQNAgent,
+            replay_iter,
+            global_step: int
     ) -> tuple[Dict[str, float], int]:
         """
         Execute single training episode.
@@ -258,11 +258,11 @@ class CQNTrainer(Logger):
         return metrics, steps
 
     def _log_episode_progress(
-        self,
-        episode: int,
-        metrics: Dict[str, float],
-        start_time: float,
-        global_step: int
+            self,
+            episode: int,
+            metrics: Dict[str, float],
+            start_time: float,
+            global_step: int
     ) -> None:
         """
         Log episode progress.
@@ -273,7 +273,7 @@ class CQNTrainer(Logger):
             start_time: Training start time.
             global_step: Current global step.
         """
-        if episode % 10 == 0:
+        if episode % self.config.log_interval == 0:
             elapsed = time.time() - start_time
 
             log_str = (
@@ -292,11 +292,11 @@ class CQNTrainer(Logger):
             self.logger.info(log_str)
 
     def _run_evaluation(
-        self,
-        env,
-        agent: CQNAgent,
-        episode: int,
-        global_step: int
+            self,
+            env,
+            agent: CQNAgent,
+            episode: int,
+            global_step: int
     ) -> None:
         """
         Run evaluation episodes.
@@ -323,10 +323,10 @@ class CQNTrainer(Logger):
         )
 
     def _save_checkpoint(
-        self,
-        agent: CQNAgent,
-        metrics_tracker: MetricsTracker,
-        episode: int
+            self,
+            agent: CQNAgent,
+            metrics_tracker: MetricsTracker,
+            episode: int
     ) -> None:
         """
         Save training checkpoint.
@@ -336,16 +336,17 @@ class CQNTrainer(Logger):
             metrics_tracker: Metrics tracking object.
             episode: Episode number for checkpoint naming.
         """
-        metrics_tracker.save_metrics(self.agent_name, self.config.task)
+        if episode % self.config.checkpoint_interval != 0:
+            return
+        metrics_tracker.save_metrics(self.agent_name, self.config.task, self.config.seed)
         checkpoint_path = self.checkpoint_manager.save_checkpoint(
-            agent, episode, self.config.task
+            agent, episode, self.config.task, self.config.seed
         )
         self.logger.info(f"Checkpoint saved: {checkpoint_path}")
 
     def _finalize_training(
-        self,
-        agent: CQNAgent,
-        metrics_tracker: MetricsTracker
+            self,
+            metrics_tracker: MetricsTracker
     ) -> None:
         """
         Save final checkpoint and metrics.
@@ -354,7 +355,7 @@ class CQNTrainer(Logger):
             agent: CQN agent instance.
             metrics_tracker: Metrics tracking object.
         """
-        metrics_tracker.save_metrics(self.agent_name, self.config.task)
+        metrics_tracker.save_metrics(self.agent_name, self.config.task, self.config.seed)
         self.logger.info("Training completed")
 
 
@@ -430,12 +431,20 @@ def parse_arguments() -> argparse.Namespace:
         help="Working directory"
     )
     parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=1000,
+        help="Save checkpoints every N episodes",
+    )
+    parser.add_argument(
+        "--log-interval", type=int, default=5, help="Log progress every N episodes"
+    )
+    parser.add_argument(
         "--load-checkpoints",
         type=str,
         default=None,
         help="Path to checkpoint to resume from",
     )
-
     return parser.parse_args()
 
 
