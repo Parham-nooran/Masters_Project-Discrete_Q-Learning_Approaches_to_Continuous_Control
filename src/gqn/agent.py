@@ -483,7 +483,7 @@ class GrowingQNAgent(Logger):
         return self.get_temperature()
 
     def update_epsilon(self, decay_rate=0.995, min_epsilon=0.01):
-        """Compatibility method for train.py."""
+        """Compatibility method for train_dmc.py."""
         pass
 
     def get_growth_info(self):

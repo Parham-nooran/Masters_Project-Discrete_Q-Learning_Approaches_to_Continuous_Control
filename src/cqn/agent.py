@@ -1,378 +1,242 @@
-"""
-Coarse-to-Fine Q-Network Agent for continuous control.
-
-This implementation follows the CQN paper's approach using distributional RL (C51)
-with hierarchical action discretization.
-"""
-
-from typing import Dict, Tuple
-
-import numpy as np
 import torch
 
-from src.common.device_utils import (
-    get_device,
-    save_checkpoint as save_ckpt,
-    load_checkpoint as load_ckpt
-)
-from src.cqn.networks import CQNNetwork
-from src.cqn.replay_buffer import ReplayBuffer
+import utils
+from src.cqn.encoder import MultiViewCNNEncoder
+from src.cqn.critic import C2FCritic
+from src.cqn.networks import RandomShiftsAug
 
 
 class CQNAgent:
-    """
-    Coarse-to-fine Q-Network agent using distributional RL.
+    def __init__(
+            self,
+            rgb_obs_shape,
+            low_dim_obs_shape,
+            action_shape,
+            device,
+            lr,
+            feature_dim,
+            hidden_dim,
+            levels,
+            bins,
+            atoms,
+            v_min,
+            v_max,
+            bc_lambda,
+            bc_margin,
+            critic_lambda,
+            critic_target_tau,
+            weight_decay,
+            num_expl_steps,
+            update_every_steps,
+            stddev_schedule,
+            use_logger,
+    ):
+        self.device = device
+        self.critic_target_tau = critic_target_tau
+        self.update_every_steps = update_every_steps
+        self.use_logger = use_logger
+        self.num_expl_steps = num_expl_steps
+        self.stddev_schedule = stddev_schedule
+        self.bc_lambda = bc_lambda
+        self.bc_margin = bc_margin
+        self.critic_lambda = critic_lambda
+        self.encoder = MultiViewCNNEncoder(rgb_obs_shape).to(device)
 
-    Implements hierarchical action discretization where the agent iteratively
-    refines action selection from coarse to fine levels using C51 distributional
-    value estimation.
-    """
+        # Check if multi-view or single-view
+        self.is_multiview = len(rgb_obs_shape) == 4
 
-    def __init__(self, config, obs_shape: Tuple, action_spec: Dict):
-        """
-        Initialize CQN agent.
+        self.critic = C2FCritic(
+            action_shape,
+            self.encoder.repr_dim,
+            low_dim_obs_shape,
+            feature_dim,
+            hidden_dim,
+            levels,
+            bins,
+            atoms,
+            v_min,
+            v_max,
+        ).to(device)
+        self.critic_target = C2FCritic(
+            action_shape,
+            self.encoder.repr_dim,
+            low_dim_obs_shape,
+            feature_dim,
+            hidden_dim,
+            levels,
+            bins,
+            atoms,
+            v_min,
+            v_max,
+        ).to(device)
+        self.critic_target.load_state_dict(self.critic.state_dict())
 
-        Args:
-            config: Configuration object with hyperparameters.
-            obs_shape: Shape of observations.
-            action_spec: Dictionary with 'low' and 'high' action bounds.
-        """
-        self.config = config
-        self.obs_shape = obs_shape
-        self.action_spec = action_spec
-        self.device, self.is_tpu, self.use_amp = get_device()
-
-        self._initialize_components()
-
-    def _initialize_components(self) -> None:
-        """Initialize network, optimizer, and replay buffer."""
-        self.num_levels = self.config.num_levels
-        self.num_bins = self.config.num_bins
-        self.action_dim = len(self.action_spec["low"])
-
-        self.initial_low = torch.tensor(
-            self.action_spec["low"], dtype=torch.float32, device=self.device
+        self.encoder_opt = torch.optim.AdamW(
+            self.encoder.parameters(), lr=lr, weight_decay=weight_decay
         )
-        self.initial_high = torch.tensor(
-            self.action_spec["high"], dtype=torch.float32, device=self.device
+        self.critic_opt = torch.optim.AdamW(
+            self.critic.parameters(), lr=lr, weight_decay=weight_decay
         )
 
-        self.network = CQNNetwork(
-            self.config,
-            self.obs_shape,
-            self.action_dim,
-            self.num_levels,
-            self.num_bins,
-            self.config.num_atoms,
-            self.config.v_min,
-            self.config.v_max
-        ).to(self.device)
+        self.aug = RandomShiftsAug(pad=4)
 
-        self.target_network = CQNNetwork(
-            self.config,
-            self.obs_shape,
-            self.action_dim,
-            self.num_levels,
-            self.num_bins,
-            self.config.num_atoms,
-            self.config.v_min,
-            self.config.v_max
-        ).to(self.device)
-        self.target_network.load_state_dict(self.network.state_dict())
-        self.target_network.eval()
+        self.train()
+        self.critic_target.eval()
 
-        if self.network.encoder is not None:
-            self.encoder_opt = torch.optim.Adam(
-                self.network.encoder.parameters(),
-                lr=self.config.lr
-            )
+        print(self.encoder)
+        print(self.critic)
+
+    def train(self, training=True):
+        self.training = training
+        self.encoder.train(training)
+        self.critic.train(training)
+
+    def act(self, rgb_obs, low_dim_obs, step, eval_mode):
+        rgb_obs = torch.as_tensor(rgb_obs, device=self.device).unsqueeze(0)
+        low_dim_obs = torch.as_tensor(low_dim_obs, device=self.device).unsqueeze(0)
+        rgb_obs = self.encoder(rgb_obs)
+        stddev = utils.schedule(self.stddev_schedule, step)
+        action, _ = self.critic_target.get_action(
+            rgb_obs, low_dim_obs
+        )
+        stddev = torch.ones_like(action) * stddev
+        dist = utils.TruncatedNormal(action, stddev)
+        if eval_mode:
+            action = dist.mean
         else:
-            self.encoder_opt = None
-
-        self.critic_opt = torch.optim.Adam(
-            self.network.critic.parameters(),
-            lr=self.config.lr
-        )
-
-        self.replay_buffer = ReplayBuffer(
-            capacity=self.config.replay_buffer_size,
-            obs_shape=self.obs_shape,
-            action_shape=(self.action_dim,),
-            device=self.device
-        )
-
-        self._initialize_training_state()
-        
-        self.bin_selection_history = {level: {dim: [] for dim in range(self.action_dim)} 
-                                     for level in range(self.num_levels)}
-        self.action_range_history = []
-
-    def _initialize_training_state(self) -> None:
-        """Initialize training state variables."""
-        self.training_steps = 0
-        self.num_expl_steps = self.config.num_seed_frames // self.config.action_repeat
-
-    def act(self, obs: np.ndarray, step: int, eval_mode: bool = False) -> np.ndarray:
-        """
-        Select action using hierarchical coarse-to-fine strategy.
-
-        Args:
-            obs: Observation array.
-            step: Current training step.
-            eval_mode: Whether in evaluation mode.
-
-        Returns:
-            Continuous action array.
-        """
-        obs = torch.as_tensor(obs, device=self.device, dtype=torch.float32)
-        if len(obs.shape) == len(self.obs_shape):
-            obs = obs.unsqueeze(0)
-
-        with torch.no_grad():
-            if self.network.encoder is not None:
-                obs_features = self.network.encoder(obs)
-            else:
-                obs_features = obs.flatten(1)
-
-            stddev = self._get_stddev(step)
-            action, action_metrics = self.network.critic.get_action(obs_features)
-
-            if eval_mode:
-                action = action
-            else:
-                stddev_tensor = torch.ones_like(action) * stddev
-                noise = torch.randn_like(action) * stddev_tensor
-                action = action + noise
-
-                if step < self.num_expl_steps:
-                    action.uniform_(-1.0, 1.0)
-
-            action = self._encode_decode_action(action)
-
+            action = dist.sample(clip=None)
+            if step < self.num_expl_steps:
+                action.uniform_(-1.0, 1.0)
+        action = self.critic.encode_decode_action(action)
         return action.cpu().numpy()[0]
 
-    def _get_stddev(self, step: int) -> float:
-        """Get exploration noise standard deviation."""
-        if isinstance(self.config.stddev_schedule, str):
-            import re
-            match = re.match(r"linear\((.+),(.+),(.+)\)", self.config.stddev_schedule)
-            if match:
-                init, final, duration = [float(g) for g in match.groups()]
-                mix = np.clip(step / duration, 0.0, 1.0)
-                return (1.0 - mix) * init + mix * final
-        return float(self.config.stddev_schedule)
+    def update_critic(
+            self,
+            rgb_obs,
+            low_dim_obs,
+            action,
+            reward,
+            discount,
+            next_rgb_obs,
+            next_low_dim_obs,
+            demos,
+    ):
+        metrics = dict()
 
-    def _encode_decode_action(self, continuous_action: torch.Tensor) -> torch.Tensor:
-        """
-        Encode continuous action to discrete then decode back.
+        with torch.no_grad():
+            next_action, mets = self.critic.get_action(next_rgb_obs, next_low_dim_obs)
+            target_q_probs_a = self.critic_target.compute_target_q_dist(
+                next_rgb_obs, next_low_dim_obs, next_action, reward, discount
+            )
+            if self.use_logger:
+                metrics.update(**mets)
 
-        This ensures actions align with the discretization grid.
-
-        Args:
-            continuous_action: Continuous action tensor.
-
-        Returns:
-            Discretized continuous action.
-        """
-        from src.cqn.cqn_utils import encode_action, decode_action
-
-        discrete_action = encode_action(
-            continuous_action,
-            self.initial_low,
-            self.initial_high,
-            self.num_levels,
-            self.num_bins,
+        q_probs, q_probs_a, log_q_probs, log_q_probs_a = self.critic(
+            rgb_obs, low_dim_obs, action
         )
-        continuous_action = decode_action(
-            discrete_action,
-            self.initial_low,
-            self.initial_high,
-            self.num_levels,
-            self.num_bins,
-        )
-        return continuous_action
+        q_critic_loss = -torch.sum(target_q_probs_a * log_q_probs_a, 3).mean()
+        critic_loss = self.critic_lambda * q_critic_loss
 
-    def update(self, replay_iter, step: int) -> Dict[str, float]:
-        """
-        Update agent using a batch from replay buffer.
+        if self.use_logger:
+            metrics["q_critic_loss"] = q_critic_loss.item()
 
-        Args:
-            replay_iter: Iterator over replay buffer.
-            step: Current training step.
+        if self.bc_lambda > 0.0:
+            demos = demos.float().squeeze(1)
+            if self.use_logger:
+                metrics["ratio_of_demos"] = demos.mean().item()
 
-        Returns:
-            Dictionary of training metrics.
-        """
-        metrics = {}
+            if torch.sum(demos) > 0:
+                q_probs_cdf = torch.cumsum(q_probs, -1)
+                q_probs_a_cdf = torch.cumsum(q_probs_a, -1)
+                bc_fosd_loss = (
+                    (q_probs_a_cdf.unsqueeze(-2) - q_probs_cdf)
+                    .clamp(min=0)
+                    .sum(-1)
+                    .mean([-1, -2, -3])
+                )
+                bc_fosd_loss = (bc_fosd_loss * demos).sum() / demos.sum()
+                critic_loss = critic_loss + self.bc_lambda * bc_fosd_loss
+                if self.use_logger:
+                    metrics["bc_fosd_loss"] = bc_fosd_loss.item()
 
-        if step % self.config.update_every_steps != 0:
+                if self.bc_margin > 0:
+                    qs = (q_probs * self.critic.support.expand_as(q_probs)).sum(-1)
+                    qs_a = (q_probs_a * self.critic.support.expand_as(q_probs_a)).sum(
+                        -1
+                    )
+                    margin_loss = torch.clamp(
+                        self.bc_margin - (qs_a.unsqueeze(-1) - qs), min=0
+                    ).mean([-1, -2, -3])
+                    margin_loss = (margin_loss * demos).sum() / demos.sum()
+                    critic_loss = critic_loss + self.bc_lambda * margin_loss
+                    if self.use_logger:
+                        metrics["bc_margin_loss"] = margin_loss.item()
+
+        self.encoder_opt.zero_grad(set_to_none=True)
+        self.critic_opt.zero_grad(set_to_none=True)
+        critic_loss.backward()
+        self.critic_opt.step()
+        self.encoder_opt.step()
+
+        return metrics
+
+    def update(self, replay_iter, step):
+        metrics = dict()
+
+        if step % self.update_every_steps != 0:
             return metrics
 
         batch = next(replay_iter)
-        obs, action, reward, discount, next_obs = self._to_torch(batch)
+        (
+            rgb_obs,
+            low_dim_obs,
+            action,
+            reward,
+            discount,
+            next_rgb_obs,
+            next_low_dim_obs,
+            demos,
+        ) = utils.to_torch(batch, self.device)
 
-        if self.network.encoder is not None:
-            obs = self.network.aug(obs.float())
-            next_obs = self.network.aug(next_obs.float())
+        rgb_obs = rgb_obs.float()
+        next_rgb_obs = next_rgb_obs.float()
 
-            obs = self.network.encoder(obs)
-            with torch.no_grad():
-                next_obs = self.network.encoder(next_obs)
+        # Apply augmentation based on whether it's multi-view or single-view
+        if self.is_multiview:
+            # Multi-view: [B, num_views, C, H, W]
+            rgb_obs = torch.stack(
+                [self.aug(rgb_obs[:, v]) for v in range(rgb_obs.shape[1])], 1
+            )
+            next_rgb_obs = torch.stack(
+                [self.aug(next_rgb_obs[:, v]) for v in range(next_rgb_obs.shape[1])], 1
+            )
         else:
-            obs = obs.flatten(1)
-            next_obs = next_obs.flatten(1)
+            # Single-view: [B, C, H, W]
+            rgb_obs = self.aug(rgb_obs)
+            next_rgb_obs = self.aug(next_rgb_obs)
 
-        metrics["batch_reward"] = reward.mean().item()
-
-        critic_metrics = self._update_critic(obs, action, reward, discount, next_obs)
-        metrics.update(critic_metrics)
-
-        self._soft_update_target()
-
-        return metrics
-
-    def _update_critic(
-            self,
-            obs: torch.Tensor,
-            action: torch.Tensor,
-            reward: torch.Tensor,
-            discount: torch.Tensor,
-            next_obs: torch.Tensor,
-    ) -> Dict[str, float]:
-        """
-        Update critic network using distributional RL loss.
-
-        Args:
-            obs: Observation features.
-            action: Actions taken.
-            reward: Rewards received.
-            discount: Discount factors.
-            next_obs: Next observation features.
-
-        Returns:
-            Dictionary of critic metrics.
-        """
-        metrics = {}
-
+        rgb_obs = self.encoder(rgb_obs)
         with torch.no_grad():
-            next_action, target_q_metrics = self.target_network.critic.get_action(next_obs)
-            metrics.update(target_q_metrics)
+            next_rgb_obs = self.encoder(next_rgb_obs)
 
-            target_q_probs_a = self.target_network.critic.compute_target_q_dist(
-                next_obs, next_action, reward, discount
+        if self.use_logger:
+            metrics["batch_reward"] = reward.mean().item()
+
+        metrics.update(
+            self.update_critic(
+                rgb_obs,
+                low_dim_obs,
+                action,
+                reward,
+                discount,
+                next_rgb_obs,
+                next_low_dim_obs,
+                demos,
             )
+        )
 
-        _, _, _, log_q_probs_a = self.network.critic(obs, action)
-
-        critic_loss = -torch.sum(target_q_probs_a * log_q_probs_a, -1).mean()
-
-        metrics["critic_loss"] = critic_loss.item()
-
-        if self.encoder_opt is not None:
-            self.encoder_opt.zero_grad(set_to_none=True)
-        self.critic_opt.zero_grad(set_to_none=True)
-
-        critic_loss.backward()
-
-        self.critic_opt.step()
-        if self.encoder_opt is not None:
-            self.encoder_opt.step()
+        utils.soft_update_params(
+            self.critic, self.critic_target, self.critic_target_tau
+        )
 
         return metrics
-
-    def _soft_update_target(self) -> None:
-        """Soft update target network parameters."""
-        tau = self.config.critic_target_tau
-
-        for param, target_param in zip(
-                self.network.parameters(), self.target_network.parameters()
-        ):
-            target_param.data.copy_(
-                tau * param.data + (1 - tau) * target_param.data
-            )
-
-    def _to_torch(self, batch):
-        """Convert batch to torch tensors."""
-        return tuple(torch.as_tensor(x, device=self.device) for x in batch)
-
-    def store_transition(
-            self, obs, action: np.ndarray, reward: float, next_obs, done: bool
-    ) -> None:
-        """
-        Store transition in replay buffer.
-
-        Args:
-            obs: Observation.
-            action: Action taken.
-            reward: Reward received.
-            next_obs: Next observation.
-            done: Whether episode is done.
-        """
-        discount = 1.0 if not done else 0.0
-        self.replay_buffer.add(obs, action, reward, discount, next_obs)
-
-    def save_checkpoint(self, filepath: str, episode: int) -> None:
-        """
-        Save agent checkpoint.
-
-        Args:
-            filepath: Path to save checkpoint.
-            episode: Current episode number.
-        """
-        checkpoint = {
-            "network_state_dict": self.network.state_dict(),
-            "target_network_state_dict": self.target_network.state_dict(),
-            "critic_opt_state_dict": self.critic_opt.state_dict(),
-            "training_steps": self.training_steps,
-            "episode": episode,
-            "config": self.config,
-            "bin_selection_history": self.bin_selection_history,
-            "action_range_history": self.action_range_history,
-        }
-        if self.encoder_opt is not None:
-            checkpoint["encoder_opt_state_dict"] = self.encoder_opt.state_dict()
-
-        save_ckpt(checkpoint, filepath, self.is_tpu)
-
-    def load_checkpoint(self, filepath: str) -> int:
-        """
-        Load agent checkpoint.
-
-        Args:
-            filepath: Path to checkpoint file.
-
-        Returns:
-            Episode number from checkpoint.
-        """
-        checkpoint = load_ckpt(filepath, self.device, self.is_tpu)
-        self.network.load_state_dict(checkpoint["network_state_dict"])
-        self.target_network.load_state_dict(checkpoint["target_network_state_dict"])
-        self.critic_opt.load_state_dict(checkpoint["critic_opt_state_dict"])
-        if self.encoder_opt is not None and "encoder_opt_state_dict" in checkpoint:
-            self.encoder_opt.load_state_dict(checkpoint["encoder_opt_state_dict"])
-        self.training_steps = checkpoint["training_steps"]
-        
-        if "bin_selection_history" in checkpoint:
-            self.bin_selection_history = checkpoint["bin_selection_history"]
-        if "action_range_history" in checkpoint:
-            self.action_range_history = checkpoint["action_range_history"]
-            
-        return checkpoint.get("episode", 0)
-
-    def get_exploration_stats(self) -> Dict[str, any]:
-        stats = {}
-        
-        for level in range(self.num_levels):
-            for dim in range(self.action_dim):
-                history = self.bin_selection_history[level][dim]
-                if history:
-                    unique_bins = len(set(history))
-                    stats[f"level{level}_dim{dim}_unique_bins"] = unique_bins
-                    stats[f"level{level}_dim{dim}_coverage"] = unique_bins / self.num_bins
-                    
-                    bin_counts = {}
-                    for bin_idx in history:
-                        bin_counts[bin_idx] = bin_counts.get(bin_idx, 0) + 1
-                    stats[f"level{level}_dim{dim}_most_selected"] = max(bin_counts.items(), key=lambda x: x[1])[0]
-        
-        return stats
