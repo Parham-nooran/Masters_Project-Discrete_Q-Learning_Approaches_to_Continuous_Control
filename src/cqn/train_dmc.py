@@ -6,15 +6,15 @@ import numpy as np
 import torch
 from dm_env import specs
 
-import dmc
-import utils
+import src.cqn.dmc as dmc
+import src.cqn.utils as utils
 from src.common.checkpoint_manager import CheckpointManager
 from src.common.logger import Logger
 from src.common.metrics_tracker import MetricsTracker
 from src.common.training_utils import init_training
 from src.cqn.agent import CQNAgent
 from src.cqn.replay_buffer_dmc import ReplayBufferStorage, make_replay_loader
-from video import TrainVideoRecorder, VideoRecorder
+from src.cqn.video import TrainVideoRecorder, VideoRecorder
 
 torch.backends.cudnn.benchmark = True
 

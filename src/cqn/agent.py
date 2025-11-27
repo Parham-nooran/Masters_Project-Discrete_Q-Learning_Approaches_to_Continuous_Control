@@ -1,6 +1,6 @@
 import torch
 
-import utils
+import src.cqn.utils as utils
 from src.cqn.encoder import MultiViewCNNEncoder
 from src.cqn.critic import C2FCritic
 from src.cqn.networks import RandomShiftsAug
