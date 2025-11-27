@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path
 from types import SimpleNamespace
-
+import os
+os.environ['MUJOCO_GL'] = 'egl'
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
 import numpy as np
 import torch
 from dm_env import specs
