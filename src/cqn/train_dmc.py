@@ -69,20 +69,21 @@ def parse_args():
     parser.add_argument("--v-max", type=float, default=200, help="Maximum value")
     parser.add_argument("--critic-lambda", type=float, default=0.1, help="Critic Lambda")
     parser.add_argument("--stddev-schedule", type=str, default="0.1", help="Stddev schedule")
-    parser.add_argument("--bc-lambda", type=float, default=1.0, help="bc lambda")
-    parser.add_argument("--bc-margin", type=float, default=0.01, help="bc margin")
+    parser.add_argument("--bc-lambda", type=str, default="1.0", help="bc lambda")
+    parser.add_argument("--bc-margin", type=str, default="0.01", help="bc margin")
 
-    # Misc
+    # Logging and checkpointing
+    parser.add_argument("--log-interval", type=int, default=100, help="Log every N steps")
+    parser.add_argument("--checkpoint-interval", type=int, default=50000, help="Save checkpoint every N frames")
     parser.add_argument("--save-video", action="store_true", help="Save videos")
     parser.add_argument("--save-train-video", action="store_true", help="Save training videos")
     parser.add_argument("--save-snapshot", action="store_true", help="Save snapshots")
     parser.add_argument("--use-tb", action="store_true", help="Use tensorboard")
     parser.add_argument("--use-wandb", action="store_true", help="Use wandb")
 
-    # Checkpoint and metrics
-    parser.add_argument("--load-checkpoints", type=str, default=None, help="Path to checkpoint file")
-    parser.add_argument("--load-metrics", type=str, default=None, help="Path to metrics file")
-    parser.add_argument("--checkpoint-interval", type=int, default=100, help="Save checkpoint every N episodes")
+    # Checkpoint and metrics loading
+    parser.add_argument("--load-checkpoint", type=str, default=None, help="Path to checkpoint file")
+    parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
 
     return parser.parse_args()
 
@@ -140,6 +141,10 @@ class CQNTrainer(Logger):
         self._global_step = 0
         self._global_episode = 0
 
+        # Load checkpoint if specified
+        if self.config.resume or self.config.load_checkpoint:
+            self.load_checkpoint()
+
     def setup(self):
         """Setup environments and replay buffer."""
         self.train_env = dmc.make(
@@ -171,7 +176,7 @@ class CQNTrainer(Logger):
             self.config.save_snapshot,
             self.config.nstep,
             self.config.discount,
-            self.config.low_dim_obs_shape,
+            self.config.low_dim_obs_shape,  # Pass low_dim_obs_shape
         )
         self._replay_iter = None
 
@@ -226,13 +231,24 @@ class CQNTrainer(Logger):
             episode += 1
             self.video_recorder.save(f"{self.global_frame}.mp4")
 
-        self.logger.info(f"episode_reward: {total_reward / episode}")
-        self.logger.info(f"episode_length: {step * self.config.action_repeat / episode}")
-        self.logger.info(f"episode: {self.global_episode}")
-        self.logger.info(f"step: {self.global_step}")
+        avg_reward = total_reward / episode
+        avg_length = step * self.config.action_repeat / episode
+
+        self.logger.info(f"=== Evaluation at frame {self.global_frame} ===")
+        self.logger.info(f"Average episode reward: {avg_reward:.2f}")
+        self.logger.info(f"Average episode length: {avg_length:.2f}")
+        self.logger.info(f"Episode: {self.global_episode}")
+        self.logger.info(f"Step: {self.global_step}")
+
+        # Track evaluation metrics
+        self.metrics_tracker.log_episode(
+            episode=self.global_episode,
+            reward=avg_reward,
+            steps=int(avg_length),
+            episode_time=self.timer.total_time()
+        )
 
     def train(self):
-
         train_until_step = utils.Until(
             self.config.num_train_frames, self.config.action_repeat
         )
@@ -240,12 +256,20 @@ class CQNTrainer(Logger):
         eval_every_step = utils.Every(
             self.config.eval_every_frames, self.config.action_repeat
         )
+        checkpoint_every_step = utils.Every(
+            self.config.checkpoint_interval, self.config.action_repeat
+        )
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
         self.replay_storage.add(time_step)
         self.train_video_recorder.init(time_step.observation)
         metrics = None
+
+        # For tracking metrics over log interval
+        recent_rewards = []
+        recent_lengths = []
+
         while train_until_step(self.global_step):
             if time_step.last():
                 self._global_episode += 1
@@ -254,13 +278,38 @@ class CQNTrainer(Logger):
                 if metrics is not None:
                     elapsed_time, total_time = self.timer.reset()
                     episode_frame = episode_step * self.config.action_repeat
-                    self.logger.info(f"fps: {episode_frame / elapsed_time:.2f}")
-                    self.logger.info(f"total_time: {total_time:.2f}")
-                    self.logger.info(f"episode_reward: {episode_reward:.4f}")
-                    self.logger.info(f"episode_length: {episode_frame}")
-                    self.logger.info(f"episode: {self.global_episode}")
-                    self.logger.info(f"buffer_size: {len(self.replay_storage)}")
-                    self.logger.info(f"step: {self.global_step}")
+
+                    # Store for averaging
+                    recent_rewards.append(episode_reward)
+                    recent_lengths.append(episode_frame)
+
+                    # Log every log_interval episodes
+                    if self.global_episode % self.config.log_interval == 0:
+                        avg_reward = np.mean(recent_rewards)
+                        avg_length = np.mean(recent_lengths)
+                        fps = sum(recent_lengths) / elapsed_time if elapsed_time > 0 else 0
+
+                        self.logger.info(f"=== Training Progress ===")
+                        self.logger.info(f"Frame: {self.global_frame}")
+                        self.logger.info(f"Episode: {self.global_episode}")
+                        self.logger.info(f"Step: {self.global_step}")
+                        self.logger.info(f"Avg reward (last {len(recent_rewards)} eps): {avg_reward:.2f}")
+                        self.logger.info(f"Avg length: {avg_length:.2f}")
+                        self.logger.info(f"FPS: {fps:.2f}")
+                        self.logger.info(f"Buffer size: {len(self.replay_storage)}")
+                        self.logger.info(f"Total time: {total_time:.2f}s")
+
+                        # Track metrics
+                        self.metrics_tracker.log_episode(
+                            episode=self.global_episode,
+                            reward=avg_reward,
+                            steps=int(avg_length),
+                            episode_time=total_time
+                        )
+
+                        # Reset tracking
+                        recent_rewards = []
+                        recent_lengths = []
 
                 time_step = self.train_env.reset()
                 self.replay_storage.add(time_step)
@@ -271,12 +320,17 @@ class CQNTrainer(Logger):
                 episode_step = 0
                 episode_reward = 0
 
+            # Evaluation
             if eval_every_step(self.global_step):
-                self.logger.info(f"Global step: {self.global_step}")
-                self.logger.info(f"Eval total time: {self.timer.total_time():.2f}")
+                self.logger.info(f"Starting evaluation at step {self.global_step}")
                 self.eval()
 
+            # Checkpointing
+            if checkpoint_every_step(self.global_step):
+                self.save_checkpoint()
+
             with torch.no_grad(), utils.eval_mode(self.agent):
+                # Create dummy low_dim_obs with correct shape
                 low_dim_obs = np.zeros(self.config.low_dim_obs_shape, dtype=np.float32)
                 action = self.agent.act(
                     time_step.observation,
@@ -287,7 +341,7 @@ class CQNTrainer(Logger):
 
             if not seed_until_step(self.global_step):
                 metrics = self.agent.update(self.replay_iter, self.global_step)
-                if metrics:
+                if metrics and self.global_step % (self.config.log_interval * 10) == 0:
                     metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
                     self.logger.info(f"Training metrics - {metrics_str}")
 
@@ -297,6 +351,76 @@ class CQNTrainer(Logger):
             self.train_video_recorder.record(time_step.observation)
             episode_step += 1
             self._global_step += 1
+
+        # Final checkpoint and metrics save
+        self.logger.info("Training complete! Saving final checkpoint and metrics...")
+        self.save_checkpoint()
+        self.save_metrics()
+
+    def save_checkpoint(self):
+        """Save checkpoint with agent state and training progress."""
+        checkpoint_path = self.checkpoint_manager.save_checkpoint(
+            agent=self,
+            episode=self.global_episode,
+            task_name=self.config.task_name,
+            seed=self.config.seed
+        )
+        self.logger.info(f"Checkpoint saved at frame {self.global_frame}: {checkpoint_path}")
+
+    def load_checkpoint(self):
+        """Load checkpoint from file."""
+        checkpoint_path = self.config.load_checkpoint
+
+        if self.config.resume and not checkpoint_path:
+            checkpoint_path = self.checkpoint_manager.find_latest_checkpoint()
+
+        if checkpoint_path:
+            try:
+                checkpoint = torch.load(checkpoint_path)
+
+                # Load agent state
+                self.agent.encoder.load_state_dict(checkpoint['encoder_state_dict'])
+                self.agent.critic.load_state_dict(checkpoint['critic_state_dict'])
+                self.agent.critic_target.load_state_dict(checkpoint['critic_target_state_dict'])
+                self.agent.encoder_opt.load_state_dict(checkpoint['encoder_opt_state_dict'])
+                self.agent.critic_opt.load_state_dict(checkpoint['critic_opt_state_dict'])
+
+                # Load training state
+                self._global_step = checkpoint['global_step']
+                self._global_episode = checkpoint['global_episode']
+                self.timer = checkpoint.get('timer', utils.Timer())
+
+                self.logger.info(f"Loaded checkpoint from {checkpoint_path}")
+                self.logger.info(
+                    f"Resuming from episode {self.global_episode}, step {self.global_step}, frame {self.global_frame}")
+
+            except Exception as e:
+                self.logger.error(f"Failed to load checkpoint: {e}")
+                self.logger.info("Starting from scratch...")
+        else:
+            self.logger.info("No checkpoint found, starting fresh training")
+
+    def get_checkpoint_state(self):
+        """Get current state for checkpointing."""
+        return {
+            'encoder_state_dict': self.agent.encoder.state_dict(),
+            'critic_state_dict': self.agent.critic.state_dict(),
+            'critic_target_state_dict': self.agent.critic_target.state_dict(),
+            'encoder_opt_state_dict': self.agent.encoder_opt.state_dict(),
+            'critic_opt_state_dict': self.agent.critic_opt.state_dict(),
+            'global_step': self._global_step,
+            'global_episode': self._global_episode,
+            'timer': self.timer,
+            'config': self.config,
+        }
+
+    def save_metrics(self):
+        """Save training metrics."""
+        self.metrics_tracker.save_metrics(
+            agent="CQN",
+            task_name=self.config.task_name,
+            seed=self.config.seed
+        )
 
     def save_snapshot(self):
         snapshot = self.working_dir / "snapshot.pt"
