@@ -83,9 +83,6 @@ class CQNAgent:
         self.train()
         self.critic_target.eval()
 
-        print(self.encoder)
-        print(self.critic)
-
     def train(self, training=True):
         self.training = training
         self.encoder.train(training)
