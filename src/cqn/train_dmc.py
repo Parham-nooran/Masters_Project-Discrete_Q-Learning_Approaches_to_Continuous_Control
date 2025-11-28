@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 from types import SimpleNamespace
 import os
-# os.environ['MUJOCO_GL'] = 'osmesa'
+os.environ['MUJOCO_GL'] = 'osmesa'
 # os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 import numpy as np
