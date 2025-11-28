@@ -2,8 +2,9 @@ import argparse
 from pathlib import Path
 from types import SimpleNamespace
 import os
-os.environ['MUJOCO_GL'] = 'egl'
-os.environ['PYOPENGL_PLATFORM'] = 'egl'
+# os.environ['MUJOCO_GL'] = 'osmesa'
+# os.environ['PYOPENGL_PLATFORM'] = 'egl'
+
 import numpy as np
 import torch
 from dm_env import specs
@@ -70,13 +71,14 @@ def parse_args():
     parser.add_argument("--v-min", type=float, default=0, help="Minimum value")
     parser.add_argument("--v-max", type=float, default=200, help="Maximum value")
     parser.add_argument("--critic-lambda", type=float, default=0.1, help="Critic Lambda")
-    parser.add_argument("--stddev-schedule", type=str, default="0.1", help="Stddev schedule")
-    parser.add_argument("--bc-lambda", type=str, default="1.0", help="bc lambda")
-    parser.add_argument("--bc-margin", type=str, default="0.01", help="bc margin")
+    parser.add_argument("--stddev-schedule", type=float, default=0.1, help="Stddev schedule")
+    parser.add_argument("--bc-lambda", type=float, default=1.0, help="bc lambda")
+    parser.add_argument("--bc-margin", type=float, default=0.01, help="bc margin")
 
     # Logging and checkpointing
-    parser.add_argument("--log-interval", type=int, default=100, help="Log every N steps")
-    parser.add_argument("--checkpoint-interval", type=int, default=50000, help="Save checkpoint every N frames")
+    parser.add_argument("--log-interval", type=int, default=5, help="Log every N steps")
+    parser.add_argument("--checkpoint-interval", type=int, default=50000,
+                        help="Save checkpoint every N frames")
     parser.add_argument("--save-video", action="store_true", help="Save videos")
     parser.add_argument("--save-train-video", action="store_true", help="Save training videos")
     parser.add_argument("--save-snapshot", action="store_true", help="Save snapshots")

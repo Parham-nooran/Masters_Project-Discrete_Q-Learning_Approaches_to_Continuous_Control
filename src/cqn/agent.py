@@ -140,7 +140,7 @@ class CQNAgent:
         if self.use_logger:
             metrics["q_critic_loss"] = q_critic_loss.item()
 
-        if self.bc_lambda > 0.0:
+        if float(self.bc_lambda) > 0.0:
             demos = demos.float().squeeze(1)
             if self.use_logger:
                 metrics["ratio_of_demos"] = demos.mean().item()
