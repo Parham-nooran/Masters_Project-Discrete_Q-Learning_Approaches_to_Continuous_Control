@@ -2,6 +2,10 @@ import argparse
 from pathlib import Path
 from types import SimpleNamespace
 import os
+
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
+
 os.environ['MUJOCO_GL'] = 'osmesa'
 # os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
