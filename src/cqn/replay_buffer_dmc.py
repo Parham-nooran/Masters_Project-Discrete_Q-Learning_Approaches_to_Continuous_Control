@@ -206,7 +206,6 @@ def make_replay_loader(
         iterable,
         batch_size=batch_size,
         num_workers=num_workers,
-        pin_memory=True,
         worker_init_fn=_worker_init_fn,
     )
     return loader
