@@ -6,7 +6,7 @@ import os
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
 
-os.environ['MUJOCO_GL'] = 'osmesa'
+# os.environ['MUJOCO_GL'] = 'osmesa'
 # os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 import numpy as np
@@ -347,7 +347,7 @@ class CQNTrainer(Logger):
                     eval_mode=False
                 )
 
-            if not seed_until_step(self.global_step):
+            if not seed_until_step(self.global_step) and len(self.replay_storage) > 0:
                 metrics = self.agent.update(self.replay_iter, self.global_step)
                 if metrics and self.global_step % (self.config.log_interval * 10) == 0:
                     metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
