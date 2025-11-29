@@ -154,7 +154,7 @@ class ReplayBuffer(IterableDataset):
             traceback.print_exc()
         self._samples_since_last_fetch += 1
         episode = self._sample_episode()
-        idx = np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1
+        idx = int(np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1)
 
         rgb_obs = episode["observation"][idx - 1]
         next_rgb_obs = episode["observation"][idx + self._nstep - 1]
