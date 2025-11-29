@@ -433,6 +433,7 @@ class CQNTrainer(Logger):
 
     def _should_save_checkpoint(self):
         """Check if checkpoint should be saved."""
+        self.logger.info(f"Global step: {self.global_step}, Checkpoint interval: {self.config.checkpoint_interval}")
         return self.global_step % self.config.checkpoint_interval == 0
 
     def _should_update_agent(self):
