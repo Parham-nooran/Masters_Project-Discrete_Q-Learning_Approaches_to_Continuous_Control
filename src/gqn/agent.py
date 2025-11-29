@@ -101,11 +101,10 @@ class GrowingQNAgent(Logger):
         self.base_temperature = 1.0
         self.min_temperature = 0.01
         self.temperature_decay = 0.9995
-        self.steps_after_growth = 0
         self.target_update_tau = 0.005
 
     def get_current_action_mask(self):
-        """Get action mask for current resolution level with caching."""
+        """Get action mask for current resolution level."""
         current_bins = self.action_discretizer.num_bins
         max_bins = self.config.max_bins
 
@@ -137,13 +136,13 @@ class GrowingQNAgent(Logger):
         return mask
 
     def get_temperature(self):
-        """Compute current softmax temperature with reset after growth."""
+        """Compute current softmax temperature."""
         steps_for_decay = self.steps_since_growth
         temp = self.base_temperature * (self.temperature_decay ** steps_for_decay)
         return max(temp, self.min_temperature)
 
     def select_action(self, obs, evaluate=False):
-        """Select action using softmax policy with adaptive temperature."""
+        """Select action using softmax policy."""
         with torch.no_grad():
             obs_encoded = self.encoder(obs.unsqueeze(0)) if self.encoder else obs.unsqueeze(0)
             action_mask = self.get_current_action_mask()
@@ -155,7 +154,7 @@ class GrowingQNAgent(Logger):
             return self._softmax_action_selection(q_values)
 
     def _greedy_action_selection(self, q_values):
-        """Select greedy action for evaluation."""
+        """Select greedy action."""
         if self.config.decouple:
             actions = q_values.argmax(dim=2).squeeze(0)
             return self.action_discretizer.action_bins[
@@ -166,7 +165,7 @@ class GrowingQNAgent(Logger):
         return self.action_discretizer.action_bins[action_idx]
 
     def _softmax_action_selection(self, q_values):
-        """Select action using softmax with current temperature."""
+        """Select action using softmax."""
         temperature = self.get_temperature()
 
         if self.config.decouple:
@@ -194,7 +193,7 @@ class GrowingQNAgent(Logger):
         self.last_obs = next_obs.detach() if isinstance(next_obs, torch.Tensor) else next_obs
 
     def _to_discrete_action(self, action):
-        """Convert continuous action to discrete if needed."""
+        """Convert continuous action to discrete."""
         if isinstance(action, torch.Tensor):
             return continuous_to_discrete_action(
                 self.config, self.action_discretizer, action
@@ -202,7 +201,7 @@ class GrowingQNAgent(Logger):
         return action
 
     def maybe_grow_action_space(self, episode_return):
-        """Check and perform action space growth with proper Q-value initialization."""
+        """Check and perform action space growth."""
         if not self._should_check_growth():
             return False
 
@@ -215,87 +214,128 @@ class GrowingQNAgent(Logger):
         """Determine if growth should be checked."""
         min_episodes = max(self.config.min_episodes_to_grow, 200)
         return (
-                self.episode_count > min_episodes
-                and len(self.replay_buffer) > self.config.min_replay_size * 2
+            self.episode_count > min_episodes
+            and len(self.replay_buffer) > self.config.min_replay_size * 2
         )
 
     def _perform_growth(self):
-        """
-        Perform action space growth with conservative Q-value initialization.
-
-        Critical fix: Initialize new bins' Q-values via interpolation from existing bins
-        to prevent overestimation and reward drops.
-        """
+        """Perform action space growth with CORRECT Q-value initialization."""
         old_bins = self.action_discretizer.num_bins
-
         old_action_bins = self.action_discretizer.action_bins.clone()
 
         growth_occurred = self.action_discretizer.grow_action_space()
-
         if not growth_occurred:
             return False
 
         current_bins = self.action_discretizer.num_bins
         self.growth_history.append(current_bins)
 
-        self._initialize_new_q_values_conservatively(old_bins, current_bins, old_action_bins)
+        self._initialize_new_q_values_correctly(old_bins, current_bins, old_action_bins)
 
         self.steps_since_growth = 0
-        self.steps_after_growth = 0
-
         self._clear_mask_cache()
-
-        self._filter_replay_buffer_after_growth(old_bins, current_bins)
 
         self.logger.info(
             f"Episode {self.episode_count}: Grew from {old_bins} to {current_bins} bins"
         )
-        self.logger.info(f"Q-values initialized conservatively via interpolation")
-        self.logger.info(f"Temperature reset to {self.base_temperature}")
+        self.logger.info("Q-values initialized via state-based interpolation")
 
         return True
 
-    def _initialize_new_q_values_conservatively(self, old_bins, new_bins, old_action_bins):
+    def _initialize_new_q_values_correctly(self, old_bins, new_bins, old_action_bins):
         """
-        Initialize Q-values for new action bins via interpolation from old bins.
+        CORRECT implementation: Initialize new Q-values via interpolation.
 
-        This is THE KEY FIX that prevents reward drops after growth.
-        New bins get conservative Q-values instead of random high values.
+        Key insight from paper: We need to initialize the OUTPUT Q-values for new bins,
+        not the network weights. This is done by:
+        1. Sampling representative states from replay buffer
+        2. Computing Q-values for old bins
+        3. Interpolating to find Q-values for new bins
+        4. Using supervised learning to train new outputs
         """
+        if len(self.replay_buffer) < 100:
+            return
+
+        batch_size = min(256, len(self.replay_buffer))
+        states = self._sample_representative_states(batch_size)
+
         with torch.no_grad():
-            if self.config.decouple:
-                for network in [self.q_network, self.target_q_network]:
-                    for dim in range(self.action_discretizer.action_dim):
-                        new_actions = self.action_discretizer.action_bins[dim]
-                        old_actions = old_action_bins[dim]
+            if self.encoder:
+                states = self.encoder(states)
 
-                        for i, new_action in enumerate(new_actions):
-                            if i < old_bins:
-                                continue
+            old_mask = self._create_action_mask(old_bins, self.config.max_bins)
+            q1_old, q2_old = self.q_network(states, old_mask)
 
-                            distances = torch.abs(old_actions - new_action)
-                            nearest_idx = torch.argmin(distances)
+            target_q1_new = self._interpolate_q_values(q1_old, old_action_bins, old_bins, new_bins)
+            target_q2_new = self._interpolate_q_values(q2_old, old_action_bins, old_bins, new_bins)
 
-                            if hasattr(network, 'q1_network'):
-                                q1_output = network.q1_network[-1]
-                                q1_output.weight.data[:, dim * self.config.max_bins + i] = \
-                                    q1_output.weight.data[:, dim * self.config.max_bins + nearest_idx] * 0.95
-                                q1_output.bias.data[dim * self.config.max_bins + i] = \
-                                    q1_output.bias.data[dim * self.config.max_bins + nearest_idx] * 0.95
+        self._train_new_q_outputs(states, target_q1_new, target_q2_new, new_bins)
 
-                                if network.use_double_q:
-                                    q2_output = network.q2_network[-1]
-                                    q2_output.weight.data[:, dim * self.config.max_bins + i] = \
-                                        q2_output.weight.data[:, dim * self.config.max_bins + nearest_idx] * 0.95
-                                    q2_output.bias.data[dim * self.config.max_bins + i] = \
-                                        q2_output.bias.data[dim * self.config.max_bins + nearest_idx] * 0.95
+        self.target_q_network.load_state_dict(self.q_network.state_dict())
 
-    def _filter_replay_buffer_after_growth(self, old_bins, new_bins):
-        """
-        Remove transitions from replay buffer that used old resolution.
-        This prevents distribution mismatch between old and new action spaces.
-        """
-        pass
+    def _sample_representative_states(self, batch_size):
+        """Sample diverse states from replay buffer."""
+        indices = np.random.choice(len(self.replay_buffer), batch_size, replace=False)
+        states = []
+        for idx in indices:
+            transition = self.replay_buffer.buffer[idx]
+            states.append(transition[0])
+        return torch.stack(states).to(self.device)
+
+    def _interpolate_q_values(self, q_old, old_action_bins, old_bins, new_bins):
+        """Interpolate Q-values for new bins from old bins."""
+        if self.config.decouple:
+            batch_size = q_old.shape[0]
+            action_dim = self.action_discretizer.action_dim
+            q_new = torch.zeros(batch_size, action_dim, self.config.max_bins,
+                              device=self.device, dtype=q_old.dtype)
+
+            for dim in range(action_dim):
+                q_new[:, dim, :old_bins] = q_old[:, dim, :old_bins]
+
+                new_actions = self.action_discretizer.action_bins[dim, old_bins:new_bins]
+                old_actions_dim = old_action_bins[dim]
+
+                for i, new_action in enumerate(new_actions):
+                    distances = torch.abs(old_actions_dim - new_action)
+                    idx1 = torch.argmin(distances)
+
+                    distances[idx1] = float('inf')
+                    idx2 = torch.argmin(distances)
+
+                    w1 = 1.0 / (torch.abs(old_actions_dim[idx1] - new_action) + 1e-6)
+                    w2 = 1.0 / (torch.abs(old_actions_dim[idx2] - new_action) + 1e-6)
+                    w_sum = w1 + w2
+
+                    interpolated = (w1 * q_old[:, dim, idx1] + w2 * q_old[:, dim, idx2]) / w_sum
+                    q_new[:, dim, old_bins + i] = interpolated * 0.95
+
+            return q_new
+        else:
+            q_new = torch.full((q_old.shape[0], self.config.max_bins ** self.action_discretizer.action_dim),
+                             -1e6, device=self.device, dtype=q_old.dtype)
+            total_old = old_bins ** self.action_discretizer.action_dim
+            q_new[:, :total_old] = q_old[:, :total_old]
+            return q_new
+
+    def _train_new_q_outputs(self, states, target_q1, target_q2, new_bins):
+        """Train network to produce interpolated Q-values for new bins."""
+        new_mask = self._create_action_mask(new_bins, self.config.max_bins)
+
+        for _ in range(10):
+            self.q_optimizer.zero_grad()
+            if self.encoder:
+                self.encoder_optimizer.zero_grad()
+
+            q1_pred, q2_pred = self.q_network(states, new_mask)
+
+            loss = F.mse_loss(q1_pred, target_q1) + F.mse_loss(q2_pred, target_q2)
+            loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
+            self.q_optimizer.step()
+            if self.encoder:
+                self.encoder_optimizer.step()
 
     def _clear_mask_cache(self):
         """Clear cached action mask."""
@@ -303,7 +343,7 @@ class GrowingQNAgent(Logger):
             delattr(self, "_cached_mask")
 
     def update(self):
-        """Update networks using min double Q-learning with soft target updates."""
+        """Update networks using double Q-learning."""
         batch = check_and_sample_batch_from_replay_buffer(
             self.replay_buffer, self.config.min_replay_size, self.config.num_bins
         )
@@ -327,12 +367,7 @@ class GrowingQNAgent(Logger):
 
         self._optimize(loss)
         self._update_priorities(indices, td_errors)
-
-        if self.steps_after_growth < 1000:
-            self._soft_update_target_network()
-            self.steps_after_growth += 1
-        else:
-            self._maybe_update_target()
+        self._soft_update_target_network()
 
         self.training_step += 1
         self.steps_since_growth += 1
@@ -340,10 +375,7 @@ class GrowingQNAgent(Logger):
         return self._compute_metrics(loss, td_errors, q1_selected, q2_selected)
 
     def _soft_update_target_network(self):
-        """
-        Soft update of target network after growth.
-        Uses Polyak averaging instead of hard updates for stability.
-        """
+        """Soft update of target network."""
         for target_param, param in zip(
                 self.target_q_network.parameters(), self.q_network.parameters()
         ):
@@ -353,7 +385,7 @@ class GrowingQNAgent(Logger):
             )
 
     def _compute_targets(self, next_obs_encoded, rewards, dones, discounts, action_mask):
-        """Compute target Q-values using min of double Q-networks."""
+        """Compute target Q-values."""
         with torch.no_grad():
             q1_target, q2_target = self.target_q_network(next_obs_encoded, action_mask)
             q1_online, q2_online = self.q_network(next_obs_encoded, action_mask)
@@ -369,7 +401,7 @@ class GrowingQNAgent(Logger):
             )
 
     def _compute_decoupled_targets(self, q1_target, q2_target, q_min, rewards, dones, discounts):
-        """Compute targets for decoupled action space using min double Q."""
+        """Compute targets for decoupled action space."""
         next_actions = q_min.argmax(dim=2)
         batch_indices = torch.arange(q1_target.shape[0], device=self.device)
         dim_indices = torch.arange(self.action_discretizer.action_dim, device=self.device)
@@ -385,7 +417,7 @@ class GrowingQNAgent(Logger):
         return rewards + discounts * q_target_values * (~dones).float()
 
     def _compute_coupled_targets(self, q1_target, q2_target, q_min, rewards, dones, discounts):
-        """Compute targets for coupled action space using min double Q."""
+        """Compute targets for coupled action space."""
         next_actions = q_min.argmax(dim=1)
         q1_values = q1_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
         q2_values = q2_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
@@ -416,29 +448,25 @@ class GrowingQNAgent(Logger):
         return q1_selected, q2_selected
 
     def _compute_loss(self, q1_selected, q2_selected, targets, weights):
-        """Compute weighted Huber loss for both Q-networks."""
+        """Compute weighted loss."""
         td_error1 = targets - q1_selected
         td_error2 = targets - q2_selected
         huber_loss = nn.SmoothL1Loss(reduction='none', beta=self.config.huber_loss_parameter)
 
         loss1 = huber_loss(q1_selected, targets)
         loss2 = huber_loss(q2_selected, targets)
-        weighted_loss1 = (loss1 * weights).mean()
-        weighted_loss2 = (loss2 * weights).mean()
-        total_loss = weighted_loss1 + weighted_loss2
+        weighted_loss = ((loss1 + loss2) * weights).mean()
 
+        td_errors = 0.5 * (torch.abs(td_error1) + torch.abs(td_error2))
+        return weighted_loss, td_errors
+
+    def _optimize(self, loss):
+        """Perform optimization step."""
         self.q_optimizer.zero_grad()
         if self.encoder:
             self.encoder_optimizer.zero_grad()
 
-        total_loss.backward()
-        td_errors = 0.5 * (torch.abs(td_error1) + torch.abs(td_error2))
-        return total_loss, td_errors
-
-    def _optimize(self, loss):
-        """Perform optimization step with gradient clipping."""
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        loss.backward()
 
         if getattr(self.config, "clip_gradients", False):
             clip_norm = getattr(self.config, "clip_gradients_norm", 40.0)
@@ -451,17 +479,12 @@ class GrowingQNAgent(Logger):
             self.encoder_optimizer.step()
 
     def _update_priorities(self, indices, td_errors):
-        """Update replay buffer priorities based on TD errors."""
+        """Update replay buffer priorities."""
         priorities = td_errors.detach().cpu().numpy()
         self.replay_buffer.update_priorities(indices, priorities)
 
-    def _maybe_update_target(self):
-        """Periodically update target network."""
-        if self.training_step % self.config.target_update_period == 0:
-            self.target_q_network.load_state_dict(self.q_network.state_dict())
-
     def _compute_metrics(self, loss, td_errors, q1_selected, q2_selected):
-        """Compute and return training metrics."""
+        """Compute training metrics."""
         return {
             "loss": loss.item(),
             "mean_abs_td_error": td_errors.mean().item(),
@@ -473,21 +496,21 @@ class GrowingQNAgent(Logger):
         }
 
     def end_episode(self, episode_return):
-        """Handle end of episode and potential growth."""
+        """Handle end of episode."""
         self.episode_count += 1
         self.maybe_grow_action_space(episode_return)
 
     @property
     def epsilon(self):
-        """Compatibility property for logging."""
+        """Compatibility property."""
         return self.get_temperature()
 
     def update_epsilon(self, decay_rate=0.995, min_epsilon=0.01):
-        """Compatibility method for train_dmc.py."""
+        """Compatibility method."""
         pass
 
     def get_growth_info(self):
-        """Get information about current growth state."""
+        """Get growth state information."""
         return {
             "current_bins": self.action_discretizer.num_bins,
             "growth_history": self.growth_history,
@@ -496,7 +519,7 @@ class GrowingQNAgent(Logger):
         }
 
     def save_checkpoint(self, path, episode):
-        """Save agent checkpoint including GQN-specific state."""
+        """Save agent checkpoint."""
         checkpoint = {
             "episode": episode,
             "q_network_state_dict": self.q_network.state_dict(),
@@ -526,7 +549,7 @@ class GrowingQNAgent(Logger):
         self.logger.info(f"Checkpoint saved to {path}")
 
     def load_checkpoint(self, checkpoint_path):
-        """Load checkpoint and restore state."""
+        """Load checkpoint."""
         try:
             checkpoint = torch.load(
                 checkpoint_path, map_location=self.device, weights_only=False
@@ -536,14 +559,48 @@ class GrowingQNAgent(Logger):
             self.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
             self.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
 
-            self._restore_training_state(checkpoint)
-            self._restore_growth_state(checkpoint)
-            self._restore_replay_buffer(checkpoint)
-            self._restore_scheduler(checkpoint)
-            self._restore_encoder(checkpoint)
+            self.training_step = checkpoint.get("training_step", 0)
+            self.episode_count = checkpoint.get("episode_count", 0)
+            self.steps_since_growth = checkpoint.get("steps_since_growth", 0)
+
+            if "growth_history" in checkpoint:
+                self.growth_history = checkpoint["growth_history"]
+
+            if "action_discretizer_current_bins" in checkpoint:
+                self.action_discretizer.num_bins = checkpoint["action_discretizer_current_bins"]
+                self.action_discretizer.current_growth_idx = checkpoint[
+                    "action_discretizer_current_growth_idx"
+                ]
+                self.action_discretizer.action_bins = self.action_discretizer.all_action_bins[
+                    self.action_discretizer.num_bins
+                ]
+
+            if "replay_buffer_buffer" in checkpoint:
+                self.replay_buffer.buffer = checkpoint["replay_buffer_buffer"]
+                self.replay_buffer.position = checkpoint["replay_buffer_position"]
+                self.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
+                self.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
+                self.replay_buffer.to_device(self.device)
+
+            if "scheduler_returns_history" in checkpoint:
+                from collections import deque
+                self.scheduler.returns_history = deque(
+                    checkpoint["scheduler_returns_history"],
+                    maxlen=self.scheduler.window_size,
+                )
+                self.scheduler.last_growth_episode = checkpoint.get(
+                    "scheduler_last_growth_episode", 0
+                )
+
+            if self.encoder and "encoder_state_dict" in checkpoint:
+                self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
+                self.encoder_optimizer.load_state_dict(
+                    checkpoint["encoder_optimizer_state_dict"]
+                )
 
             self._clear_mask_cache()
-            self._log_checkpoint_info(checkpoint)
+            self.logger.info(f"Loaded checkpoint from episode {checkpoint['episode']}")
+            self.logger.info(f"Current resolution: {self.action_discretizer.num_bins} bins")
 
             return checkpoint["episode"]
         except Exception as e:
@@ -551,60 +608,3 @@ class GrowingQNAgent(Logger):
             import traceback
             self.logger.error(traceback.format_exc())
             return 0
-
-    def _restore_training_state(self, checkpoint):
-        """Restore training state from checkpoint."""
-        self.training_step = checkpoint.get("training_step", 0)
-        self.episode_count = checkpoint.get("episode_count", 0)
-        self.steps_since_growth = checkpoint.get("steps_since_growth", 0)
-
-    def _restore_growth_state(self, checkpoint):
-        """Restore growth state from checkpoint."""
-        if "growth_history" in checkpoint:
-            self.growth_history = checkpoint["growth_history"]
-
-        if "action_discretizer_current_bins" in checkpoint:
-            self.action_discretizer.num_bins = checkpoint["action_discretizer_current_bins"]
-
-        if "action_discretizer_current_growth_idx" in checkpoint:
-            self.action_discretizer.current_growth_idx = checkpoint[
-                "action_discretizer_current_growth_idx"
-            ]
-            self.action_discretizer.action_bins = self.action_discretizer.all_action_bins[
-                self.action_discretizer.num_bins
-            ]
-
-    def _restore_replay_buffer(self, checkpoint):
-        """Restore replay buffer from checkpoint."""
-        if "replay_buffer_buffer" in checkpoint:
-            self.replay_buffer.buffer = checkpoint["replay_buffer_buffer"]
-            self.replay_buffer.position = checkpoint["replay_buffer_position"]
-            self.replay_buffer.priorities = checkpoint["replay_buffer_priorities"]
-            self.replay_buffer.max_priority = checkpoint["replay_buffer_max_priority"]
-            self.replay_buffer.to_device(self.device)
-
-    def _restore_scheduler(self, checkpoint):
-        """Restore scheduler state from checkpoint."""
-        if "scheduler_returns_history" in checkpoint:
-            from collections import deque
-            self.scheduler.returns_history = deque(
-                checkpoint["scheduler_returns_history"],
-                maxlen=self.scheduler.window_size,
-            )
-            self.scheduler.last_growth_episode = checkpoint.get(
-                "scheduler_last_growth_episode", 0
-            )
-
-    def _restore_encoder(self, checkpoint):
-        """Restore encoder state from checkpoint if exists."""
-        if self.encoder and "encoder_state_dict" in checkpoint:
-            self.encoder.load_state_dict(checkpoint["encoder_state_dict"])
-            self.encoder_optimizer.load_state_dict(
-                checkpoint["encoder_optimizer_state_dict"]
-            )
-
-    def _log_checkpoint_info(self, checkpoint):
-        """Log checkpoint loading information."""
-        self.logger.info(f"Loaded checkpoint from episode {checkpoint['episode']}")
-        self.logger.info(f"Current resolution: {self.action_discretizer.num_bins} bins")
-        self.logger.info(f"Growth history: {self.growth_history}")
