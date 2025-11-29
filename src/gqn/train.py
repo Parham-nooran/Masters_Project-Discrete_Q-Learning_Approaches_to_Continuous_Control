@@ -16,7 +16,7 @@ from src.gqn.config import parse_args, create_config_from_args
 
 class GQNTrainer(Logger):
     """Trainer for Growing Q-Networks Agent."""
-    
+
     def __init__(self, config, working_dir="./output/gqn"):
         super().__init__(working_dir + "/logs")
         self.working_dir = working_dir
@@ -24,164 +24,203 @@ class GQNTrainer(Logger):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.agent_name = "gqn"
         self.checkpoint_manager = CheckpointManager(
-            self.logger, 
+            self.logger,
             checkpoint_dir=self.working_dir + "/checkpoints"
         )
-    
+
     def train(self):
         """Execute main training loop."""
         self._setup_training()
-        
+
         env = get_env(self.config.task, self.logger)
         obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
-        
+
         agent = GQNAgent(self.config, obs_shape, action_spec_dict)
-        
+
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
             self.config.load_checkpoints, agent
         )
-        
+
         metrics_tracker = self._initialize_metrics_tracker(
-            start_episode, 
+            start_episode,
             save_dir=self.working_dir + "/metrics"
         )
-        
+
         self._log_setup_info(agent)
-        
+
         self._run_training_loop(env, agent, metrics_tracker, start_episode)
         self._finalize_training(agent, metrics_tracker)
-        
+
         return agent
-    
+
     def _setup_training(self):
         """Initialize training environment."""
         init_training(self.config.seed, self.device, self.logger)
-    
+
     def _log_setup_info(self, agent):
         """Log training setup information."""
+        self.logger.info("=" * 80)
         self.logger.info("Growing Q-Networks Agent Setup:")
-        self.logger.info(f"  Task: {self.config.task}")
-        self.logger.info(f"  Action dimensions: {agent.action_space_manager.action_dim}")
-        self.logger.info(f"  Growth sequence: {agent.action_space_manager.growth_sequence}")
-        self.logger.info(f"  Growth schedule: {self.config.growing_schedule}")
-        self.logger.info(f"  Action penalty coeff: {self.config.action_penalty_coeff}")
-    
+        self.logger.info("=" * 80)
+        self.logger.info(f"Task: {self.config.task}")
+        self.logger.info(f"Seed: {self.config.seed}")
+        self.logger.info(f"Episodes: {self.config.num_episodes}")
+        self.logger.info(f"Max steps per episode: {self.config.max_steps_per_episode}")
+        self.logger.info("-" * 80)
+        self.logger.info(f"Action dimensions: {agent.action_space_manager.action_dim}")
+        self.logger.info(f"Growth sequence: {agent.action_space_manager.growth_sequence}")
+        self.logger.info(f"Growth schedule: {self.config.growing_schedule}")
+        self.logger.info(f"Initial bins: {self.config.initial_bins}")
+        self.logger.info(f"Final bins: {self.config.final_bins}")
+        self.logger.info("-" * 80)
+        self.logger.info(f"Learning rate: {self.config.learning_rate}")
+        self.logger.info(f"Batch size: {self.config.batch_size}")
+        self.logger.info(f"Discount: {self.config.discount}")
+        self.logger.info(f"N-step: {self.config.n_step}")
+        self.logger.info(f"Target update period: {self.config.target_update_period}")
+        self.logger.info(
+            f"Epsilon: {self.config.epsilon} (decay: {self.config.epsilon_decay}, min: {self.config.min_epsilon})")
+        self.logger.info("-" * 80)
+        self.logger.info(f"Min replay size: {self.config.min_replay_size}")
+        self.logger.info(f"Max replay size: {self.config.max_replay_size}")
+        self.logger.info(f"PER alpha: {self.config.per_alpha}")
+        self.logger.info(f"PER beta: {self.config.per_beta}")
+        self.logger.info("-" * 80)
+        self.logger.info(f"Action penalty coeff: {self.config.action_penalty_coeff}")
+        self.logger.info(f"Gradient clip: {self.config.gradient_clip}")
+        self.logger.info(f"Huber delta: {self.config.huber_delta}")
+        self.logger.info("-" * 80)
+        self.logger.info(f"Checkpoint interval: {self.config.checkpoint_interval}")
+        self.logger.info(f"Metrics save interval: {self.config.metrics_save_interval}")
+        self.logger.info(f"Log interval: {self.config.log_interval}")
+        self.logger.info(f"Detailed log interval: {self.config.detailed_log_interval}")
+        self.logger.info("=" * 80)
+
     def _run_training_loop(self, env, agent, metrics_tracker, start_episode):
         """Execute the main training loop."""
+        self.agent = agent
         metrics_accumulator = MetricsAccumulator()
         start_time = time.time()
-        
+
         for episode in range(start_episode, self.config.num_episodes):
             episode_metrics = self._run_episode(env, agent, metrics_accumulator)
-            
+
             self._log_episode_metrics(episode, episode_metrics, start_time)
-            
+
             grew = agent.check_and_grow(episode, episode_metrics['reward'])
             if grew:
                 growth_info = agent.action_space_manager.get_growth_info()
                 self.logger.info(
-                    f"Action space grew to {growth_info['current_bins']} bins "
-                    f"at episode {episode}"
+                    f">>> ACTION SPACE GREW to {growth_info['current_bins']} bins "
+                    f"at episode {episode} (stage {growth_info['stage']}/{growth_info['total_stages'] - 1})"
                 )
-            
-            agent.update_epsilon(decay_rate=0.995, min_epsilon=0.01)
-            
+
+            agent.update_epsilon()
+
             self._perform_periodic_maintenance(episode)
-            self._save_checkpoint_if_needed(agent, metrics_tracker, episode)
-            
-            episode_metrics['current_bins'] = agent.action_space_manager.current_bins
-            episode_metrics['growth_stage'] = agent.action_space_manager.current_growth_stage
-            
+            self._save_checkpoint_if_needed(agent, episode)
+            self._save_metrics_if_needed(metrics_tracker, episode)
+
             metrics_tracker.log_episode(episode=episode, **episode_metrics)
-    
+
     def _run_episode(self, env, agent, metrics_accumulator):
         """Run a single training episode."""
         episode_start_time = time.time()
         episode_reward = 0.0
         steps = 0
-        
+
         time_step = env.reset()
         obs = process_observation(
-            time_step.observation, 
-            self.config.use_pixels, 
+            time_step.observation,
+            self.config.use_pixels,
             self.device
         )
         agent.observe_first(obs)
-        
+
         while not time_step.last() and steps < self.config.max_steps_per_episode:
             action = agent.select_action(obs)
             action_np = self._convert_action_to_numpy(action)
-            
+
             time_step = env.step(action_np)
             next_obs = process_observation(
-                time_step.observation, 
-                self.config.use_pixels, 
+                time_step.observation,
+                self.config.use_pixels,
                 self.device
             )
             reward = time_step.reward if time_step.reward is not None else 0.0
             done = time_step.last()
-            
+
             agent.observe(action, reward, next_obs, done)
-            
+
             self._update_networks_if_ready(agent, metrics_accumulator)
-            
+
             obs = next_obs
             episode_reward += reward
             steps += 1
-        
+
         episode_time = time.time() - episode_start_time
         averages = metrics_accumulator.get_averages()
-        
+
         return {
             "reward": episode_reward,
             "steps": steps,
-            "loss": averages["loss"],
-            "mean_abs_td_error": averages["mean_abs_td_error"],
-            "mean_squared_td_error": averages["mean_squared_td_error"],
-            "q_mean": averages["q_mean"],
+            "loss": averages.get("loss", 0.0),
+            "mean_abs_td_error": averages.get("mean_abs_td_error", 0.0),
+            "mean_squared_td_error": averages.get("mean_squared_td_error", 0.0),
+            "q_mean": averages.get("q_mean", 0.0),
             "epsilon": agent.epsilon,
-            "mse_loss": averages["mse_loss"],
+            "mse_loss": averages.get("mse_loss", 0.0),
             "episode_time": episode_time,
+            "current_bins": agent.action_space_manager.current_bins,
+            "growth_stage": agent.action_space_manager.current_growth_stage,
         }
-    
+
     def _convert_action_to_numpy(self, action):
         """Convert action tensor to numpy array."""
         if isinstance(action, torch.Tensor):
             return action.cpu().numpy()
         return action
-    
+
     def _update_networks_if_ready(self, agent, metrics_accumulator):
         """Update networks if replay buffer has enough samples."""
         if len(agent.replay_buffer) <= self.config.min_replay_size:
             return
-        
+
         metrics = agent.update()
         if metrics:
+            metrics['loss'] = metrics.get('loss', 0.0)
+            metrics['q1_mean'] = metrics.get('q1_mean', 0.0)
+            metrics['mse_loss1'] = metrics.get('mse_loss1', 0.0)
+            metrics['mean_abs_td_error'] = metrics.get('mean_abs_td_error', 0.0)
+            metrics['mean_squared_td_error'] = metrics.get('mean_squared_td_error', 0.0)
             metrics_accumulator.update(metrics)
-    
+
     def _log_episode_metrics(self, episode, metrics, start_time):
         """Log episode metrics at specified intervals."""
         if episode % self.config.log_interval == 0:
             self._log_basic_metrics(episode, metrics)
-        
+
         if episode % self.config.detailed_log_interval == 0 and episode > 0:
             self._log_detailed_metrics(episode, start_time)
-    
+
     def _log_basic_metrics(self, episode, metrics):
         """Log basic episode metrics."""
+        buffer_size = len(self.agent.replay_buffer) if hasattr(self, 'agent') else 0
+
         self.logger.info(
-            f"Episode {episode:4d} | "
+            f"Ep {episode:4d} | "
             f"Steps {metrics['steps']:4d} | "
-            f"Reward: {metrics['reward']:7.2f} | "
+            f"R: {metrics['reward']:7.2f} | "
             f"Loss: {metrics['loss']:8.6f} | "
             f"MSE: {metrics['mse_loss']:8.6f} | "
-            f"TD Error: {metrics['mean_abs_td_error']:8.6f} | "
-            f"Q-mean: {metrics['q_mean']:6.3f} | "
-            f"Epsilon: {metrics['epsilon']:.4f} | "
+            f"TD: {metrics['mean_abs_td_error']:8.6f} | "
+            f"Q: {metrics['q_mean']:6.3f} | "
+            f"ε: {metrics['epsilon']:.4f} | "
             f"Bins: {metrics.get('current_bins', 'N/A')} | "
-            f"Time: {metrics['episode_time']:.2f}s"
+            f"Time: {metrics['episode_time']:.2f}s | "
+            f"Buf: {buffer_size:6d}"
         )
-    
+
     def _log_detailed_metrics(self, episode, start_time):
         """Log detailed training progress."""
         elapsed_time = time.time() - start_time
@@ -189,74 +228,92 @@ class GQNTrainer(Logger):
         avg_episode_time = elapsed_time / episodes_completed
         remaining_episodes = self.config.num_episodes - episode - 1
         eta = avg_episode_time * remaining_episodes
-        
-        self.logger.info(f"Episode {episode} Summary:")
-        self.logger.info(
-            f"Elapsed: {elapsed_time / 60:.1f}min | ETA: {eta / 60:.1f}min"
-        )
-    
+
+        self.logger.info("=" * 80)
+        self.logger.info(f"Episode {episode} Detailed Summary:")
+        self.logger.info(f"  Elapsed time: {elapsed_time / 60:.1f} min")
+        self.logger.info(f"  Estimated time remaining: {eta / 60:.1f} min")
+        self.logger.info(f"  Average episode time: {avg_episode_time:.2f} sec")
+        self.logger.info(f"  Episodes completed: {episodes_completed}/{self.config.num_episodes}")
+        self.logger.info(f"  Progress: {100 * episodes_completed / self.config.num_episodes:.1f}%")
+
+        if hasattr(self, 'agent'):
+            growth_info = self.agent.action_space_manager.get_growth_info()
+            self.logger.info(f"  Current bins: {growth_info['current_bins']}")
+            self.logger.info(f"  Growth stage: {growth_info['stage']}/{growth_info['total_stages'] - 1}")
+            self.logger.info(f"  Epsilon: {self.agent.epsilon:.4f}")
+            self.logger.info(f"  Replay buffer size: {len(self.agent.replay_buffer)}")
+
+        self.logger.info("=" * 80)
+
     def _perform_periodic_maintenance(self, episode):
         """Perform periodic memory cleanup."""
         if episode % 10 == 0 and self.device == "cuda":
             torch.cuda.empty_cache()
             gc.collect()
-        
+
         if self.device == "cuda":
             torch.cuda.synchronize()
-    
-    def _save_checkpoint_if_needed(self, agent, metrics_tracker, episode):
+
+    def _save_checkpoint_if_needed(self, agent, episode):
         """Save checkpoint at specified intervals."""
-        if episode % self.config.checkpoint_interval != 0:
+        if episode == 0 or (episode + 1) % self.config.checkpoint_interval != 0:
             return
-        
-        metrics_tracker.save_metrics(
-            self.agent_name, 
-            self.config.task, 
-            self.config.seed
-        )
-        
+
         checkpoint_path = self.checkpoint_manager.save_checkpoint(
             agent, episode, self.config.task, self.config.seed
         )
         self.logger.info(f"Checkpoint saved: {checkpoint_path}")
-    
+
+    def _save_metrics_if_needed(self, metrics_tracker, episode):
+        """Save metrics at specified intervals."""
+        if episode == 0 or (episode + 1) % self.config.metrics_save_interval != 0:
+            return
+
+        metrics_tracker.save_metrics(
+            self.agent_name,
+            self.config.task,
+            self.config.seed
+        )
+        self.logger.info(f"Metrics saved at episode {episode}")
+
     def _finalize_training(self, agent, metrics_tracker):
         """Finalize training by saving and plotting."""
         metrics_tracker.save_metrics(
-            self.agent_name, 
-            self.config.task, 
+            self.agent_name,
+            self.config.task,
             self.config.seed
         )
-        
+
         final_checkpoint = self.checkpoint_manager.save_checkpoint(
-            agent, 
-            self.config.num_episodes, 
-            self.config.task + "_final", 
+            agent,
+            self.config.num_episodes,
+            self.config.task + "_final",
             self.config.seed
         )
         self.logger.info(f"Final checkpoint saved: {final_checkpoint}")
-        
+
         self._generate_plots(metrics_tracker)
-    
+
     def _generate_plots(self, metrics_tracker):
         """Generate training plots."""
         self.logger.info("Generating plots...")
         plotter = PlottingUtils(
-            self.logger, 
-            metrics_tracker, 
+            self.logger,
+            metrics_tracker,
             self.working_dir + "/plots"
         )
         plotter.plot_training_curves(save=True)
         plotter.plot_reward_distribution(save=True)
         plotter.print_summary_stats()
-    
+
     def _initialize_metrics_tracker(self, start_episode, save_dir):
         """Initialize or load metrics tracker."""
         metrics_tracker = MetricsTracker(self.logger, save_dir)
-        
+
         if start_episode > 0 and self.config.load_metrics:
             metrics_tracker.load_metrics(self.config.load_metrics)
-        
+
         return metrics_tracker
 
 

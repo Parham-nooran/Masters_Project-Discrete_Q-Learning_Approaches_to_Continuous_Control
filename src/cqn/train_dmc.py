@@ -66,10 +66,10 @@ class TrainingConfig:
     @staticmethod
     def _add_replay_buffer_arguments(parser):
         parser.add_argument("--replay-buffer-size", type=int, default=1000000)
-        parser.add_argument("--replay-buffer-num-workers", type=int, default=4)
+        parser.add_argument("--replay-buffer-num-workers", type=int, default=1)
         parser.add_argument("--nstep", type=int, default=1)
         parser.add_argument("--low-dim-obs-shape", type=int, default=1)
-        parser.add_argument("--batch-size", type=int, default=512)
+        parser.add_argument("--batch-size", type=int, default=256)
 
     @staticmethod
     def _add_agent_arguments(parser):

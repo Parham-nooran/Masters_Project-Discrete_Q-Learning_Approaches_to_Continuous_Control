@@ -25,6 +25,9 @@ class GQNConfig:
     growing_schedule: str = "adaptive"
 
     epsilon: float = 0.1
+    epsilon_decay: float = 0.995
+    min_epsilon: float = 0.01
+
     huber_delta: float = 1.0
     gradient_clip: float = 40.0
 
@@ -32,9 +35,11 @@ class GQNConfig:
     per_beta: float = 0.4
 
     layer_size: int = 512
+    layer_size_bottleneck: int = 50
     num_layers: int = 2
 
     checkpoint_interval: int = 100
+    metrics_save_interval: int = 100
     log_interval: int = 5
     detailed_log_interval: int = 50
     eval_episodes: int = 10
@@ -50,7 +55,7 @@ def create_config_from_args(args):
     config = GQNConfig()
 
     for key, value in vars(args).items():
-        if hasattr(config, key):
+        if hasattr(config, key) and value is not None:
             setattr(config, key, value)
 
     return config
@@ -58,20 +63,82 @@ def create_config_from_args(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train Growing Q-Networks")
-    parser.add_argument("--task", type=str, default="walker_walk")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--num-episodes", type=int, default=2000)
-    parser.add_argument("--use-pixels", action="store_true")
-    parser.add_argument("--discount", type=float, default=0.99)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--initial-bins", type=int, default=2)
-    parser.add_argument("--final-bins", type=int, default=9)
+
+    parser.add_argument("--task", type=str, default="walker_walk",
+                        help="Environment task")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Random seed")
+    parser.add_argument("--num-episodes", type=int, default=2000,
+                        help="Number of episodes to train")
+    parser.add_argument("--max-steps-per-episode", type=int, default=1000,
+                        help="Maximum steps per episode")
+
+    parser.add_argument("--use-pixels", action="store_true",
+                        help="Use pixel observations")
+    parser.add_argument("--discount", type=float, default=0.99,
+                        help="Discount factor")
+    parser.add_argument("--n-step", type=int, default=3,
+                        help="N-step returns")
+    parser.add_argument("--batch-size", type=int, default=256,
+                        help="Batch size")
+    parser.add_argument("--learning-rate", type=float, default=1e-4,
+                        help="Learning rate")
+    parser.add_argument("--target-update-period", type=int, default=100,
+                        help="Target network update period")
+    parser.add_argument("--min-replay-size", type=int, default=1000,
+                        help="Minimum replay buffer size before training")
+    parser.add_argument("--max-replay-size", type=int, default=1000000,
+                        help="Maximum replay buffer size")
+
+    parser.add_argument("--initial-bins", type=int, default=2,
+                        help="Initial number of bins")
+    parser.add_argument("--final-bins", type=int, default=9,
+                        help="Final number of bins")
     parser.add_argument("--growing-schedule", type=str, default="adaptive",
-                        choices=["linear", "adaptive"])
-    parser.add_argument("--action-penalty-coeff", type=float, default=0.0)
-    parser.add_argument("--load-checkpoints", type=str, default=None)
-    parser.add_argument("--load-metrics", type=str, default=None)
-    parser.add_argument("--checkpoint-interval", type=int, default=100)
+                        choices=["linear", "adaptive"],
+                        help="Growth schedule type")
+
+    parser.add_argument("--epsilon", type=float, default=0.1,
+                        help="Initial epsilon for exploration")
+    parser.add_argument("--epsilon-decay", type=float, default=0.995,
+                        help="Epsilon decay rate")
+    parser.add_argument("--min-epsilon", type=float, default=0.01,
+                        help="Minimum epsilon")
+
+    parser.add_argument("--huber-delta", type=float, default=1.0,
+                        help="Huber loss delta")
+    parser.add_argument("--gradient-clip", type=float, default=40.0,
+                        help="Gradient clipping value")
+
+    parser.add_argument("--per-alpha", type=float, default=0.6,
+                        help="PER alpha parameter")
+    parser.add_argument("--per-beta", type=float, default=0.4,
+                        help="PER beta parameter")
+
+    parser.add_argument("--layer-size", type=int, default=512,
+                        help="Hidden layer size")
+    parser.add_argument("--layer-size-bottleneck", type=int, default=50,
+                        help="Encoder bottleneck size")
+    parser.add_argument("--num-layers", type=int, default=2,
+                        help="Number of hidden layers")
+
+    parser.add_argument("--checkpoint-interval", type=int, default=1000,
+                        help="Save checkpoints every N episodes")
+    parser.add_argument("--metrics-save-interval", type=int, default=100,
+                        help="Save metrics every N episodes")
+    parser.add_argument("--log-interval", type=int, default=5,
+                        help="Log progress every N episodes")
+    parser.add_argument("--detailed-log-interval", type=int, default=50,
+                        help="Detailed log every N episodes")
+    parser.add_argument("--eval-episodes", type=int, default=10,
+                        help="Number of evaluation episodes")
+
+    parser.add_argument("--action-penalty-coeff", type=float, default=0.0,
+                        help="Action penalty coefficient")
+
+    parser.add_argument("--load-checkpoints", type=str, default=None,
+                        help="Path to checkpoint file to resume from")
+    parser.add_argument("--load-metrics", type=str, default=None,
+                        help="Path to metrics file to resume from")
 
     return parser.parse_args()
