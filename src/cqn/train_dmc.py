@@ -1,13 +1,12 @@
 import argparse
+import os
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
-import os
 
-import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
 
-# os.environ['MUJOCO_GL'] = 'osmesa'
-
+os.environ['MUJOCO_GL'] = 'osmesa'
 
 import numpy as np
 import torch
