@@ -2,54 +2,73 @@ import numpy as np
 from collections import deque
 
 
-class GrowingScheduler:
-    """Conservative adaptive scheduler to prevent premature growth."""
+class GrowthScheduler:
+    """Manages when to grow action space resolution."""
 
-    def __init__(self, total_episodes, window_size=100, min_episodes_between_growth=150):
-        self.total_episodes = total_episodes
-        self.window_size = window_size
-        self.min_episodes_between_growth = min_episodes_between_growth
+    def __init__(self, schedule_type, num_episodes, num_growth_stages):
+        self.schedule_type = schedule_type
+        self.num_episodes = num_episodes
+        self.num_growth_stages = num_growth_stages
 
-        self.returns_history = deque(maxlen=window_size)
-        self.last_growth_episode = 0
+        if schedule_type == "linear":
+            self.growth_episodes = self._compute_linear_schedule()
+        else:
+            self.growth_episodes = []
+            self.return_history = deque(maxlen=100)
+            self.moving_avg_mean = 0.0
+            self.moving_avg_std = 0.0
 
-    def should_grow(self, episode, episode_return):
-        """Determine if action space should grow based on performance plateau."""
-        self.returns_history.append(episode_return)
+    def _compute_linear_schedule(self):
+        """Compute episodes at which to grow for linear schedule."""
+        if self.num_growth_stages <= 1:
+            return []
 
-        if not self._can_grow(episode):
+        interval = self.num_episodes / self.num_growth_stages
+        return [int(interval * (i + 1)) for i in range(self.num_growth_stages - 1)]
+
+    def should_grow(self, episode, current_return=None):
+        """Determine if action space should grow."""
+        if self.schedule_type == "linear":
+            return episode in self.growth_episodes
+        else:
+            return self._should_grow_adaptive(current_return)
+
+    def _should_grow_adaptive(self, current_return):
+        """Adaptive growth based on performance stagnation."""
+        if current_return is None:
             return False
 
-        if not self._has_plateaued():
+        self.return_history.append(current_return)
+
+        if len(self.return_history) < 50:
             return False
 
-        self.last_growth_episode = episode
-        return True
+        returns = np.array(self.return_history)
+        self.moving_avg_mean = np.mean(returns)
+        self.moving_avg_std = np.std(returns)
 
-    def _can_grow(self, episode):
-        """Check if enough episodes have passed to consider growth."""
-        return (
-                len(self.returns_history) >= self.window_size
-                and episode - self.last_growth_episode >= self.min_episodes_between_growth
-        )
+        threshold = self._compute_threshold()
 
-    def _has_plateaued(self):
-        """Check if performance has plateaued using conservative threshold."""
-        recent_window_size = 20
+        return self.moving_avg_mean < threshold
 
-        if len(self.returns_history) < self.window_size:
-            return False
+    def _compute_threshold(self):
+        """Compute threshold for adaptive growth."""
+        sign = np.sign(self.moving_avg_mean)
+        threshold = (1.0 - 0.05 * sign) * self.moving_avg_mean + 0.90 * self.moving_avg_std
+        return threshold
 
-        recent_returns = list(self.returns_history)[-recent_window_size:]
-        earlier_returns = list(self.returns_history)[:-recent_window_size]
-
-        if len(earlier_returns) < recent_window_size:
-            return False
-
-        recent_mean = np.mean(recent_returns)
-        earlier_mean = np.mean(earlier_returns)
-
-        improvement_threshold = 0.05 * max(abs(earlier_mean), 1.0)
-        actual_improvement = recent_mean - earlier_mean
-
-        return actual_improvement < improvement_threshold
+    def get_status(self):
+        """Get current scheduler status."""
+        if self.schedule_type == "linear":
+            return {
+                "type": "linear",
+                "growth_episodes": self.growth_episodes
+            }
+        else:
+            return {
+                "type": "adaptive",
+                "moving_avg_mean": self.moving_avg_mean,
+                "moving_avg_std": self.moving_avg_std,
+                "threshold": self._compute_threshold() if len(self.return_history) >= 50 else None,
+                "history_size": len(self.return_history)
+            }

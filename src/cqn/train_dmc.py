@@ -471,10 +471,10 @@ class CQNTrainer(Logger):
 
     def _process_episode_metrics(self, episode_metrics):
         """Process and log episode metrics."""
-        elapsed_time, total_time = self.timer.reset()
         episode_metrics.finalize_episode(self.config.action_repeat)
 
         if episode_metrics.should_log(self.global_episode, self.config.log_interval):
+            elapsed_time, total_time = self.timer.reset()
             self._log_episode_metrics(episode_metrics, elapsed_time, total_time)
             episode_metrics.clear_recent()
 
