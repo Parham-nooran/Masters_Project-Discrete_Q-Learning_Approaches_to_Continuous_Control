@@ -5,7 +5,7 @@ import warnings
 from pathlib import Path
 
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
-# os.environ['MUJOCO_GL'] = 'osmesa'
+os.environ['MUJOCO_GL'] = 'osmesa'
 
 import numpy as np
 import torch
