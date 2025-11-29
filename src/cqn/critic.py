@@ -319,10 +319,6 @@ class C2FCritic(nn.Module):
         self.atoms = atoms
         self.v_min = v_min
         self.v_max = v_max
-
-        self._initialize_parameters(action_shape, atoms, v_min, v_max)
-        self._initialize_components(action_shape, levels, bins)
-
         self.network = C2FCriticNetwork(
             repr_dim,
             low_dim,
@@ -333,6 +329,10 @@ class C2FCritic(nn.Module):
             bins,
             atoms,
         )
+        self._initialize_parameters(action_shape, atoms, v_min, v_max)
+        self._initialize_components(action_shape, levels, bins)
+
+
 
     def _initialize_parameters(self, action_shape, atoms, v_min, v_max):
         """Initialize learnable parameters."""
