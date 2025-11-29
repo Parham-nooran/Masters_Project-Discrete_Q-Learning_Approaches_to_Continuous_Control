@@ -94,7 +94,7 @@ class ReplayBuffer(IterableDataset):
         self._num_workers = max(1, num_workers)
         self._episode_fns = []
         self._episodes = dict()
-        self._nstep = nstep
+        self._nstep = int(nstep)
         self._discount = discount
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = fetch_every
@@ -157,8 +157,8 @@ class ReplayBuffer(IterableDataset):
         idx = int(np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1)
 
         rgb_obs = episode["observation"][idx - 1]
-        print(idx)
-        print(self._nstep)
+        print("Idx: ", idx)
+        print("_nstep: ", self._nstep)
         next_rgb_obs = episode["observation"][int(idx + self._nstep - 1)]
 
         # Create dummy low-dim observations (zeros)
