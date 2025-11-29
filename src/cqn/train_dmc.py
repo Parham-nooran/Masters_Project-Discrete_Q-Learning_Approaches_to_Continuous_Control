@@ -5,7 +5,7 @@ import warnings
 from pathlib import Path
 
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
-os.environ['MUJOCO_GL'] = 'osmesa'
+# os.environ['MUJOCO_GL'] = 'osmesa'
 
 import numpy as np
 import torch
@@ -302,6 +302,11 @@ class EpisodeMetrics:
         self.recent_lengths = []
 
 
+def _get_device():
+    """Determine and return the compute device."""
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 class CQNTrainer(Logger):
     """Main trainer for CQN agent on DMC tasks."""
 
@@ -311,17 +316,13 @@ class CQNTrainer(Logger):
         self.working_dir = Path(working_dir)
         self.working_dir.mkdir(parents=True, exist_ok=True)
 
-        self.device = self._get_device()
+        self.device = _get_device()
         self.timer = Timer()
         self._global_step = 0
         self._global_episode = 0
 
         self._initialize_components()
         self._load_checkpoint_if_needed()
-
-    def _get_device(self):
-        """Determine and return the compute device."""
-        return "cuda" if torch.cuda.is_available() else "cpu"
 
     def _initialize_components(self):
         """Initialize all training components."""

@@ -136,6 +136,24 @@ def _expand_for_batch(b, lower, upper, batch_size, reward_batch_size):
     return b, lower, upper
 
 
+def _add_lower_probabilities(m, probs, lower, upper, b, offset):
+    """Add probability mass to lower bins."""
+    m.view(-1).index_add_(
+        0,
+        (lower + offset).view(-1),
+        (probs * (upper.float() - b)).view(-1),
+    )
+
+
+def _add_upper_probabilities(m, probs, lower, upper, b, offset):
+    """Add probability mass to upper bins."""
+    m.view(-1).index_add_(
+        0,
+        (upper + offset).view(-1),
+        (probs * (b - lower.float())).view(-1),
+    )
+
+
 class DistributionalProjection:
     """Projects distributional Q-values for target computation."""
 
@@ -189,8 +207,8 @@ class DistributionalProjection:
         m = torch.zeros_like(next_q_probs)
         offset = self._compute_offset(batch_size, lower.device, lower.dtype)
 
-        self._add_lower_probabilities(m, next_q_probs, lower, upper, b, offset)
-        self._add_upper_probabilities(m, next_q_probs, lower, upper, b, offset)
+        _add_lower_probabilities(m, next_q_probs, lower, upper, b, offset)
+        _add_upper_probabilities(m, next_q_probs, lower, upper, b, offset)
 
         return m
 
@@ -208,26 +226,20 @@ class DistributionalProjection:
             .expand(batch_size, self.atoms)
         )
 
-    def _add_lower_probabilities(self, m, probs, lower, upper, b, offset):
-        """Add probability mass to lower bins."""
-        m.view(-1).index_add_(
-            0,
-            (lower + offset).view(-1),
-            (probs * (upper.float() - b)).view(-1),
-        )
-
-    def _add_upper_probabilities(self, m, probs, lower, upper, b, offset):
-        """Add probability mass to upper bins."""
-        m.view(-1).index_add_(
-            0,
-            (upper + offset).view(-1),
-            (probs * (b - lower.float())).view(-1),
-        )
-
 
 def _initialize_bounds(rgb_obs, bounds):
     """Initialize bounds for batch."""
     return bounds.repeat(rgb_obs.shape[0], 1).detach()
+
+
+def _record_metrics(level, q_values, bin_index, metrics):
+    """Record metrics for this level."""
+    selected_q = torch.gather(
+        q_values,
+        dim=-1,
+        index=bin_index.unsqueeze(-1)
+    )[..., 0]
+    metrics[f"critic_target_q_level{level}"] = selected_q.mean().item()
 
 
 class HierarchicalActionSelector:
@@ -265,7 +277,7 @@ class HierarchicalActionSelector:
         q_values = self.q_calculator.calculate(q_probs)
         bin_index = self._select_bin(q_values)
 
-        self._record_metrics(level, q_values, bin_index, metrics)
+        _record_metrics(level, q_values, bin_index, metrics)
 
         return self.interval_zoomer.zoom_in(low, high, bin_index)
 
@@ -275,15 +287,6 @@ class HierarchicalActionSelector:
         if argmax_q is None:
             argmax_q = q_values.max(-1)[1]
         return argmax_q
-
-    def _record_metrics(self, level, q_values, bin_index, metrics):
-        """Record metrics for this level."""
-        selected_q = torch.gather(
-            q_values,
-            dim=-1,
-            index=bin_index.unsqueeze(-1)
-        )[..., 0]
-        metrics[f"critic_target_q_level{level}"] = selected_q.mean().item()
 
 
 def _stack_distributions(q_probs, q_probs_a, log_q_probs, log_q_probs_a):
@@ -330,7 +333,7 @@ class C2FCritic(nn.Module):
             atoms,
         )
         self._initialize_parameters(action_shape, atoms, v_min, v_max)
-        self._initialize_components(action_shape, levels, bins)
+        self._initialize_components(levels, bins)
 
 
 
@@ -351,7 +354,7 @@ class C2FCritic(nn.Module):
         )
         self.delta_z = (v_max - v_min) / (atoms - 1)
 
-    def _initialize_components(self, action_shape, levels, bins):
+    def _initialize_components(self, levels, bins):
         """Initialize critic components."""
         self.action_encoder = ActionEncoder(
             self.initial_low,

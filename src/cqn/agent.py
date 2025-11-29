@@ -1,10 +1,9 @@
 import torch
-import torch.nn as nn
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 
-from src.cqn.encoder import MultiViewCNNEncoder
 from src.cqn.critic import C2FCritic
+from src.cqn.encoder import MultiViewCNNEncoder
 from src.cqn.networks import RandomShiftsAug
 
 
@@ -34,6 +33,18 @@ class TruncatedNormal(pyd.Normal):
         return self._clamp(x)
 
 
+def _create_distribution(mean_action, stddev):
+    """Create truncated normal distribution for action sampling."""
+    stddev_tensor = torch.ones_like(mean_action) * stddev
+    return TruncatedNormal(mean_action, stddev_tensor)
+
+
+def _random_action(action):
+    """Generate random action for exploration."""
+    action.uniform_(-1.0, 1.0)
+    return action
+
+
 class ActionSelector:
     """Handles action selection logic for the agent."""
 
@@ -44,7 +55,7 @@ class ActionSelector:
     def select_action(self, mean_action, step, eval_mode):
         """Select action based on current policy and exploration strategy."""
         stddev = self._compute_stddev(step)
-        distribution = self._create_distribution(mean_action, stddev)
+        distribution = _create_distribution(mean_action, stddev)
 
         if eval_mode:
             return distribution.mean
@@ -52,7 +63,7 @@ class ActionSelector:
         action = distribution.sample(clip=None)
 
         if self._should_explore_randomly(step):
-            action = self._random_action(action)
+            action = _random_action(action)
 
         return action
 
@@ -63,19 +74,9 @@ class ActionSelector:
         except (ValueError, TypeError):
             return self.stddev_schedule
 
-    def _create_distribution(self, mean_action, stddev):
-        """Create truncated normal distribution for action sampling."""
-        stddev_tensor = torch.ones_like(mean_action) * stddev
-        return TruncatedNormal(mean_action, stddev_tensor)
-
     def _should_explore_randomly(self, step):
         """Check if random exploration should be used."""
         return step < self.num_expl_steps
-
-    def _random_action(self, action):
-        """Generate random action for exploration."""
-        action.uniform_(-1.0, 1.0)
-        return action
 
 
 class DataAugmentation:
@@ -357,7 +358,7 @@ class CQNAgent:
 
         self._initialize_optimizers(lr, weight_decay)
         self._initialize_components(
-            rgb_obs_shape, bc_lambda, bc_margin, critic_lambda,
+            bc_lambda, bc_margin, critic_lambda,
             critic_target_tau, num_expl_steps, stddev_schedule
         )
 
@@ -411,7 +412,7 @@ class CQNAgent:
             weight_decay=weight_decay
         )
 
-    def _initialize_components(self, rgb_obs_shape, bc_lambda, bc_margin,
+    def _initialize_components(self, bc_lambda, bc_margin,
                                critic_lambda, critic_target_tau, num_expl_steps,
                                stddev_schedule):
         """Initialize agent components."""
