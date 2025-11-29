@@ -54,7 +54,7 @@ class ActionSelector:
 
     def select_action(self, mean_action, step, eval_mode):
         """Select action based on current policy and exploration strategy."""
-        stddev = self._compute_stddev(step)
+        stddev = self._compute_stddev()
         distribution = _create_distribution(mean_action, stddev)
 
         if eval_mode:
@@ -67,7 +67,7 @@ class ActionSelector:
 
         return action
 
-    def _compute_stddev(self, step):
+    def _compute_stddev(self):
         """Compute standard deviation for action noise."""
         try:
             return float(self.stddev_schedule)

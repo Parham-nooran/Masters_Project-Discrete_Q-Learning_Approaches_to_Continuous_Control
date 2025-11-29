@@ -275,6 +275,26 @@ class EpisodeCache:
         return len(self.episode_files) > 0
 
 
+def _get_episode_length_from_filename(file_path):
+    """Extract episode length from filename."""
+    parts = file_path.stem.split("_")
+    return int(parts[2])
+
+
+def _get_episode_index_from_filename(file_path):
+    """Extract episode index from filename."""
+    parts = file_path.stem.split("_")
+    return int(parts[1])
+
+
+def _get_worker_id():
+    """Get current worker ID."""
+    try:
+        return torch.utils.data.get_worker_info().id
+    except (AttributeError, RuntimeError):
+        return 0
+
+
 class ReplayBuffer(IterableDataset):
     """Replay buffer that loads episodes from disk and samples transitions."""
 
@@ -303,17 +323,10 @@ class ReplayBuffer(IterableDataset):
             return
 
         self.samples_since_last_fetch = 0
-        worker_id = self._get_worker_id()
+        worker_id = _get_worker_id()
 
         episode_files = self._get_sorted_episode_files()
         self._load_worker_episodes(episode_files, worker_id)
-
-    def _get_worker_id(self):
-        """Get current worker ID."""
-        try:
-            return torch.utils.data.get_worker_info().id
-        except (AttributeError, RuntimeError):
-            return 0
 
     def _get_sorted_episode_files(self):
         """Get sorted list of episode files."""
@@ -330,7 +343,7 @@ class ReplayBuffer(IterableDataset):
             if self._is_already_cached(file_path):
                 break
 
-            episode_length = self._get_episode_length_from_filename(file_path)
+            episode_length = _get_episode_length_from_filename(file_path)
 
             if not self._has_capacity(fetched_size, episode_length):
                 break
@@ -342,7 +355,7 @@ class ReplayBuffer(IterableDataset):
 
     def _should_load_file(self, file_path, worker_id):
         """Check if file should be loaded by this worker."""
-        episode_index = self._get_episode_index_from_filename(file_path)
+        episode_index = _get_episode_index_from_filename(file_path)
         return episode_index % self.num_workers == worker_id
 
     def _is_already_cached(self, file_path):
@@ -352,16 +365,6 @@ class ReplayBuffer(IterableDataset):
     def _has_capacity(self, fetched_size, episode_length):
         """Check if there's capacity for more episodes."""
         return fetched_size + episode_length <= self.episode_cache.max_size
-
-    def _get_episode_index_from_filename(self, file_path):
-        """Extract episode index from filename."""
-        parts = file_path.stem.split("_")
-        return int(parts[1])
-
-    def _get_episode_length_from_filename(self, file_path):
-        """Extract episode length from filename."""
-        parts = file_path.stem.split("_")
-        return int(parts[2])
 
     def _sample(self):
         """Sample a single transition from the replay buffer."""
