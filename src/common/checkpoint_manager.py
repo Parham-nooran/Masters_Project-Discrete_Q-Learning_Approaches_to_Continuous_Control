@@ -44,7 +44,7 @@ class CheckpointManager:
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         checkpoint_path = os.path.join(
             self.checkpoint_dir,
-            f"{task_name}_seed{seed}_ep{episode}.pth"
+            f"{task_name}_{seed}_{episode}.pth"
         )
 
         # Get checkpoint state from the trainer

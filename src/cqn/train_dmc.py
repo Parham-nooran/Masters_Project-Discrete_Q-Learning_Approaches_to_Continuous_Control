@@ -85,7 +85,6 @@ def parse_args():
                         help="Save checkpoint every N frames")
     parser.add_argument("--save-video", action="store_true", help="Save videos")
     parser.add_argument("--save-train-video", action="store_true", help="Save training videos")
-    parser.add_argument("--save-snapshot", action="store_true", help="Save snapshots")
     parser.add_argument("--use-tb", action="store_true", help="Use tensorboard")
     parser.add_argument("--use-wandb", action="store_true", help="Use wandb")
 
@@ -149,7 +148,6 @@ class CQNTrainer(Logger):
         self._global_step = 0
         self._global_episode = 0
 
-        # Load checkpoint if specified
         if self.config.resume or self.config.load_checkpoint:
             self.load_checkpoint()
 
@@ -181,10 +179,9 @@ class CQNTrainer(Logger):
             self.config.replay_buffer_size,
             self.config.batch_size,
             self.config.replay_buffer_num_workers,
-            self.config.save_snapshot,
             self.config.nstep,
             self.config.discount,
-            self.config.low_dim_obs_shape,  # Pass low_dim_obs_shape
+            self.config.low_dim_obs_shape,
         )
         self._replay_iter = None
 
@@ -264,9 +261,6 @@ class CQNTrainer(Logger):
         eval_every_step = utils.Every(
             self.config.eval_every_frames, self.config.action_repeat
         )
-        checkpoint_every_step = utils.Every(
-            self.config.checkpoint_interval, self.config.action_repeat
-        )
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
@@ -296,6 +290,7 @@ class CQNTrainer(Logger):
                         avg_reward = np.mean(recent_rewards)
                         avg_length = np.mean(recent_lengths)
                         fps = sum(recent_lengths) / elapsed_time if elapsed_time > 0 else 0
+                        self.metrics_tracker.save_metrics()
 
                         self.logger.info(f"=== Training Progress ===")
                         self.logger.info(f"Frame: {self.global_frame}")
@@ -306,15 +301,19 @@ class CQNTrainer(Logger):
                         self.logger.info(f"FPS: {fps:.2f}")
                         self.logger.info(f"Buffer size: {len(self.replay_storage)}")
                         self.logger.info(f"Total time: {total_time:.2f}s")
-
+                        self.logger.info(f"Action bin range: [{self.agent.critic.initial_low[0].item():.3f},"
+                                         f" {self.agent.critic.initial_high[0].item():.3f}]")
                         # Track metrics
                         self.metrics_tracker.log_episode(
                             episode=self.global_episode,
                             reward=avg_reward,
                             steps=int(avg_length),
-                            episode_time=total_time
+                            episode_time=self.timer.total_time(),
+                            action_ranges=[{
+                                'low': self.agent.critic.initial_low.cpu().numpy().tolist(),
+                                'high': self.agent.critic.initial_high.cpu().numpy().tolist()
+                            }]
                         )
-
                         # Reset tracking
                         recent_rewards = []
                         recent_lengths = []
@@ -323,8 +322,6 @@ class CQNTrainer(Logger):
                 self.replay_storage.add(time_step)
                 self.train_video_recorder.init(time_step.observation)
 
-                if self.config.save_snapshot:
-                    self.save_snapshot()
                 episode_step = 0
                 episode_reward = 0
 
@@ -334,7 +331,7 @@ class CQNTrainer(Logger):
                 self.eval()
 
             # Checkpointing
-            if checkpoint_every_step(self.global_step):
+            if self._global_step % self.config.checkpoint_interval == 0:
                 self.save_checkpoint()
 
             with torch.no_grad(), utils.eval_mode(self.agent):
@@ -429,21 +426,6 @@ class CQNTrainer(Logger):
             task_name=self.config.task_name,
             seed=self.config.seed
         )
-
-    def save_snapshot(self):
-        snapshot = self.working_dir / "snapshot.pt"
-        keys_to_save = ["agent", "timer", "_global_step", "_global_episode"]
-        payload = {k: self.__dict__[k] for k in keys_to_save}
-        with snapshot.open("wb") as f:
-            torch.save(payload, f)
-
-    def load_snapshot(self):
-        snapshot = self.working_dir / "snapshot.pt"
-        with snapshot.open("rb") as f:
-            payload = torch.load(f)
-        for k, v in payload.items():
-            self.__dict__[k] = v
-
 
 if __name__ == "__main__":
     args = parse_args()

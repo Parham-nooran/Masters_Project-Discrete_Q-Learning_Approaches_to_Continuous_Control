@@ -159,6 +159,7 @@ class ReplayBuffer(IterableDataset):
         rgb_obs = episode["observation"][idx - 1]
         next_rgb_obs = episode["observation"][idx + self._nstep - 1]
 
+        # Create dummy low-dim observations (zeros)
         low_dim_obs = np.zeros(self._low_dim_size, dtype=np.float32)
         next_low_dim_obs = np.zeros(self._low_dim_size, dtype=np.float32)
 
@@ -171,7 +172,7 @@ class ReplayBuffer(IterableDataset):
             reward += discount * step_reward
             discount *= episode["discount"][idx + i] * self._discount
 
-
+        # Add demo flag (all zeros for DMC, as there are no demonstrations)
         demos = np.zeros(1, dtype=np.float32)
 
         return (rgb_obs, low_dim_obs, action, reward, discount, next_rgb_obs, next_low_dim_obs, demos)
@@ -184,6 +185,7 @@ class ReplayBuffer(IterableDataset):
 def _worker_init_fn(worker_id):
     seed = np.random.get_state()[1][0] + worker_id
     np.random.seed(seed)
+    random.seed(seed)
 
 
 def make_replay_loader(
@@ -206,6 +208,7 @@ def make_replay_loader(
         iterable,
         batch_size=batch_size,
         num_workers=num_workers,
+        pin_memory=True,
         worker_init_fn=_worker_init_fn,
     )
     return loader
