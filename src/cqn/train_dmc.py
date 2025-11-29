@@ -97,6 +97,7 @@ class TrainingConfig:
     def _add_logging_arguments(parser):
         parser.add_argument("--log-interval", type=int, default=5)
         parser.add_argument("--checkpoint-interval", type=int, default=50000)
+        parser.add_argument("--metric-interval", type=int, default=1000)
         parser.add_argument("--save-video", action="store_true")
         parser.add_argument("--save-train-video", action="store_true")
         parser.add_argument("--save-snapshot", action="store_true")
@@ -411,6 +412,7 @@ class CQNTrainer(Logger):
 
             if self._should_save_checkpoint():
                 self._save_checkpoint()
+            if self._should_save_metrics():
                 self._save_metrics()
 
             action = self._select_action(time_step)
@@ -434,6 +436,9 @@ class CQNTrainer(Logger):
     def _should_save_checkpoint(self):
         """Check if checkpoint should be saved."""
         return self.global_step % self.config.checkpoint_interval == 0
+
+    def _should_save_metrics(self):
+        return self.global_step % self.config.metric_interval == 0
 
     def _should_update_agent(self):
         """Check if agent should be updated."""
