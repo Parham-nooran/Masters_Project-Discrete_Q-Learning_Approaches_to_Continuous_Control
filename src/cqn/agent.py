@@ -42,6 +42,7 @@ class CQNAgent:
         self.critic_lambda = critic_lambda
         self.encoder = MultiViewCNNEncoder(rgb_obs_shape).to(device)
 
+        # Check if multi-view or single-view
         self.is_multiview = len(rgb_obs_shape) == 4
 
         self.critic = C2FCritic(

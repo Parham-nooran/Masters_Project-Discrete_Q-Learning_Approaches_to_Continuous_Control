@@ -1,12 +1,13 @@
 import argparse
-import os
-import warnings
 from pathlib import Path
 from types import SimpleNamespace
+import os
 
+import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
 
 os.environ['MUJOCO_GL'] = 'osmesa'
+# os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 import numpy as np
 import torch
@@ -84,6 +85,7 @@ def parse_args():
                         help="Save checkpoint every N frames")
     parser.add_argument("--save-video", action="store_true", help="Save videos")
     parser.add_argument("--save-train-video", action="store_true", help="Save training videos")
+    parser.add_argument("--save-snapshot", action="store_true", help="Save snapshots")
     parser.add_argument("--use-tb", action="store_true", help="Use tensorboard")
     parser.add_argument("--use-wandb", action="store_true", help="Use wandb")
 
@@ -128,7 +130,6 @@ class CQNTrainer(Logger):
         self.working_dir.mkdir(parents=True, exist_ok=True)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.config = config
-        self.agent_name = "cqn"
         self.checkpoint_manager = CheckpointManager(
             logger=self.logger,
             checkpoint_dir=str(self.working_dir / "checkpoints")
@@ -148,6 +149,7 @@ class CQNTrainer(Logger):
         self._global_step = 0
         self._global_episode = 0
 
+        # Load checkpoint if specified
         if self.config.resume or self.config.load_checkpoint:
             self.load_checkpoint()
 
@@ -179,9 +181,10 @@ class CQNTrainer(Logger):
             self.config.replay_buffer_size,
             self.config.batch_size,
             self.config.replay_buffer_num_workers,
+            self.config.save_snapshot,
             self.config.nstep,
             self.config.discount,
-            self.config.low_dim_obs_shape,
+            self.config.low_dim_obs_shape,  # Pass low_dim_obs_shape
         )
         self._replay_iter = None
 
@@ -211,7 +214,7 @@ class CQNTrainer(Logger):
             self._replay_iter = iter(self.replay_loader)
         return self._replay_iter
 
-    def _run_episode(self):
+    def eval(self):
         step, episode, total_reward = 0, 0, 0
         eval_until_episode = utils.Until(self.config.num_eval_episodes)
 
@@ -261,6 +264,9 @@ class CQNTrainer(Logger):
         eval_every_step = utils.Every(
             self.config.eval_every_frames, self.config.action_repeat
         )
+        checkpoint_every_step = utils.Every(
+            self.config.checkpoint_interval, self.config.action_repeat
+        )
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
@@ -268,6 +274,7 @@ class CQNTrainer(Logger):
         self.train_video_recorder.init(time_step.observation)
         metrics = None
 
+        # For tracking metrics over log interval
         recent_rewards = []
         recent_lengths = []
 
@@ -283,9 +290,31 @@ class CQNTrainer(Logger):
                     # Store for averaging
                     recent_rewards.append(episode_reward)
                     recent_lengths.append(episode_frame)
+
                     # Log every log_interval episodes
                     if self.global_episode % self.config.log_interval == 0:
-                        self.log_episode(recent_rewards, recent_lengths, elapsed_time, total_time)
+                        avg_reward = np.mean(recent_rewards)
+                        avg_length = np.mean(recent_lengths)
+                        fps = sum(recent_lengths) / elapsed_time if elapsed_time > 0 else 0
+
+                        self.logger.info(f"=== Training Progress ===")
+                        self.logger.info(f"Frame: {self.global_frame}")
+                        self.logger.info(f"Episode: {self.global_episode}")
+                        self.logger.info(f"Step: {self.global_step}")
+                        self.logger.info(f"Avg reward (last {len(recent_rewards)} eps): {avg_reward:.2f}")
+                        self.logger.info(f"Avg length: {avg_length:.2f}")
+                        self.logger.info(f"FPS: {fps:.2f}")
+                        self.logger.info(f"Buffer size: {len(self.replay_storage)}")
+                        self.logger.info(f"Total time: {total_time:.2f}s")
+
+                        # Track metrics
+                        self.metrics_tracker.log_episode(
+                            episode=self.global_episode,
+                            reward=avg_reward,
+                            steps=int(avg_length),
+                            episode_time=total_time
+                        )
+
                         # Reset tracking
                         recent_rewards = []
                         recent_lengths = []
@@ -294,18 +323,22 @@ class CQNTrainer(Logger):
                 self.replay_storage.add(time_step)
                 self.train_video_recorder.init(time_step.observation)
 
+                if self.config.save_snapshot:
+                    self.save_snapshot()
                 episode_step = 0
                 episode_reward = 0
 
-            # Run one episode
+            # Evaluation
             if eval_every_step(self.global_step):
                 self.logger.info(f"Starting evaluation at step {self.global_step}")
-                self._run_episode()
+                self.eval()
 
-            if self._global_step % self.config.checkpoint_interval == 0:
+            # Checkpointing
+            if checkpoint_every_step(self.global_step):
                 self.save_checkpoint()
 
             with torch.no_grad(), utils.eval_mode(self.agent):
+                # Create dummy low_dim_obs with correct shape
                 low_dim_obs = np.zeros(self.config.low_dim_obs_shape, dtype=np.float32)
                 action = self.agent.act(
                     time_step.observation,
@@ -314,7 +347,7 @@ class CQNTrainer(Logger):
                     eval_mode=False
                 )
 
-            if not seed_until_step(self.global_step) and len(self.replay_storage) > 0:
+            if not seed_until_step(self.global_step):
                 metrics = self.agent.update(self.replay_iter, self.global_step)
                 if metrics and self.global_step % (self.config.log_interval * 10) == 0:
                     metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
@@ -327,6 +360,7 @@ class CQNTrainer(Logger):
             episode_step += 1
             self._global_step += 1
 
+        # Final checkpoint and metrics save
         self.logger.info("Training complete! Saving final checkpoint and metrics...")
         self.save_checkpoint()
         self.save_metrics()
@@ -396,34 +430,19 @@ class CQNTrainer(Logger):
             seed=self.config.seed
         )
 
-    def log_episode(self, recent_rewards, recent_lengths, elapsed_time, total_time):
-        avg_reward = np.mean(recent_rewards)
-        avg_length = np.mean(recent_lengths)
-        fps = sum(recent_lengths) / elapsed_time if elapsed_time > 0 else 0
-        self.metrics_tracker.save_metrics(agent=self.agent_name, task_name=self.config.task_name,
-                                          seed=self.config.seed)
+    def save_snapshot(self):
+        snapshot = self.working_dir / "snapshot.pt"
+        keys_to_save = ["agent", "timer", "_global_step", "_global_episode"]
+        payload = {k: self.__dict__[k] for k in keys_to_save}
+        with snapshot.open("wb") as f:
+            torch.save(payload, f)
 
-        self.logger.info(f"=== Training Progress ===")
-        self.logger.info(f"Frame: {self.global_frame}")
-        self.logger.info(f"Episode: {self.global_episode}")
-        self.logger.info(f"Step: {self.global_step}")
-        self.logger.info(f"Avg reward (last {len(recent_rewards)} eps): {avg_reward:.2f}")
-        self.logger.info(f"Avg length: {avg_length:.2f}")
-        self.logger.info(f"FPS: {fps:.2f}")
-        self.logger.info(f"Buffer size: {len(self.replay_storage)}")
-        self.logger.info(f"Total time: {total_time:.2f}s")
-        self.logger.info(f"Action bin range: [{self.agent.critic.initial_low[0].item():.3f},"
-                         f" {self.agent.critic.initial_high[0].item():.3f}]")
-        self.metrics_tracker.log_episode(
-            episode=self.global_episode,
-            reward=avg_reward,
-            steps=int(avg_length),
-            episode_time=self.timer.total_time(),
-            action_ranges=[{
-                'low': self.agent.critic.initial_low.cpu().numpy().tolist(),
-                'high': self.agent.critic.initial_high.cpu().numpy().tolist()
-            }]
-        )
+    def load_snapshot(self):
+        snapshot = self.working_dir / "snapshot.pt"
+        with snapshot.open("rb") as f:
+            payload = torch.load(f)
+        for k, v in payload.items():
+            self.__dict__[k] = v
 
 
 if __name__ == "__main__":

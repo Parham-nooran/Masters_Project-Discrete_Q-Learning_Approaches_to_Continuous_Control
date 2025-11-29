@@ -94,7 +94,7 @@ class ReplayBuffer(IterableDataset):
         self._num_workers = max(1, num_workers)
         self._episode_fns = []
         self._episodes = dict()
-        self._nstep = int(nstep)
+        self._nstep = nstep
         self._discount = discount
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = fetch_every
@@ -154,14 +154,11 @@ class ReplayBuffer(IterableDataset):
             traceback.print_exc()
         self._samples_since_last_fetch += 1
         episode = self._sample_episode()
-        idx = int(np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1)
+        idx = np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1
 
         rgb_obs = episode["observation"][idx - 1]
-        print("Idx: ", idx)
-        print("_nstep: ", self._nstep)
-        next_rgb_obs = episode["observation"][int(idx + self._nstep - 1)]
+        next_rgb_obs = episode["observation"][idx + self._nstep - 1]
 
-        # Create dummy low-dim observations (zeros)
         low_dim_obs = np.zeros(self._low_dim_size, dtype=np.float32)
         next_low_dim_obs = np.zeros(self._low_dim_size, dtype=np.float32)
 
@@ -174,7 +171,7 @@ class ReplayBuffer(IterableDataset):
             reward += discount * step_reward
             discount *= episode["discount"][idx + i] * self._discount
 
-        # Add demo flag (all zeros for DMC, as there are no demonstrations)
+
         demos = np.zeros(1, dtype=np.float32)
 
         return (rgb_obs, low_dim_obs, action, reward, discount, next_rgb_obs, next_low_dim_obs, demos)
@@ -185,9 +182,8 @@ class ReplayBuffer(IterableDataset):
 
 
 def _worker_init_fn(worker_id):
-    seed = int(np.random.get_state()[1][0]) + worker_id
+    seed = np.random.get_state()[1][0] + worker_id
     np.random.seed(seed)
-    random.seed(seed)
 
 
 def make_replay_loader(
@@ -210,7 +206,6 @@ def make_replay_loader(
         iterable,
         batch_size=batch_size,
         num_workers=num_workers,
-        pin_memory=True,
         worker_init_fn=_worker_init_fn,
     )
     return loader
