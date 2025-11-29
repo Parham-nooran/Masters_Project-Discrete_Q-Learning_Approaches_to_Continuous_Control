@@ -411,6 +411,7 @@ class CQNTrainer(Logger):
 
             if self._should_save_checkpoint():
                 self._save_checkpoint()
+                self._save_metrics()
 
             action = self._select_action(time_step)
 
@@ -432,7 +433,7 @@ class CQNTrainer(Logger):
 
     def _should_save_checkpoint(self):
         """Check if checkpoint should be saved."""
-        return self.global_frame % self.config.checkpoint_interval == 0
+        return self.global_step % self.config.checkpoint_interval == 0
 
     def _should_update_agent(self):
         """Check if agent should be updated."""
