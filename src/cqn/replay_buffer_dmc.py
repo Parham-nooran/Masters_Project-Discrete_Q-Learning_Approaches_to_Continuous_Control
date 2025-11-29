@@ -157,7 +157,9 @@ class ReplayBuffer(IterableDataset):
         idx = int(np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1)
 
         rgb_obs = episode["observation"][idx - 1]
-        next_rgb_obs = episode["observation"][idx + self._nstep - 1]
+        print(idx)
+        print(self._nstep)
+        next_rgb_obs = episode["observation"][int(idx + self._nstep - 1)]
 
         # Create dummy low-dim observations (zeros)
         low_dim_obs = np.zeros(self._low_dim_size, dtype=np.float32)

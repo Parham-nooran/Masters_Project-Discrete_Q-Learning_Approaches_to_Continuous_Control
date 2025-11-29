@@ -211,7 +211,7 @@ class CQNTrainer(Logger):
             self._replay_iter = iter(self.replay_loader)
         return self._replay_iter
 
-    def eval(self):
+    def _run_episode(self):
         step, episode, total_reward = 0, 0, 0
         eval_until_episode = utils.Until(self.config.num_eval_episodes)
 
@@ -297,10 +297,10 @@ class CQNTrainer(Logger):
                 episode_step = 0
                 episode_reward = 0
 
-            # Evaluation
+            # Run one episode
             if eval_every_step(self.global_step):
                 self.logger.info(f"Starting evaluation at step {self.global_step}")
-                self.eval()
+                self._run_episode()
 
             if self._global_step % self.config.checkpoint_interval == 0:
                 self.save_checkpoint()
