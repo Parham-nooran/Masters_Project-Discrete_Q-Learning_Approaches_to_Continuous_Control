@@ -419,6 +419,7 @@ def make_replay_loader(
         batch_size=batch_size,
         num_workers=num_workers,
         worker_init_fn=initialize_worker,
+        persistent_workers=(num_workers > 0),
     )
 
     return loader
