@@ -15,6 +15,30 @@ from src.deqn.critic import CriticDQN
 from src.deqn.discretizer import Discretizer
 
 
+def _compute_coupled_targets(q1_online, q2_online,
+                             q1_target, q2_target,
+                             rewards, dones, discounts):
+    """Compute coupled targets for non-decoupled mode."""
+    q_avg = 0.5 * (q1_online + q2_online)
+    next_actions = q_avg.argmax(dim=1)
+
+    q_target = 0.5 * (q1_target + q2_target)
+    q_target_values = q_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
+
+    return rewards + discounts * q_target_values * ~dones
+
+
+def _select_coupled_q_values(q1, q2, actions):
+    """Select Q-values for coupled actions."""
+    if actions.ndim > 1:
+        actions = actions.squeeze(-1)
+
+    q1_selected = q1.gather(1, actions.unsqueeze(1)).squeeze(1)
+    q2_selected = q2.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+    return q1_selected, q2_selected
+
+
 class DecQNAgent:
     """
     Decoupled Q-Networks agent for continuous control.
@@ -182,7 +206,7 @@ class DecQNAgent:
                     rewards, dones, discounts
                 )
             else:
-                targets = self._compute_coupled_targets(
+                targets = _compute_coupled_targets(
                     q1_next_online, q2_next_online,
                     q1_next_target, q2_next_target,
                     rewards, dones, discounts
@@ -224,23 +248,11 @@ class DecQNAgent:
 
         return rewards + discounts * q_target_values * (~dones).float()
 
-    def _compute_coupled_targets(self, q1_online, q2_online,
-                                 q1_target, q2_target,
-                                 rewards, dones, discounts):
-        """Compute coupled targets for non-decoupled mode."""
-        q_avg = 0.5 * (q1_online + q2_online)
-        next_actions = q_avg.argmax(dim=1)
-
-        q_target = 0.5 * (q1_target + q2_target)
-        q_target_values = q_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
-
-        return rewards + discounts * q_target_values * ~dones
-
     def _select_q_values(self, q1, q2, actions):
         """Select Q-values for taken actions."""
         if self.config.decouple:
             return self._select_decoupled_q_values(q1, q2, actions)
-        return self._select_coupled_q_values(q1, q2, actions)
+        return _select_coupled_q_values(q1, q2, actions)
 
     def _select_decoupled_q_values(self, q1, q2, actions):
         """Select Q-values for decoupled actions following Equation 2."""
@@ -258,16 +270,6 @@ class DecQNAgent:
 
         q1_selected = q1_per_dim.sum(dim=1) / action_dim
         q2_selected = q2_per_dim.sum(dim=1) / action_dim
-
-        return q1_selected, q2_selected
-
-    def _select_coupled_q_values(self, q1, q2, actions):
-        """Select Q-values for coupled actions."""
-        if actions.ndim > 1:
-            actions = actions.squeeze(-1)
-
-        q1_selected = q1.gather(1, actions.unsqueeze(1)).squeeze(1)
-        q2_selected = q2.gather(1, actions.unsqueeze(1)).squeeze(1)
 
         return q1_selected, q2_selected
 

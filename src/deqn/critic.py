@@ -2,6 +2,17 @@ import torch.nn as nn
 from src.common.networks import LayerNormAndResidualMLP, LayerNormMLP
 
 
+def _get_action_dims(action_spec):
+    """Extract action dimensionality from action spec."""
+    if isinstance(action_spec, dict) and "low" in action_spec:
+        return len(action_spec["low"])
+    if hasattr(action_spec, "shape") and len(action_spec.shape) > 0:
+        return action_spec.shape[0]
+    if hasattr(action_spec, "__len__"):
+        return len(action_spec)
+    return 1
+
+
 class CriticDQN(nn.Module):
     """
     Double Q-network critic for DecQN.
@@ -16,21 +27,11 @@ class CriticDQN(nn.Module):
         self.decouple = config.decouple
         self.num_bins = config.num_bins
 
-        self.action_dims = self._get_action_dims(action_spec)
+        self.action_dims = _get_action_dims(action_spec)
         self.output_dim = self._compute_output_dim()
 
         self.q1_network = self._build_network(config, input_size)
         self.q2_network = self._build_network(config, input_size)
-
-    def _get_action_dims(self, action_spec):
-        """Extract action dimensionality from action spec."""
-        if isinstance(action_spec, dict) and "low" in action_spec:
-            return len(action_spec["low"])
-        if hasattr(action_spec, "shape") and len(action_spec.shape) > 0:
-            return action_spec.shape[0]
-        if hasattr(action_spec, "__len__"):
-            return len(action_spec)
-        return 1
 
     def _compute_output_dim(self):
         """

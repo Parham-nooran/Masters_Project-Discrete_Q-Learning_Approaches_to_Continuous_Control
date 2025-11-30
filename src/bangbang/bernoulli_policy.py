@@ -12,6 +12,26 @@ def init_weights(m):
         nn.init.constant_(m.bias, 0)
 
 
+def _get_deterministic_action(probs: torch.Tensor) -> torch.Tensor:
+    return (probs > 0.5).float()
+
+
+def _sample_action(probs: torch.Tensor) -> torch.Tensor:
+    dist = torch.distributions.Bernoulli(probs)
+    return dist.sample()
+
+
+def _convert_to_bang_bang(actions: torch.Tensor) -> torch.Tensor:
+    return 2.0 * actions - 1.0
+
+
+def _compute_log_probs(
+        probs: torch.Tensor, actions: torch.Tensor
+) -> torch.Tensor:
+    dist = torch.distributions.Bernoulli(probs)
+    return dist.log_prob(actions).sum(dim=-1)
+
+
 class BernoulliPolicy(nn.Module):
 
     def __init__(
@@ -33,27 +53,11 @@ class BernoulliPolicy(nn.Module):
         probs = torch.sigmoid(logits)
 
         if deterministic:
-            actions = self._get_deterministic_action(probs)
+            actions = _get_deterministic_action(probs)
         else:
-            actions = self._sample_action(probs)
+            actions = _sample_action(probs)
 
-        bang_bang_actions = self._convert_to_bang_bang(actions)
-        log_probs = self._compute_log_probs(probs, actions)
+        bang_bang_actions = _convert_to_bang_bang(actions)
+        log_probs = _compute_log_probs(probs, actions)
 
         return bang_bang_actions, log_probs
-
-    def _get_deterministic_action(self, probs: torch.Tensor) -> torch.Tensor:
-        return (probs > 0.5).float()
-
-    def _sample_action(self, probs: torch.Tensor) -> torch.Tensor:
-        dist = torch.distributions.Bernoulli(probs)
-        return dist.sample()
-
-    def _convert_to_bang_bang(self, actions: torch.Tensor) -> torch.Tensor:
-        return 2.0 * actions - 1.0
-
-    def _compute_log_probs(
-        self, probs: torch.Tensor, actions: torch.Tensor
-    ) -> torch.Tensor:
-        dist = torch.distributions.Bernoulli(probs)
-        return dist.log_prob(actions).sum(dim=-1)

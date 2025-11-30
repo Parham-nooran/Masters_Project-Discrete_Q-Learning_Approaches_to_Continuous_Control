@@ -5,6 +5,11 @@ import torch.nn.functional as F
 from src.cqn.networks import C2FCriticNetwork
 
 
+def _repeat_bounds(action, bounds):
+    """Repeat bounds to match action shape."""
+    return bounds.repeat(*action.shape[:-1], 1)
+
+
 class ActionEncoder:
     """Encodes and decodes continuous actions to/from discrete representations."""
 
@@ -16,8 +21,8 @@ class ActionEncoder:
 
     def encode(self, continuous_action):
         """Encode continuous action to discrete action across levels."""
-        low = self._repeat_bounds(continuous_action, self.initial_low)
-        high = self._repeat_bounds(continuous_action, self.initial_high)
+        low = _repeat_bounds(continuous_action, self.initial_low)
+        high = _repeat_bounds(continuous_action, self.initial_high)
 
         discrete_indices = []
 
@@ -31,8 +36,8 @@ class ActionEncoder:
 
     def decode(self, discrete_action):
         """Decode discrete action to continuous action."""
-        low = self._repeat_bounds(discrete_action[..., 0, :], self.initial_low)
-        high = self._repeat_bounds(discrete_action[..., 0, :], self.initial_high)
+        low = _repeat_bounds(discrete_action[..., 0, :], self.initial_low)
+        high = _repeat_bounds(discrete_action[..., 0, :], self.initial_high)
 
         for level in range(self.levels):
             continuous_action, low, high = self._decode_single_level(
@@ -40,10 +45,6 @@ class ActionEncoder:
             )
 
         return (high + low) / 2.0
-
-    def _repeat_bounds(self, action, bounds):
-        """Repeat bounds to match action shape."""
-        return bounds.repeat(*action.shape[:-1], 1)
 
     def _encode_single_level(self, continuous_action, low, high):
         """Encode continuous action at a single level."""

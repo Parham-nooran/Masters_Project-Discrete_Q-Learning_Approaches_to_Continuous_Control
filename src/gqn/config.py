@@ -68,7 +68,7 @@ def parse_args():
                         help="Environment task")
     parser.add_argument("--seed", type=int, default=0,
                         help="Random seed")
-    parser.add_argument("--num-episodes", type=int, default=2000,
+    parser.add_argument("--num-episodes", type=int, default=1000,
                         help="Number of episodes to train")
     parser.add_argument("--max-steps-per-episode", type=int, default=1000,
                         help="Maximum steps per episode")
