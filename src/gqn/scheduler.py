@@ -14,11 +14,11 @@ class GrowthScheduler:
             self.growth_episodes = self._compute_linear_schedule()
         else:
             self.growth_episodes = []
-            self.return_history = deque(maxlen=20)
+            self.return_history = deque(maxlen=100)
             self.moving_avg_mean = 0.0
             self.moving_avg_std = 0.0
             self.last_growth_episode = -1
-            self.min_episodes_between_growth = 10
+            self.min_episodes_between_growth = 50
 
     def _compute_linear_schedule(self):
         """Compute episodes at which to grow for linear schedule."""

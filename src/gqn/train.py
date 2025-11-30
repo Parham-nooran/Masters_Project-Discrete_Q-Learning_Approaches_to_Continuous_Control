@@ -14,6 +14,13 @@ from src.gqn.agent import GQNAgent
 from src.gqn.config import parse_args, create_config_from_args
 
 
+def _convert_action_to_numpy(action):
+    """Convert action tensor to numpy array."""
+    if isinstance(action, torch.Tensor):
+        return action.cpu().numpy()
+    return action
+
+
 class GQNTrainer(Logger):
     """Trainer for Growing Q-Networks Agent."""
 
@@ -139,7 +146,7 @@ class GQNTrainer(Logger):
 
         while not time_step.last() and steps < self.config.max_steps_per_episode:
             action = agent.select_action(obs)
-            action_np = self._convert_action_to_numpy(action)
+            action_np = _convert_action_to_numpy(action)
 
             time_step = env.step(action_np)
             next_obs = process_observation(
@@ -174,12 +181,6 @@ class GQNTrainer(Logger):
             "current_bins": agent.action_space_manager.current_bins,
             "growth_stage": agent.action_space_manager.current_growth_stage,
         }
-
-    def _convert_action_to_numpy(self, action):
-        """Convert action tensor to numpy array."""
-        if isinstance(action, torch.Tensor):
-            return action.cpu().numpy()
-        return action
 
     def _update_networks_if_ready(self, agent, metrics_accumulator):
         """Update networks if replay buffer has enough samples."""
