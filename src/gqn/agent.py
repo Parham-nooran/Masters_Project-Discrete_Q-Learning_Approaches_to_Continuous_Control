@@ -147,8 +147,8 @@ class GQNAgent:
             obs_encoded = obs.flatten(1)
             next_obs_encoded = next_obs.flatten(1)
 
-        total_loss, metrics = self._compute_loss(obs_encoded, actions, rewards, next_obs_encoded,
-                                                 dones, discounts, weights, indices)
+        metrics, total_loss = self._compute_loss(obs_encoded, actions, rewards, next_obs_encoded,
+                                     dones, discounts, weights, indices)
 
         self.optimizer.zero_grad()
         if self.encoder:
@@ -212,16 +212,19 @@ class GQNAgent:
             'mse_loss1': float(loss1.mean().item()),
             'mse_loss2': float(loss2.mean().item())
         }
-        return total_loss, metrics
+        return metrics, total_loss
 
     def _continuous_to_discrete_actions(self, actions):
-        """Convert continuous actions to discrete indices."""
+        """Convert continuous actions to discrete indices (vectorized)."""
         batch_size = actions.shape[0]
         action_dim = self.action_space_manager.action_dim
 
         discrete_actions = torch.zeros(batch_size, action_dim, dtype=torch.long, device=self.device)
 
-        active_indices = self.action_space_manager._get_active_bin_indices()
+        active_indices = torch.tensor(
+            self.action_space_manager._get_active_bin_indices(),
+            device=self.device
+        )
 
         for dim in range(action_dim):
             bins = self.action_space_manager.action_bins[dim, active_indices]
@@ -231,20 +234,18 @@ class GQNAgent:
         return discrete_actions
 
     def _gather_q_values(self, q_values, actions):
-        """Gather Q-values for selected actions."""
+        """Gather Q-values for selected actions (vectorized)."""
         batch_size = q_values.shape[0]
         action_dim = q_values.shape[1]
 
         active_q = self.action_space_manager.get_active_q_values(q_values)
 
-        q_vals = []
-        for b in range(batch_size):
-            q_sum = 0.0
-            for d in range(action_dim):
-                q_sum += active_q[b, d, actions[b, d]]
-            q_vals.append(q_sum / action_dim)
+        batch_indices = torch.arange(batch_size, device=self.device).unsqueeze(1).expand(-1, action_dim)
+        dim_indices = torch.arange(action_dim, device=self.device).unsqueeze(0).expand(batch_size, -1)
 
-        return torch.stack(q_vals)
+        selected_q = active_q[batch_indices, dim_indices, actions]
+
+        return selected_q.mean(dim=1)
 
     def _huber_loss(self, td_error):
         """Compute Huber loss."""

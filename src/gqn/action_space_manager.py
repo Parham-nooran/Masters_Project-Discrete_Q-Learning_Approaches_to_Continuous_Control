@@ -77,11 +77,17 @@ class ActionSpaceManager:
             self.current_growth_stage += 1
             self.current_bins = self.growth_sequence[self.current_growth_stage]
             self.active_mask = self._create_active_mask()
+
+            self._active_indices_tensor = torch.tensor(
+                self._get_active_bin_indices(),
+                dtype=torch.long,
+                device=self.device
+            )
             return True
         return False
 
     def discrete_to_continuous(self, discrete_actions):
-        """Convert discrete action indices to continuous actions."""
+        """Convert discrete action indices to continuous actions (vectorized)."""
         if discrete_actions.device != self.device:
             discrete_actions = discrete_actions.to(self.device)
 
@@ -89,28 +95,42 @@ class ActionSpaceManager:
             discrete_actions = discrete_actions.unsqueeze(0)
 
         batch_size = discrete_actions.shape[0]
-        continuous_actions = torch.zeros(batch_size, self.action_dim, device=self.device)
 
-        active_indices = self._get_active_bin_indices()
+        if not hasattr(self, '_active_indices_tensor'):
+            self._active_indices_tensor = torch.tensor(
+                self._get_active_bin_indices(),
+                dtype=torch.long,
+                device=self.device
+            )
 
-        for dim in range(self.action_dim):
-            bin_indices = discrete_actions[:, dim].long()
-            bin_indices = torch.clamp(bin_indices, 0, self.current_bins - 1)
-            actual_indices = [active_indices[idx] for idx in bin_indices]
-            continuous_actions[:, dim] = self.action_bins[dim, actual_indices]
+        discrete_actions = torch.clamp(discrete_actions, 0, self.current_bins - 1)
+
+        actual_indices = self._active_indices_tensor[discrete_actions]
+
+        continuous_actions = torch.gather(
+            self.action_bins.unsqueeze(0).expand(batch_size, -1, -1),
+            2,
+            actual_indices.unsqueeze(2)
+        ).squeeze(2)
 
         return continuous_actions
 
     def get_active_q_values(self, q_values):
-        """Extract Q-values for active bins only."""
+        """Extract Q-values for active bins only (vectorized)."""
         batch_size = q_values.shape[0]
-        active_indices = self._get_active_bin_indices()
 
-        active_q = torch.zeros(batch_size, self.action_dim, self.current_bins,
-                               device=self.device)
+        if not hasattr(self, '_active_indices_tensor'):
+            self._active_indices_tensor = torch.tensor(
+                self._get_active_bin_indices(),
+                dtype=torch.long,
+                device=self.device
+            )
 
-        for dim in range(self.action_dim):
-            active_q[:, dim, :] = q_values[:, dim, active_indices]
+        active_indices = self._active_indices_tensor.unsqueeze(0).unsqueeze(0).expand(
+            batch_size, self.action_dim, -1
+        )
+
+        active_q = torch.gather(q_values, 2, active_indices)
 
         return active_q
 
