@@ -5,7 +5,7 @@ from src.common.encoder import *
 from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.training_utils import *
 from src.deqn.critic import *
-from src.gqn.discretizer import GrowingActionDiscretizer
+from src.deqn.discretizer import Discretizer
 
 
 class DecQNAgent:
@@ -14,7 +14,7 @@ class DecQNAgent:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.obs_shape = obs_shape
         self.action_spec = action_spec
-        self.action_discretizer = GrowingActionDiscretizer(
+        self.action_discretizer = Discretizer(
             action_spec, config.num_bins, config.decouple
         )
         if config.use_pixels:
