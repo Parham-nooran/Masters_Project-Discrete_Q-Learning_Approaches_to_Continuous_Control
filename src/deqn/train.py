@@ -115,26 +115,21 @@ class DecQNTrainer(Logger):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.agent_name = "deqn"
         self.checkpoint_manager = CheckpointManager(self.logger, checkpoint_dir=self.working_dir + "/checkpoints")
+        self.env = get_env(self.config.task, self.logger)
+        obs_shape, action_spec_dict = get_env_specs(self.env, self.config.use_pixels)
+        self.agent = DecQNAgent(self.config, obs_shape, action_spec_dict)
 
     def train(self):
         """Execute main training loop."""
         self._setup_training()
-
-        env = get_env(self.config.task, self.logger)
-        obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
-        agent = DecQNAgent(self.config, obs_shape, action_spec_dict)
-
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
-            self.config.load_checkpoints, agent
+            self.config.load_checkpoints, self.agent
         )
         metrics_tracker = self._initialize_metrics_tracker(start_episode, save_dir=self.working_dir + "/metrics")
-
-        self._log_setup_info(agent)
-
-        self._run_training_loop(env, agent, metrics_tracker, start_episode)
-        self._finalize_training(agent, metrics_tracker)
-
-        return agent
+        self._log_setup_info(self.agent)
+        self._run_training_loop(self.env, self.agent, metrics_tracker, start_episode)
+        self._finalize_training(self.agent, metrics_tracker)
+        return self.agent
 
     def _setup_training(self):
         """Initialize training environment."""
@@ -235,7 +230,7 @@ class DecQNTrainer(Logger):
             f"Mean squared TD Error: {metrics['mean_squared_td_error']:8.6f} | "
             f"Q-mean: {metrics['q_mean']:6.3f} | "
             f"Time: {metrics['episode_time']:.2f}s | "
-            f"Buffer: {len(self.agent.replay_buffer) if hasattr(self, 'agent') else 0:6d}"
+            f"Buffer: {len(self.agent.replay_buffer):6d}"
         )
 
     def _log_detailed_metrics(self, episode, start_time):
