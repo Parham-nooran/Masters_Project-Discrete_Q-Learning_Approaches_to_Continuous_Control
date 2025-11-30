@@ -8,7 +8,7 @@ class GQNConfig:
 
     task: str = "walker_walk"
     seed: int = 0
-    num_episodes: int = 2000
+    num_episodes: int = 1000
     max_steps_per_episode: int = 1000
 
     use_pixels: bool = False
