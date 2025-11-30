@@ -143,7 +143,6 @@ class BatchProcessor:
 
         rgb_obs = self.encoder(rgb_obs)
         with torch.no_grad():
-            rgb_obs = self.encoder(rgb_obs)
             next_rgb_obs = self.encoder(next_rgb_obs)
         rgb_obs = rgb_obs.detach().requires_grad_(True)
         return rgb_obs, next_rgb_obs
