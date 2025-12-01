@@ -45,7 +45,7 @@ class GrowthScheduler:
 
         self.return_history.append(current_return)
 
-        if len(self.return_history) < 10:
+        if len(self.return_history) < 50:
             return False
 
         returns = np.array(self.return_history)
@@ -62,9 +62,9 @@ class GrowthScheduler:
         return should_grow
 
     def _compute_threshold(self):
-        """Compute threshold for adaptive growth."""
+        """Compute threshold for adaptive growth (Paper Equation 4)."""
         sign = np.sign(self.moving_avg_mean) if self.moving_avg_mean != 0 else 1
-        threshold = (1.0 - 0.02 * sign) * self.moving_avg_mean + 0.5 * self.moving_avg_std
+        threshold = (1.0 - 0.05 * sign) * self.moving_avg_mean + 0.90 * self.moving_avg_std
         return threshold
 
     def get_status(self):

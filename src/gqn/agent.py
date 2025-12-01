@@ -234,7 +234,10 @@ class GQNAgent:
         return discrete_actions
 
     def _gather_q_values(self, q_values, actions):
-        """Gather Q-values for selected actions (vectorized)."""
+        """Gather Q-values for selected actions (vectorized).
+
+        Paper Eq. 2: Q(s,a) = (1/M) * Σ Q_j(s, a_j)
+        """
         batch_size = q_values.shape[0]
         action_dim = q_values.shape[1]
 
@@ -245,7 +248,8 @@ class GQNAgent:
 
         selected_q = active_q[batch_indices, dim_indices, actions]
 
-        return selected_q.mean(dim=1)
+        # Paper Eq. 2: Sum across dimensions, then divide by M
+        return selected_q.sum(dim=1) / action_dim
 
     def _huber_loss(self, td_error):
         """Compute Huber loss."""
