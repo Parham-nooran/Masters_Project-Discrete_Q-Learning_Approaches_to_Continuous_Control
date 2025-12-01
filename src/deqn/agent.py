@@ -188,7 +188,7 @@ class DecQNAgent:
         self._update_replay_priorities(indices, td_error1, td_error2)
         self._update_target_network()
 
-        return self._get_metrics(total_loss, td_error1, q1_selected, q2_selected)
+        return self._get_metrics(total_loss, td_error1, td_error2, q1_selected, q2_selected)
 
     def _compute_td_targets(self, obs_encoded, next_obs_encoded, actions,
                             rewards, dones, discounts):
@@ -321,7 +321,7 @@ class DecQNAgent:
         if self.training_step % self.config.target_update_period == 0:
             self.target_q_network.load_state_dict(self.q_network.state_dict())
 
-    def _get_metrics(self, total_loss, td_error1, q1_selected, q2_selected):
+    def _get_metrics(self, total_loss, td_error1, td_error2, q1_selected, q2_selected):
         """Collect training metrics."""
         return {
             "loss": total_loss.item(),
@@ -330,7 +330,7 @@ class DecQNAgent:
             "q1_mean": q1_selected.mean().item(),
             "q2_mean": q2_selected.mean().item() if self.config.use_double_q else 0,
             "mse_loss1": (td_error1 ** 2).mean().item(),
-            "mse_loss2": (td_error1 ** 2).mean().item() if self.config.use_double_q else 0,
+            "mse_loss2": (td_error2 ** 2).mean().item() if self.config.use_double_q else 0,
         }
 
     def save_checkpoint(self, path, episode):
