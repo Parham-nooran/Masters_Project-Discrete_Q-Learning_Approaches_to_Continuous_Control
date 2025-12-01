@@ -1,23 +1,9 @@
 import os
 from pathlib import Path
 
+import numpy as np
 import torch
-import torch.nn.functional as F
 from dm_control import suite
-
-
-def random_shift(images, pad_size=4):
-    """Apply random shift augmentation to images."""
-    n, c, h, w = images.shape
-    padded = F.pad(images, [pad_size] * 4, mode="replicate")
-    top = torch.randint(0, 2 * pad_size + 1, (n,))
-    left = torch.randint(0, 2 * pad_size + 1, (n,))
-
-    shifted_images = torch.zeros_like(images)
-    for i in range(n):
-        shifted_images[i] = padded[i, :, top[i] : top[i] + h, left[i] : left[i] + w]
-
-    return shifted_images
 
 
 def get_obs_shape(use_pixels: bool, obs_spec: dict) -> tuple:
@@ -66,30 +52,6 @@ def process_observation(dm_obs, use_pixels, device, obs_buffer=None) -> torch.Te
             return obs_buffer.update(torch.from_numpy(state_vector))
 
 
-def apply_action_penalty(rewards, actions, penalty_coeff):
-    """
-    Apply action penalty as used in paper experiments.
-    """
-    if penalty_coeff <= 0:
-        return rewards
-
-    if isinstance(actions, torch.Tensor):
-        actions = actions.cpu().numpy()
-    actions = np.array(actions)
-    if len(actions.shape) == 1:
-        action_norm_squared = np.sum(actions**2)
-        M = len(actions)
-    else:
-        action_norm_squared = np.sum(actions**2, axis=-1)
-        M = actions.shape[-1] if len(actions.shape) > 1 else 1
-
-    # Penalty = ca * ||a||² / M, where ca is penalty coefficient, M is action dimension
-    penalties = penalty_coeff * action_norm_squared / M
-    penalties = np.clip(penalties, 0, abs(rewards) * 0.1)
-
-    return rewards - penalties
-
-
 def get_path(base_path, filename="", middle_path="", logger=None, create=False):
     path = Path(__file__).parents[2] / base_path / middle_path / filename
     if create:
@@ -99,33 +61,19 @@ def get_path(base_path, filename="", middle_path="", logger=None, create=False):
     return path
 
 
-import torch
-import numpy as np
-
-
 def huber_loss(
-    td_error: torch.Tensor, huber_loss_parameter: float = 1.0
+        td_error: torch.Tensor, huber_loss_parameter: float = 1.0
 ) -> torch.Tensor:
     abs_error = torch.abs(td_error)
     quadratic = torch.minimum(
         abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device)
     )
     linear = abs_error - quadratic
-    return 0.5 * quadratic**2 + huber_loss_parameter * linear
-
-
-def get_combined_random_and_greedy_actions(
-    q_max, num_dims, num_bins, batch_size, epsilon, device
-):
-    random_mask = torch.rand(batch_size, num_dims, device=device) < epsilon
-    random_actions = torch.randint(0, num_bins, (batch_size, num_dims), device=device)
-    greedy_actions = q_max.argmax(dim=2)
-    actions = torch.where(random_mask, random_actions, greedy_actions)
-    return actions
+    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
 
 
 def continuous_to_discrete_action(
-    config, action_discretizer, continuous_action: torch.Tensor
+        config, action_discretizer, continuous_action: torch.Tensor
 ) -> np.ndarray:
     if isinstance(continuous_action, torch.Tensor):
         continuous_action = continuous_action.cpu().numpy()
@@ -181,7 +129,7 @@ def init_training(seed, device, logger):
 
 
 def check_and_sample_batch_from_replay_buffer(
-    replay_buffer, min_replay_size, batch_size
+        replay_buffer, min_replay_size, batch_size
 ):
     if len(replay_buffer) < min_replay_size:
         return None
@@ -212,14 +160,14 @@ def encode_observation(encoder, obs, next_obs):
 
 
 def calculate_losses(
-    td_error1,
-    td_error2,
-    use_double_q,
-    q_optimizer,
-    encoder,
-    encoder_optimizer,
-    weights,
-    huber_loss_parameter,
+        td_error1,
+        td_error2,
+        use_double_q,
+        q_optimizer,
+        encoder,
+        encoder_optimizer,
+        weights,
+        huber_loss_parameter,
 ):
     loss1 = huber_loss(td_error1, huber_loss_parameter)
     loss2 = (
