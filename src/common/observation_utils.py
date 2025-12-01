@@ -4,16 +4,6 @@ import numpy as np
 import torch
 
 
-def get_obs_shape(use_pixels: bool, obs_spec: dict) -> tuple:
-    """Get observation shape based on input type."""
-    if use_pixels:
-        return (3, 84, 84)
-    state_dim = sum(
-        spec.shape[0] if len(spec.shape) > 0 else 1 for spec in obs_spec.values()
-    )
-    return (state_dim,)
-
-
 def process_pixel_observation(dm_obs, device):
     """Process pixel observation from DM Control."""
     if "pixels" in dm_obs:
