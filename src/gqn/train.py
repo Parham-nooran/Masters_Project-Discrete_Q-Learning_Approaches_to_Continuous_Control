@@ -22,7 +22,7 @@ def _convert_action_to_numpy(action):
 
 
 class GQNTrainer(Logger):
-    """Trainer for Growing Q-Networks Agent."""
+    """Trainer for Growing Q-Networks Agent managing the complete training pipeline."""
 
     def __init__(self, config, working_dir="./output/gqn"):
         super().__init__(working_dir + "/logs")
@@ -54,7 +54,6 @@ class GQNTrainer(Logger):
         )
 
         self._log_setup_info(agent)
-
         self._run_training_loop(env, agent, metrics_tracker, start_episode)
         self._finalize_training(agent, metrics_tracker)
 
@@ -66,20 +65,46 @@ class GQNTrainer(Logger):
 
     def _log_setup_info(self, agent):
         """Log training setup information."""
-        self.logger.info("=" * 80)
+        self._print_separator()
         self.logger.info("Growing Q-Networks Agent Setup:")
+        self._print_separator()
+
+        self._log_environment_info()
+        self._log_action_space_info(agent)
+        self._log_learning_parameters()
+        self._log_replay_buffer_info()
+        self._log_regularization_info()
+        self._log_logging_intervals()
+
+        self._print_separator()
+
+    def _print_separator(self):
+        """Print a separator line."""
         self.logger.info("=" * 80)
+
+    def _print_subseparator(self):
+        """Print a subsection separator line."""
+        self.logger.info("-" * 80)
+
+    def _log_environment_info(self):
+        """Log environment configuration."""
         self.logger.info(f"Task: {self.config.task}")
         self.logger.info(f"Seed: {self.config.seed}")
         self.logger.info(f"Episodes: {self.config.num_episodes}")
         self.logger.info(f"Max steps per episode: {self.config.max_steps_per_episode}")
-        self.logger.info("-" * 80)
+        self._print_subseparator()
+
+    def _log_action_space_info(self, agent):
+        """Log action space configuration."""
         self.logger.info(f"Action dimensions: {agent.action_space_manager.action_dim}")
         self.logger.info(f"Growth sequence: {agent.action_space_manager.growth_sequence}")
         self.logger.info(f"Growth schedule: {self.config.growing_schedule}")
         self.logger.info(f"Initial bins: {self.config.initial_bins}")
         self.logger.info(f"Final bins: {self.config.final_bins}")
-        self.logger.info("-" * 80)
+        self._print_subseparator()
+
+    def _log_learning_parameters(self):
+        """Log learning hyperparameters."""
         self.logger.info(f"Learning rate: {self.config.learning_rate}")
         self.logger.info(f"Batch size: {self.config.batch_size}")
         self.logger.info(f"Discount: {self.config.discount}")
@@ -87,21 +112,29 @@ class GQNTrainer(Logger):
         self.logger.info(f"Target update period: {self.config.target_update_period}")
         self.logger.info(
             f"Epsilon: {self.config.epsilon} (decay: {self.config.epsilon_decay}, min: {self.config.min_epsilon})")
-        self.logger.info("-" * 80)
+        self._print_subseparator()
+
+    def _log_replay_buffer_info(self):
+        """Log replay buffer configuration."""
         self.logger.info(f"Min replay size: {self.config.min_replay_size}")
         self.logger.info(f"Max replay size: {self.config.max_replay_size}")
         self.logger.info(f"PER alpha: {self.config.per_alpha}")
         self.logger.info(f"PER beta: {self.config.per_beta}")
-        self.logger.info("-" * 80)
+        self._print_subseparator()
+
+    def _log_regularization_info(self):
+        """Log regularization parameters."""
         self.logger.info(f"Action penalty coeff: {self.config.action_penalty_coeff}")
         self.logger.info(f"Gradient clip: {self.config.gradient_clip}")
         self.logger.info(f"Huber delta: {self.config.huber_delta}")
-        self.logger.info("-" * 80)
+        self._print_subseparator()
+
+    def _log_logging_intervals(self):
+        """Log logging and checkpointing intervals."""
         self.logger.info(f"Checkpoint interval: {self.config.checkpoint_interval}")
         self.logger.info(f"Metrics save interval: {self.config.metrics_save_interval}")
         self.logger.info(f"Log interval: {self.config.log_interval}")
         self.logger.info(f"Detailed log interval: {self.config.detailed_log_interval}")
-        self.logger.info("=" * 80)
 
     def _run_training_loop(self, env, agent, metrics_tracker, start_episode):
         """Execute the main training loop."""
@@ -113,14 +146,7 @@ class GQNTrainer(Logger):
             episode_metrics = self._run_episode(env, agent, metrics_accumulator)
 
             self._log_episode_metrics(episode, episode_metrics, start_time)
-
-            grew = agent.check_and_grow(episode, episode_metrics['reward'])
-            if grew:
-                growth_info = agent.action_space_manager.get_growth_info()
-                self.logger.info(
-                    f">>> ACTION SPACE GREW to {growth_info['current_bins']} bins "
-                    f"at episode {episode} (stage {growth_info['stage']}/{growth_info['total_stages'] - 1})"
-                )
+            self._check_and_log_growth(episode, episode_metrics, agent)
 
             agent.update_epsilon()
 
@@ -130,12 +156,50 @@ class GQNTrainer(Logger):
 
             metrics_tracker.log_episode(episode=episode, **episode_metrics)
 
+    def _check_and_log_growth(self, episode, episode_metrics, agent):
+        """Check if action space grew and log if it did."""
+        grew = agent.check_and_grow(episode, episode_metrics['reward'])
+        if grew:
+            self._log_action_space_growth(episode, agent)
+
+    def _log_action_space_growth(self, episode, agent):
+        """Log action space growth event."""
+        growth_info = agent.action_space_manager.get_growth_info()
+        self.logger.info(
+            f">>> ACTION SPACE GREW to {growth_info['current_bins']} bins "
+            f"at episode {episode} (stage {growth_info['stage']}/{growth_info['total_stages'] - 1})"
+        )
+
     def _run_episode(self, env, agent, metrics_accumulator):
         """Run a single training episode."""
         episode_start_time = time.time()
+        episode_reward, steps = self._execute_episode_steps(env, agent, metrics_accumulator)
+        episode_time = time.time() - episode_start_time
+        averages = metrics_accumulator.get_averages()
+
+        return self._create_episode_metrics_dict(
+            episode_reward, steps, episode_time, averages, agent
+        )
+
+    def _execute_episode_steps(self, env, agent, metrics_accumulator):
+        """Execute all steps in an episode."""
         episode_reward = 0.0
         steps = 0
 
+        obs = self._reset_environment(env, agent)
+
+        while not self._is_episode_complete(env, steps):
+            action = agent.select_action(obs)
+            obs, reward = self._take_environment_step(env, agent, action)
+            self._update_networks_if_ready(agent, metrics_accumulator)
+
+            episode_reward += reward
+            steps += 1
+
+        return episode_reward, steps
+
+    def _reset_environment(self, env, agent):
+        """Reset environment and initialize agent observation."""
         time_step = env.reset()
         obs = process_observation(
             time_step.observation,
@@ -143,31 +207,30 @@ class GQNTrainer(Logger):
             self.device
         )
         agent.observe_first(obs)
+        return obs
 
-        while not time_step.last() and steps < self.config.max_steps_per_episode:
-            action = agent.select_action(obs)
-            action_np = _convert_action_to_numpy(action)
+    def _is_episode_complete(self, env, steps):
+        """Check if episode is complete."""
+        return env._step_count >= self.config.max_steps_per_episode or steps >= self.config.max_steps_per_episode
 
-            time_step = env.step(action_np)
-            next_obs = process_observation(
-                time_step.observation,
-                self.config.use_pixels,
-                self.device
-            )
-            reward = time_step.reward if time_step.reward is not None else 0.0
-            done = time_step.last()
+    def _take_environment_step(self, env, agent, action):
+        """Take one step in the environment."""
+        action_np = _convert_action_to_numpy(action)
+        time_step = env.step(action_np)
 
-            agent.observe(action, reward, next_obs, done)
+        next_obs = process_observation(
+            time_step.observation,
+            self.config.use_pixels,
+            self.device
+        )
+        reward = time_step.reward if time_step.reward is not None else 0.0
+        done = time_step.last()
 
-            self._update_networks_if_ready(agent, metrics_accumulator)
+        agent.observe(action, reward, next_obs, done)
+        return next_obs, reward
 
-            obs = next_obs
-            episode_reward += reward
-            steps += 1
-
-        episode_time = time.time() - episode_start_time
-        averages = metrics_accumulator.get_averages()
-
+    def _create_episode_metrics_dict(self, episode_reward, steps, episode_time, averages, agent):
+        """Create dictionary of episode metrics."""
         return {
             "reward": episode_reward,
             "steps": steps,
@@ -189,12 +252,16 @@ class GQNTrainer(Logger):
 
         metrics = agent.update()
         if metrics:
-            metrics['loss'] = metrics.get('loss', 0.0)
-            metrics['q1_mean'] = metrics.get('q1_mean', 0.0)
-            metrics['mse_loss1'] = metrics.get('mse_loss1', 0.0)
-            metrics['mean_abs_td_error'] = metrics.get('mean_abs_td_error', 0.0)
-            metrics['mean_squared_td_error'] = metrics.get('mean_squared_td_error', 0.0)
-            metrics_accumulator.update(metrics)
+            self._update_metrics_accumulator(metrics, metrics_accumulator)
+
+    def _update_metrics_accumulator(self, metrics, metrics_accumulator):
+        """Update metrics accumulator with default values."""
+        metrics['loss'] = metrics.get('loss', 0.0)
+        metrics['q1_mean'] = metrics.get('q1_mean', 0.0)
+        metrics['mse_loss1'] = metrics.get('mse_loss1', 0.0)
+        metrics['mean_abs_td_error'] = metrics.get('mean_abs_td_error', 0.0)
+        metrics['mean_squared_td_error'] = metrics.get('mean_squared_td_error', 0.0)
+        metrics_accumulator.update(metrics)
 
     def _log_episode_metrics(self, episode, metrics, start_time):
         """Log episode metrics at specified intervals."""
@@ -224,28 +291,38 @@ class GQNTrainer(Logger):
 
     def _log_detailed_metrics(self, episode, start_time):
         """Log detailed training progress."""
+        self._print_separator()
+        self.logger.info(f"Episode {episode} Detailed Summary:")
+
+        self._log_time_statistics(episode, start_time)
+        self._log_agent_statistics(episode)
+
+        self._print_separator()
+
+    def _log_time_statistics(self, episode, start_time):
+        """Log time-related statistics."""
         elapsed_time = time.time() - start_time
         episodes_completed = episode + 1
         avg_episode_time = elapsed_time / episodes_completed
         remaining_episodes = self.config.num_episodes - episode - 1
         eta = avg_episode_time * remaining_episodes
 
-        self.logger.info("=" * 80)
-        self.logger.info(f"Episode {episode} Detailed Summary:")
         self.logger.info(f"  Elapsed time: {elapsed_time / 60:.1f} min")
         self.logger.info(f"  Estimated time remaining: {eta / 60:.1f} min")
         self.logger.info(f"  Average episode time: {avg_episode_time:.2f} sec")
         self.logger.info(f"  Episodes completed: {episodes_completed}/{self.config.num_episodes}")
         self.logger.info(f"  Progress: {100 * episodes_completed / self.config.num_episodes:.1f}%")
 
-        if hasattr(self, 'agent'):
-            growth_info = self.agent.action_space_manager.get_growth_info()
-            self.logger.info(f"  Current bins: {growth_info['current_bins']}")
-            self.logger.info(f"  Growth stage: {growth_info['stage']}/{growth_info['total_stages'] - 1}")
-            self.logger.info(f"  Epsilon: {self.agent.epsilon:.4f}")
-            self.logger.info(f"  Replay buffer size: {len(self.agent.replay_buffer)}")
+    def _log_agent_statistics(self, episode):
+        """Log agent-specific statistics."""
+        if not hasattr(self, 'agent'):
+            return
 
-        self.logger.info("=" * 80)
+        growth_info = self.agent.action_space_manager.get_growth_info()
+        self.logger.info(f"  Current bins: {growth_info['current_bins']}")
+        self.logger.info(f"  Growth stage: {growth_info['stage']}/{growth_info['total_stages'] - 1}")
+        self.logger.info(f"  Epsilon: {self.agent.epsilon:.4f}")
+        self.logger.info(f"  Replay buffer size: {len(self.agent.replay_buffer)}")
 
     def _perform_periodic_maintenance(self, episode):
         """Perform periodic memory cleanup."""
@@ -280,12 +357,20 @@ class GQNTrainer(Logger):
 
     def _finalize_training(self, agent, metrics_tracker):
         """Finalize training by saving and plotting."""
+        self._save_final_metrics(metrics_tracker)
+        self._save_final_checkpoint(agent)
+        self._generate_plots(metrics_tracker)
+
+    def _save_final_metrics(self, metrics_tracker):
+        """Save final metrics."""
         metrics_tracker.save_metrics(
             self.agent_name,
             self.config.task,
             self.config.seed
         )
 
+    def _save_final_checkpoint(self, agent):
+        """Save final checkpoint."""
         final_checkpoint = self.checkpoint_manager.save_checkpoint(
             agent,
             self.config.num_episodes,
@@ -293,8 +378,6 @@ class GQNTrainer(Logger):
             self.config.seed
         )
         self.logger.info(f"Final checkpoint saved: {final_checkpoint}")
-
-        self._generate_plots(metrics_tracker)
 
     def _generate_plots(self, metrics_tracker):
         """Generate training plots."""
