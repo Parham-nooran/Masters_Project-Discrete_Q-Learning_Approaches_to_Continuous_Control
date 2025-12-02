@@ -5,6 +5,9 @@ import numpy as np
 import torch
 from dm_control import suite
 
+from src.common.env_factory import create_dmcontrol_env, create_ogbench_env
+from src.common.observation_utils import process_state_observation
+
 
 def get_obs_shape(use_pixels: bool, obs_spec: dict) -> tuple:
     """Get observation shape."""
@@ -33,23 +36,35 @@ def process_pixel_observation(dm_obs, device):
     return obs
 
 
-def process_observation(dm_obs, use_pixels, device, obs_buffer=None) -> torch.Tensor:
-    if use_pixels:
-        return process_pixel_observation(dm_obs, device)
-    else:
-        state_parts = []
-        for key in sorted(dm_obs.keys()):
-            val = dm_obs[key]
-            if isinstance(val, np.ndarray):
-                state_parts.append(val.astype(np.float32).flatten())
-            else:
-                state_parts.append(np.array([float(val)], dtype=np.float32))
+def process_observation(dm_obs, use_pixels, device, obs_buffer=None, env_type="dmcontrol") -> torch.Tensor:
+    """Process observation based on type and environment.
 
-        state_vector = np.concatenate(state_parts, dtype=np.float32)
+    Args:
+        dm_obs: Observation from environment
+        use_pixels: Whether using pixel observations
+        device: Torch device
+        obs_buffer: Optional observation buffer
+        env_type: Type of environment ('dmcontrol' or 'ogbench')
+    """
+    if env_type == "ogbench":
+        if use_pixels:
+            obs = torch.tensor(dm_obs, dtype=torch.float32, device=device)
+            if len(obs.shape) == 3 and obs.shape[-1] == 3:
+                obs = obs.permute(2, 0, 1)
+            return obs
+        else:
+            obs = torch.from_numpy(dm_obs.astype(np.float32)).to(device)
+            if obs_buffer is None:
+                return obs
+            return obs_buffer.update(obs)
+    else:
+        if use_pixels:
+            return process_pixel_observation(dm_obs, device)
+
+        state_vector = process_state_observation(dm_obs)
         if obs_buffer is None:
             return torch.from_numpy(state_vector).to(device)
-        else:
-            return obs_buffer.update(torch.from_numpy(state_vector))
+        return obs_buffer.update(torch.from_numpy(state_vector))
 
 
 def get_path(base_path, filename="", middle_path="", logger=None, create=False):
@@ -92,15 +107,6 @@ def continuous_to_discrete_action(
         distances = np.linalg.norm(action_bins_cpu - continuous_action, axis=1)
         return np.argmin(distances)
 
-
-def get_env_specs(env, use_pixels=False):
-    action_spec = env.action_spec()
-    obs_spec = env.observation_spec()
-    obs_shape = get_obs_shape(use_pixels, obs_spec)
-    action_spec_dict = {"low": action_spec.minimum, "high": action_spec.maximum}
-    return obs_shape, action_spec_dict
-
-
 def check_task(task, logger):
     if task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
         logger.warn(f"Task {task} not found, using walker_walk")
@@ -108,11 +114,68 @@ def check_task(task, logger):
     return task
 
 
-def get_env(task, logger):
-    task = check_task(task, logger)
-    domain_name, task_name = task.split("_", 1)
-    env = suite.load(domain_name, task_name)
+def get_env(task, logger, env_type="dmcontrol"):
+    """Get environment based on type.
+
+    Args:
+        task: Task name
+        logger: Logger instance
+        env_type: Type of environment ('dmcontrol' or 'ogbench')
+
+    Returns:
+        Environment instance
+    """
+
+    if env_type == "ogbench":
+        logger.info(f"Creating OGBench environment: {task}")
+        env = create_ogbench_env(task)
+    else:
+        domain_name, task_name = task.split("_", 1)
+        logger.info(f"Creating dm_control environment: {domain_name}/{task_name}")
+        env = create_dmcontrol_env(domain_name, task_name)
+
     return env
+
+
+def get_env_specs(env, use_pixels, env_type="dmcontrol"):
+    """Get observation shape and action spec from environment.
+
+    Args:
+        env: Environment instance
+        use_pixels: Whether using pixel observations
+        env_type: Type of environment
+
+    Returns:
+        Tuple of (obs_shape, action_spec_dict)
+    """
+    if env_type == "ogbench":
+        obs_space = env.env.observation_space
+        action_space = env.env.action_space
+
+        if use_pixels:
+            obs_shape = obs_space.shape  # Should be (C, H, W) or (H, W, C)
+        else:
+            obs_shape = (obs_space.shape[0],)
+
+        action_spec_dict = {
+            "low": action_space.low,
+            "high": action_space.high,
+            "shape": action_space.shape
+        }
+    else:
+        action_spec = env.action_spec()
+        obs_spec = env.observation_spec()
+        if use_pixels:
+            obs_shape = next(iter(obs_spec.values())).shape
+        else:
+            obs_shape = (sum(np.prod(spec.shape) for spec in obs_spec.values()),)
+        action_spec_dict = {
+            "low": action_spec.minimum,
+            "high": action_spec.maximum,
+            "shape": action_spec.shape
+        }
+
+    return obs_shape, action_spec_dict
 
 
 def init_training(seed, device, logger):
