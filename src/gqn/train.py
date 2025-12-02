@@ -21,6 +21,23 @@ def _convert_action_to_numpy(action):
     return action
 
 
+def _create_episode_metrics_dict(episode_reward, steps, episode_time, averages, agent):
+    """Create dictionary of episode metrics."""
+    return {
+        "reward": episode_reward,
+        "steps": steps,
+        "loss": averages.get("loss", 0.0),
+        "mean_abs_td_error": averages.get("mean_abs_td_error", 0.0),
+        "mean_squared_td_error": averages.get("mean_squared_td_error", 0.0),
+        "q_mean": averages.get("q_mean", 0.0),
+        "epsilon": agent.epsilon,
+        "mse_loss": averages.get("mse_loss", 0.0),
+        "episode_time": episode_time,
+        "current_bins": agent.action_space_manager.current_bins,
+        "growth_stage": agent.action_space_manager.current_growth_stage,
+    }
+
+
 class GQNTrainer(Logger):
     """Trainer for Growing Q-Networks Agent managing the complete training pipeline."""
 
@@ -39,7 +56,7 @@ class GQNTrainer(Logger):
         """Execute main training loop."""
         self._setup_training()
 
-        env = get_env(self.config.task, self.logger)
+        env = get_env(self.config.task, self.logger, self.config.env_type)
         obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
 
         agent = GQNAgent(self.config, obs_shape, action_spec_dict)
@@ -177,7 +194,7 @@ class GQNTrainer(Logger):
         episode_time = time.time() - episode_start_time
         averages = metrics_accumulator.get_averages()
 
-        return self._create_episode_metrics_dict(
+        return _create_episode_metrics_dict(
             episode_reward, steps, episode_time, averages, agent
         )
 
@@ -228,22 +245,6 @@ class GQNTrainer(Logger):
 
         agent.observe(action, reward, next_obs, done)
         return next_obs, reward
-
-    def _create_episode_metrics_dict(self, episode_reward, steps, episode_time, averages, agent):
-        """Create dictionary of episode metrics."""
-        return {
-            "reward": episode_reward,
-            "steps": steps,
-            "loss": averages.get("loss", 0.0),
-            "mean_abs_td_error": averages.get("mean_abs_td_error", 0.0),
-            "mean_squared_td_error": averages.get("mean_squared_td_error", 0.0),
-            "q_mean": averages.get("q_mean", 0.0),
-            "epsilon": agent.epsilon,
-            "mse_loss": averages.get("mse_loss", 0.0),
-            "episode_time": episode_time,
-            "current_bins": agent.action_space_manager.current_bins,
-            "growth_stage": agent.action_space_manager.current_growth_stage,
-        }
 
     def _update_networks_if_ready(self, agent, metrics_accumulator):
         """Update networks if replay buffer has enough samples."""

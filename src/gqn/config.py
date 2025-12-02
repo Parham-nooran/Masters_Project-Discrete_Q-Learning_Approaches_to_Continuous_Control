@@ -6,12 +6,14 @@ from dataclasses import dataclass
 class GQNConfig:
     """Configuration for Growing Q-Networks with all hyperparameters."""
 
+    env_type: str = "ogbench"
     task: str = "walker_walk"
     seed: int = 0
     num_episodes: int = 1000
     max_steps_per_episode: int = 1000
 
     use_pixels: bool = False
+    ogbench_dataset_dir: str = "~/.ogbench/data"
     discount: float = 0.99
     n_step: int = 3
     batch_size: int = 256
@@ -80,6 +82,9 @@ def parse_args():
 
 def _add_environment_arguments(parser):
     """Add environment-related arguments."""
+    parser.add_argument("--env-type", type=str, default="dmcontrol",
+                        choices=["dmcontrol", "ogbench"],
+                        help="Environment type (dmcontrol or ogbench)")
     parser.add_argument("--task", type=str, default="walker_walk",
                         help="Environment task")
     parser.add_argument("--seed", type=int, default=0,
@@ -90,6 +95,8 @@ def _add_environment_arguments(parser):
                         help="Maximum steps per episode")
     parser.add_argument("--use-pixels", action="store_true",
                         help="Use pixel observations")
+    parser.add_argument("--ogbench-dataset-dir", type=str, default="~/.ogbench/data",
+                        help="Directory for OGBench datasets (only for ogbench env type)")
 
 
 def _add_training_arguments(parser):
