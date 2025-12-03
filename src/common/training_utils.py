@@ -155,7 +155,7 @@ def get_env_specs(env, use_pixels, env_type="dmcontrol"):
         if use_pixels:
             obs_shape = obs_space.shape  # Should be (C, H, W) or (H, W, C)
         else:
-            obs_shape = (obs_space.shape[0],)
+            obs_shape = (int(obs_space.shape[0]),)
 
         action_spec_dict = {
             "low": action_space.low,
@@ -165,10 +165,13 @@ def get_env_specs(env, use_pixels, env_type="dmcontrol"):
     else:
         action_spec = env.action_spec()
         obs_spec = env.observation_spec()
+
         if use_pixels:
             obs_shape = next(iter(obs_spec.values())).shape
         else:
-            obs_shape = (sum(np.prod(spec.shape) for spec in obs_spec.values()),)
+            total_size = sum(int(np.prod(spec.shape)) for spec in obs_spec.values())
+            obs_shape = (total_size,)
+
         action_spec_dict = {
             "low": action_spec.minimum,
             "high": action_spec.maximum,
