@@ -195,7 +195,7 @@ class TransitionSampler:
         low_dim_obs = self._create_dummy_low_dim_obs()
         next_low_dim_obs = self._create_dummy_low_dim_obs()
 
-        action = episode["action"][idx]
+        action = episode["action"][idx - 1]
         reward, discount = self.return_calculator.calculate(episode, idx)
 
         demos = np.zeros(1, dtype=np.float32)
