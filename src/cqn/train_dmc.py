@@ -195,14 +195,15 @@ class ReplayBufferManager:
     def __init__(self, config, working_dir, data_specs):
         self.config = config
         self.working_dir = working_dir
-        self.storage = ReplayBufferStorage(data_specs, working_dir / "buffer")
+        self.buffer_dir = working_dir / "buffer" / self.config.task_name.replace("_", "-")
+        self.storage = ReplayBufferStorage(data_specs, self.buffer_dir)
         self.loader = self._create_loader()
         self._replay_iter = None
 
     def _create_loader(self):
         """Create replay buffer data loader."""
         return make_replay_loader(
-            self.working_dir / "buffer",
+            self.buffer_dir,
             self.config.replay_buffer_size,
             self.config.batch_size,
             self.config.replay_buffer_num_workers,
@@ -210,6 +211,7 @@ class ReplayBufferManager:
             self.config.nstep,
             self.config.discount,
             self.config.low_dim_obs_shape,
+            self.config.task_name
         )
 
     def get_iterator(self):

@@ -308,12 +308,13 @@ class ReplayBuffer(IterableDataset):
             fetch_every,
             save_snapshot,
             low_dim_size=1,
+            task_name=None,
     ):
         self.replay_dir = Path(replay_dir)
         self.num_workers = max(1, num_workers)
         self.fetch_every = fetch_every
         self.samples_since_last_fetch = fetch_every
-
+        self.task_name = task_name
         self.episode_cache = EpisodeCache(max_size, save_snapshot)
         self.transition_sampler = TransitionSampler(nstep, discount, low_dim_size)
 
@@ -398,7 +399,8 @@ def make_replay_loader(
         save_snapshot,
         nstep,
         discount,
-        low_dim_size=1
+        low_dim_size=1,
+        task_name=None,
 ):
     """Create a replay buffer data loader."""
     max_size_per_worker = max_size // max(1, num_workers)
@@ -412,6 +414,7 @@ def make_replay_loader(
         fetch_every=1000,
         save_snapshot=save_snapshot,
         low_dim_size=low_dim_size,
+        task_name=task_name,
     )
 
     loader = torch.utils.data.DataLoader(
