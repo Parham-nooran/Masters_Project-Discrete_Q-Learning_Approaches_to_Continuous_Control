@@ -115,7 +115,7 @@ class ReplayBufferStorage:
     def __init__(self, data_specs, replay_dir):
         self.data_specs = data_specs
         self.replay_dir = Path(replay_dir)
-        self.replay_dir.mkdir(exist_ok=True)
+        self.replay_dir.mkdir(exist_ok=True, parents=True)
 
         self.episode_builder = EpisodeBuilder(data_specs)
         self.metadata = EpisodeMetadata()
