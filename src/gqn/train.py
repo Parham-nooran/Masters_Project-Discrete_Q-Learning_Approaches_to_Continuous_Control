@@ -240,7 +240,7 @@ class GQNTrainer(Logger):
             self.config.use_pixels,
             self.device
         )
-        reward = time_step.reward if time_step.reward is not None else 0.0
+        reward = time_step.reward
         done = time_step.last()
 
         agent.observe(action, reward, next_obs, done)

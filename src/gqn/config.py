@@ -6,7 +6,7 @@ from dataclasses import dataclass
 class GQNConfig:
     """Configuration for Growing Q-Networks with all hyperparameters."""
 
-    env_type: str = "ogbench"
+    env_type: str = "dmcontrol"
     task: str = "walker_walk"
     seed: int = 0
     num_episodes: int = 1000
