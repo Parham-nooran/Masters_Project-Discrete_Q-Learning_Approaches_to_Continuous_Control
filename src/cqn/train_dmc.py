@@ -95,9 +95,8 @@ class TrainingConfig:
 
     @staticmethod
     def _add_logging_arguments(parser):
-        parser.add_argument("--log-interval", type=int, default=1)
         parser.add_argument("--checkpoint-interval", type=int, default=500000)
-        parser.add_argument("--metric-interval", type=int, default=500)
+        parser.add_argument("--metric-interval", type=int, default=50)
         parser.add_argument("--save-video", action="store_true")
         parser.add_argument("--save-train-video", action="store_true")
         parser.add_argument("--save-snapshot", action="store_true")
@@ -466,11 +465,9 @@ class CQNTrainer(Logger):
     def _process_episode_metrics(self, episode_metrics):
         """Process and log episode metrics."""
         episode_metrics.finalize_episode(self.config.action_repeat)
-
-        if episode_metrics.should_log(self.global_episode, self.config.log_interval):
-            elapsed_time, total_time = self.timer.reset()
-            self._log_episode_metrics(episode_metrics, elapsed_time, total_time)
-            episode_metrics.clear_recent()
+        elapsed_time, total_time = self.timer.reset()
+        self._log_episode_metrics(episode_metrics, elapsed_time, total_time)
+        episode_metrics.clear_recent()
 
     def _log_episode_metrics(self, episode_metrics, elapsed_time, total_time):
         """Log episode metrics to logger."""
@@ -490,7 +487,7 @@ class CQNTrainer(Logger):
         self.metrics_tracker.log_episode(
             episode=self.global_episode,
             reward=avg_reward,
-            steps=self._global_step,
+            steps=int(avg_length),
             episode_time=total_time
         )
 
@@ -521,9 +518,8 @@ class CQNTrainer(Logger):
 
     def _log_training_metrics(self, metrics):
         """Log training metrics if available."""
-        if metrics and self.global_episode % self.config.log_interval == 0:
-            metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
-            self.logger.info(f"Training metrics - {metrics_str}")
+        metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
+        self.logger.info(f"Training metrics - {metrics_str}")
 
     def _execute_action(self, action, episode_metrics):
         """Execute action in environment and record results."""
