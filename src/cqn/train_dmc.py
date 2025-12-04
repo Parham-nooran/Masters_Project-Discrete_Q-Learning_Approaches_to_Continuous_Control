@@ -5,7 +5,7 @@ import warnings
 from pathlib import Path
 
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
-os.environ['MUJOCO_GL'] = 'osmesa'
+# os.environ['MUJOCO_GL'] = 'osmesa'
 
 import numpy as np
 import torch
@@ -56,7 +56,7 @@ class TrainingConfig:
     def _add_training_arguments(parser):
         parser.add_argument("--num-train-steps", type=int, default=1000000)
         parser.add_argument("--num-seed-steps", type=int, default=4000)
-        parser.add_argument("--seed", type=int, default=1)
+        parser.add_argument("--seed", type=int, default=42)
 
     @staticmethod
     def _add_evaluation_arguments(parser):
@@ -95,9 +95,9 @@ class TrainingConfig:
 
     @staticmethod
     def _add_logging_arguments(parser):
-        parser.add_argument("--log-interval", type=int, default=5)
-        parser.add_argument("--checkpoint-interval", type=int, default=50000)
-        parser.add_argument("--metric-interval", type=int, default=1000)
+        parser.add_argument("--log-interval", type=int, default=1)
+        parser.add_argument("--checkpoint-interval", type=int, default=500000)
+        parser.add_argument("--metric-interval", type=int, default=500)
         parser.add_argument("--save-video", action="store_true")
         parser.add_argument("--save-train-video", action="store_true")
         parser.add_argument("--save-snapshot", action="store_true")
@@ -404,20 +404,16 @@ class CQNTrainer(Logger):
             if time_step.last():
                 time_step = self._handle_episode_end(episode_metrics, training_metrics)
                 episode_metrics.reset()
-
             if self._should_evaluate():
                 self._run_evaluation()
-
-            if self._should_save_checkpoint():
-                self._save_checkpoint()
-            if self._should_save_metrics():
-                self._save_metrics()
-
             action = self._select_action(time_step)
-
             if self._should_update_agent():
                 training_metrics = self._update_agent()
                 self._log_training_metrics(training_metrics)
+                if self._should_save_checkpoint():
+                    self._save_checkpoint()
+                if self._should_save_metrics():
+                    self._save_metrics()
 
             time_step = self._execute_action(action, episode_metrics)
 
@@ -525,7 +521,7 @@ class CQNTrainer(Logger):
 
     def _log_training_metrics(self, metrics):
         """Log training metrics if available."""
-        if metrics and self.global_step % (self.config.log_interval * 10) == 0:
+        if metrics and self.global_episode % self.config.log_interval == 0:
             metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
             self.logger.info(f"Training metrics - {metrics_str}")
 

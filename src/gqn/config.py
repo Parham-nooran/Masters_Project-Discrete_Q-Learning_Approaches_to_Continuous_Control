@@ -40,10 +40,10 @@ class GQNConfig:
     layer_size_bottleneck: int = 50
     num_layers: int = 2
 
-    checkpoint_interval: int = 100
-    metrics_save_interval: int = 100
+    checkpoint_interval: int = 500000
+    metrics_save_interval: int = 500
     log_interval: int = 5
-    detailed_log_interval: int = 50
+    detailed_log_interval: int = 5
     eval_episodes: int = 10
 
     action_penalty_coeff: float = 0.0
