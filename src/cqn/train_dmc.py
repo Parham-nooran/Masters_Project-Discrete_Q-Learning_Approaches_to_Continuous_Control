@@ -54,13 +54,13 @@ class TrainingConfig:
 
     @staticmethod
     def _add_training_arguments(parser):
-        parser.add_argument("--num-train-frames", type=int, default=1100000)
-        parser.add_argument("--num-seed-frames", type=int, default=4000)
+        parser.add_argument("--num-train-steps", type=int, default=1000000)
+        parser.add_argument("--num-seed-steps", type=int, default=4000)
         parser.add_argument("--seed", type=int, default=1)
 
     @staticmethod
     def _add_evaluation_arguments(parser):
-        parser.add_argument("--eval-every-frames", type=int, default=10000)
+        parser.add_argument("--eval-every-steps", type=int, default=10000)
         parser.add_argument("--num-eval-episodes", type=int, default=10)
 
     @staticmethod
@@ -247,12 +247,12 @@ class VideoManager:
         """Initialize training video recording."""
         self.train_recorder.init(observation)
 
-    def record_eval_frame(self, env):
-        """Record a single evaluation frame."""
+    def record_eval_step(self, env):
+        """Record a single evaluation step."""
         self.eval_recorder.record(env)
 
-    def record_train_frame(self, observation):
-        """Record a single training frame."""
+    def record_train_step(self, observation):
+        """Record a single training step."""
         self.train_recorder.record(observation)
 
     def save_eval_video(self, filename):
@@ -394,10 +394,6 @@ class CQNTrainer(Logger):
     def global_episode(self):
         return self._global_episode
 
-    @property
-    def global_frame(self):
-        return self._global_step * self.config.action_repeat
-
     def train(self):
         """Main training loop."""
         episode_metrics = EpisodeMetrics()
@@ -429,11 +425,11 @@ class CQNTrainer(Logger):
 
     def _should_continue_training(self):
         """Check if training should continue."""
-        return self.global_frame < self.config.num_train_frames
+        return self.global_step < self.config.num_train_steps
 
     def _should_evaluate(self):
         """Check if evaluation should run."""
-        return self.global_frame % self.config.eval_every_frames == 0
+        return self.global_step % self.config.eval_every_steps == 0
 
     def _should_save_checkpoint(self):
         """Check if checkpoint should be saved."""
@@ -444,7 +440,7 @@ class CQNTrainer(Logger):
 
     def _should_update_agent(self):
         """Check if agent should be updated."""
-        return self.global_frame >= self.config.num_seed_frames
+        return self.global_step >= self.config.num_seed_steps
 
     def _initialize_training_episode(self, episode_metrics):
         """Initialize the first training episode."""
@@ -457,7 +453,7 @@ class CQNTrainer(Logger):
     def _handle_episode_end(self, episode_metrics, training_metrics):
         """Handle end of episode tasks."""
         self._global_episode += 1
-        self.video_manager.save_train_video(f"{self.global_frame}.mp4")
+        self.video_manager.save_train_video(f"{self.global_step}.mp4")
 
         if training_metrics is not None:
             self._process_episode_metrics(episode_metrics)
@@ -483,13 +479,12 @@ class CQNTrainer(Logger):
     def _log_episode_metrics(self, episode_metrics, elapsed_time, total_time):
         """Log episode metrics to logger."""
         avg_reward, avg_length = episode_metrics.get_averages()
-        total_frames = sum(episode_metrics.recent_lengths)
-        fps = total_frames / elapsed_time if elapsed_time > 0 else 0
+        total_steps = sum(episode_metrics.recent_lengths)
+        fps = total_steps / elapsed_time if elapsed_time > 0 else 0
 
         self.logger.info("=== Training Progress ===")
-        self.logger.info(f"Frame: {self.global_frame}")
-        self.logger.info(f"Episode: {self.global_episode}")
         self.logger.info(f"Step: {self.global_step}")
+        self.logger.info(f"Episode: {self.global_episode}")
         self.logger.info(f"Avg reward (last {len(episode_metrics.recent_rewards)} eps): {avg_reward:.2f}")
         self.logger.info(f"Avg length: {avg_length:.2f}")
         self.logger.info(f"FPS: {fps:.2f}")
@@ -499,7 +494,7 @@ class CQNTrainer(Logger):
         self.metrics_tracker.log_episode(
             episode=self.global_episode,
             reward=avg_reward,
-            steps=int(avg_length),
+            steps=self._global_step,
             episode_time=total_time
         )
 
@@ -539,7 +534,7 @@ class CQNTrainer(Logger):
         time_step = self.env_manager.train_env.step(action)
         episode_metrics.update_step(time_step.reward)
         self.replay_manager.add(time_step)
-        self.video_manager.record_train_frame(time_step.observation)
+        self.video_manager.record_train_step(time_step.observation)
         self._global_step += 1
         return time_step
 
@@ -571,12 +566,12 @@ class CQNTrainer(Logger):
         while not time_step.last():
             action = self._select_evaluation_action(time_step)
             time_step = self.env_manager.eval_env.step(action)
-            self.video_manager.record_eval_frame(self.env_manager.eval_env)
+            self.video_manager.record_eval_step(self.env_manager.eval_env)
             episode_reward += time_step.reward
             episode_steps += 1
 
         if episode_index == 0:
-            self.video_manager.save_eval_video(f"{self.global_frame}.mp4")
+            self.video_manager.save_eval_video(f"{self.global_step}.mp4")
 
         return episode_reward, episode_steps
 
@@ -600,7 +595,7 @@ class CQNTrainer(Logger):
         avg_reward = total_reward / num_episodes
         avg_length = (total_steps * self.config.action_repeat) / num_episodes
 
-        self.logger.info(f"=== Evaluation at frame {self.global_frame} ===")
+        self.logger.info(f"=== Evaluation at step {self.global_step} ===")
         self.logger.info(f"Average episode reward: {avg_reward:.2f}")
         self.logger.info(f"Average episode length: {avg_length:.2f}")
         self.logger.info(f"Episode: {self.global_episode}")
@@ -621,7 +616,7 @@ class CQNTrainer(Logger):
             task_name=self.config.task_name,
             seed=self.config.seed
         )
-        self.logger.info(f"Checkpoint saved at frame {self.global_frame}: {checkpoint_path}")
+        self.logger.info(f"Checkpoint saved at step {self.global_step}: {checkpoint_path}")
 
     def _load_checkpoint(self):
         """Load checkpoint from file."""
@@ -649,7 +644,7 @@ class CQNTrainer(Logger):
             self.logger.info(f"Loaded checkpoint from {checkpoint_path}")
             self.logger.info(
                 f"Resuming from episode {self.global_episode}, "
-                f"step {self.global_step}, frame {self.global_frame}"
+                f"step {self.global_step}, step {self.global_step}"
             )
         except Exception as e:
             self.logger.error(f"Failed to load checkpoint: {e}")
