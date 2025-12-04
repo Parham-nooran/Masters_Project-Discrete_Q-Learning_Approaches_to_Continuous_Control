@@ -531,7 +531,7 @@ class CQNTrainer(Logger):
         episode_metrics.update_step(time_step.reward)
         self.replay_manager.add(time_step)
         self.video_manager.record_train_step(time_step.observation)
-        self._global_step += 1
+        self._global_step += self.config.action_repeat
         return time_step
 
     def _run_evaluation(self):
