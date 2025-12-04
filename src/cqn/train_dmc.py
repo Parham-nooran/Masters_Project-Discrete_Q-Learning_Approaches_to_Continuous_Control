@@ -288,10 +288,6 @@ class EpisodeMetrics:
         self.recent_rewards.append(self.reward)
         self.recent_lengths.append(episode_length)
 
-    def should_log(self, episode, log_interval):
-        """Check if metrics should be logged."""
-        return episode % log_interval == 0 and len(self.recent_rewards) > 0
-
     def get_averages(self):
         """Get average reward and length."""
         avg_reward = np.mean(self.recent_rewards) if self.recent_rewards else 0
@@ -518,8 +514,9 @@ class CQNTrainer(Logger):
 
     def _log_training_metrics(self, metrics):
         """Log training metrics if available."""
-        metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
-        self.logger.info(f"Training metrics - {metrics_str}")
+        if metrics:
+            metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics.items()])
+            self.logger.info(f"Training metrics - {metrics_str}")
 
     def _execute_action(self, action, episode_metrics):
         """Execute action in environment and record results."""
