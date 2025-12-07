@@ -141,8 +141,7 @@ class SeedAverager:
         Returns:
             Tuple of (common_steps, mean_rewards, std_rewards)
         """
-        min_steps = min(data['steps'][-1] for data in seeds_data)
-        max_steps = max(data['steps'][-1] for data in seeds_data)
+        min_steps = min(min(data['steps'][-1] for data in seeds_data), 1e6)
 
         common_steps = np.linspace(0, min_steps, num_points)
 
@@ -199,7 +198,6 @@ class RewardPlotter:
 
             common_steps, mean_rewards, std_rewards = self.averager.interpolate_to_common_steps(seeds_data)
             steps_m = common_steps / 1e6
-
             ax.plot(
                 steps_m, mean_rewards,
                 color=color,
@@ -269,7 +267,6 @@ class RewardPlotter:
                 smoothed_mean = self._compute_moving_average(mean_rewards, window)
                 smoothed_std = self._compute_moving_average(std_rewards, window)
                 steps_smoothed = common_steps[window - 1:] / 1e6
-
                 ax.plot(
                     steps_smoothed, smoothed_mean,
                     color=color,
@@ -423,11 +420,9 @@ def main():
                 continue
 
             total_steps = loader.compute_total_steps(episode_steps)
-
             print(f"  Episodes: {len(episode_rewards):,}")
             print(f"  Total steps: {total_steps[-1]:,}")
             print(f"  Mean reward: {episode_rewards.mean():.2f} +/- {episode_rewards.std():.2f}")
-
             task_algorithm_seeds[task][algorithm].append({
                 'steps': total_steps,
                 'rewards': episode_rewards,
