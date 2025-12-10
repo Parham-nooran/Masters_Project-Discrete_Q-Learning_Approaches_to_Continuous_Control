@@ -38,6 +38,16 @@ def _create_episode_metrics_dict(episode_reward, steps, episode_time, averages, 
     }
 
 
+def _update_metrics_accumulator(metrics, metrics_accumulator):
+    """Update metrics accumulator with default values."""
+    metrics['loss'] = metrics.get('loss', 0.0)
+    metrics['q1_mean'] = metrics.get('q1_mean', 0.0)
+    metrics['mse_loss1'] = metrics.get('mse_loss1', 0.0)
+    metrics['mean_abs_td_error'] = metrics.get('mean_abs_td_error', 0.0)
+    metrics['mean_squared_td_error'] = metrics.get('mean_squared_td_error', 0.0)
+    metrics_accumulator.update(metrics)
+
+
 class GQNTrainer(Logger):
     """Trainer for Growing Q-Networks Agent managing the complete training pipeline."""
 
@@ -56,8 +66,8 @@ class GQNTrainer(Logger):
         """Execute main training loop."""
         self._setup_training()
 
-        env = get_env(self.config.task, self.logger, self.config.env_type)
-        obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels)
+        env = get_env(self.config.task, self.logger, self.config.seed, self.config.env_type)
+        obs_shape, action_spec_dict = get_env_specs(env, self.config.use_pixels, self.config.env_type)
 
         agent = GQNAgent(self.config, obs_shape, action_spec_dict)
 
@@ -105,6 +115,7 @@ class GQNTrainer(Logger):
 
     def _log_environment_info(self):
         """Log environment configuration."""
+        self.logger.info(f"Environment Type: {self.config.env_type}")
         self.logger.info(f"Task: {self.config.task}")
         self.logger.info(f"Seed: {self.config.seed}")
         self.logger.info(f"Episodes: {self.config.num_episodes}")
@@ -205,14 +216,15 @@ class GQNTrainer(Logger):
 
         obs = self._reset_environment(env, agent)
 
-        while not self._is_episode_complete(env, steps):
+        while steps < self.config.max_steps_per_episode:
             action = agent.select_action(obs)
-            obs, reward = self._take_environment_step(env, agent, action)
+            obs, reward, done = self._take_environment_step(env, agent, action)
             self._update_networks_if_ready(agent, metrics_accumulator)
 
             episode_reward += reward
             steps += 1
-
+            if done:
+                break
         return episode_reward, steps
 
     def _reset_environment(self, env, agent):
@@ -221,14 +233,18 @@ class GQNTrainer(Logger):
         obs = process_observation(
             time_step.observation,
             self.config.use_pixels,
-            self.device
+            self.device,
+            env_type=self.config.env_type
         )
         agent.observe_first(obs)
         return obs
 
     def _is_episode_complete(self, env, steps):
         """Check if episode is complete."""
-        return env._step_count >= self.config.max_steps_per_episode or steps >= self.config.max_steps_per_episode
+        if self.config.env_type in ["ogbench", "metaworld"]:
+            return steps >= self.config.max_steps_per_episode
+        else:
+            return env._step_count >= self.config.max_steps_per_episode or steps >= self.config.max_steps_per_episode
 
     def _take_environment_step(self, env, agent, action):
         """Take one step in the environment."""
@@ -238,13 +254,14 @@ class GQNTrainer(Logger):
         next_obs = process_observation(
             time_step.observation,
             self.config.use_pixels,
-            self.device
+            self.device,
+            env_type=self.config.env_type
         )
         reward = time_step.reward
         done = time_step.last()
 
         agent.observe(action, reward, next_obs, done)
-        return next_obs, reward
+        return next_obs, reward, done
 
     def _update_networks_if_ready(self, agent, metrics_accumulator):
         """Update networks if replay buffer has enough samples."""
@@ -253,16 +270,7 @@ class GQNTrainer(Logger):
 
         metrics = agent.update()
         if metrics:
-            self._update_metrics_accumulator(metrics, metrics_accumulator)
-
-    def _update_metrics_accumulator(self, metrics, metrics_accumulator):
-        """Update metrics accumulator with default values."""
-        metrics['loss'] = metrics.get('loss', 0.0)
-        metrics['q1_mean'] = metrics.get('q1_mean', 0.0)
-        metrics['mse_loss1'] = metrics.get('mse_loss1', 0.0)
-        metrics['mean_abs_td_error'] = metrics.get('mean_abs_td_error', 0.0)
-        metrics['mean_squared_td_error'] = metrics.get('mean_squared_td_error', 0.0)
-        metrics_accumulator.update(metrics)
+            _update_metrics_accumulator(metrics, metrics_accumulator)
 
     def _log_episode_metrics(self, episode, metrics, start_time):
         """Log episode metrics at specified intervals."""
@@ -284,7 +292,7 @@ class GQNTrainer(Logger):
             f"MSE: {metrics['mse_loss']:8.6f} | "
             f"TD: {metrics['mean_abs_td_error']:8.6f} | "
             f"Q: {metrics['q_mean']:6.3f} | "
-            f"ε: {metrics['epsilon']:.4f} | "
+            f"Îµ: {metrics['epsilon']:.4f} | "
             f"Bins: {metrics.get('current_bins', 'N/A')} | "
             f"Time: {metrics['episode_time']:.2f}s | "
             f"Buf: {buffer_size:6d}"

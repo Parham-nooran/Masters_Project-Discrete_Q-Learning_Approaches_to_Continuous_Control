@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from dm_control import suite
 
-from src.common.env_factory import create_dmcontrol_env, create_ogbench_env
+from src.common.env_factory import create_dmcontrol_env, create_ogbench_env, create_metaworld_env
 from src.common.observation_utils import process_state_observation
 
 
@@ -46,14 +46,17 @@ def process_observation(dm_obs, use_pixels, device, obs_buffer=None, env_type="d
         obs_buffer: Optional observation buffer
         env_type: Type of environment ('dmcontrol' or 'ogbench')
     """
-    if env_type == "ogbench":
+    if env_type in ["ogbench", "metaworld"]:
         if use_pixels:
             obs = torch.tensor(dm_obs, dtype=torch.float32, device=device)
             if len(obs.shape) == 3 and obs.shape[-1] == 3:
                 obs = obs.permute(2, 0, 1)
             return obs
         else:
-            obs = torch.from_numpy(dm_obs.astype(np.float32)).to(device)
+            if isinstance(dm_obs, np.ndarray):
+                obs = torch.from_numpy(dm_obs.astype(np.float32)).to(device)
+            else:
+                obs = torch.tensor(dm_obs, dtype=torch.float32, device=device)
             if obs_buffer is None:
                 return obs
             return obs_buffer.update(obs)
@@ -114,7 +117,7 @@ def check_task(task, logger):
     return task
 
 
-def get_env(task, logger, env_type="dmcontrol"):
+def get_env(task, logger, seed, env_type="dmcontrol"):
     """Get environment based on type.
 
     Args:
@@ -128,12 +131,14 @@ def get_env(task, logger, env_type="dmcontrol"):
 
     if env_type == "ogbench":
         logger.info(f"Creating OGBench environment: {task}")
-        env = create_ogbench_env(task)
+        env = create_ogbench_env(task, seed)
+    elif env_type == "metaworld":
+        logger.info(f"Creating metaworld environment: {task}")
+        env = create_metaworld_env(task, seed)
     else:
         domain_name, task_name = task.split("_", 1)
         logger.info(f"Creating dm_control environment: {domain_name}/{task_name}")
-        env = create_dmcontrol_env(domain_name, task_name)
-
+        env = create_dmcontrol_env(domain_name, task_name, seed)
     return env
 
 
