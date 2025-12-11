@@ -1,7 +1,8 @@
 """Factory for creating environments from different sources."""
 import ogbench
-
 from dm_control import suite
+import gymnasium as gym
+import metaworld
 
 def create_ogbench_env(task_name, seed=0):
     """Create OGBench environment.
@@ -33,6 +34,21 @@ def create_dmcontrol_env(domain_name, task_name, seed=0):
     return env
 
 
+def create_metaworld_env(task_name, seed=0):
+    """Create Metaworld environment.
+
+    Args:
+        task_name: Name of Metaworld task (e.g., 'reach-v3', 'pick-place-v3')
+        seed: Random seed
+
+    Returns:
+        Metaworld environment wrapped for compatibility
+    """
+    env = gym.make(f'Meta-World/MT1', env_name=task_name, seed=seed)
+    env = MetaworldWrapper(env, seed)
+    return env
+
+
 class OGBenchWrapper:
     """Wrapper to make OGBench environments compatible with dm_control interface."""
 
@@ -40,7 +56,12 @@ class OGBenchWrapper:
         self.env = env
         self.seed = seed
         self._step_count = 0
-        self._max_episode_steps = 1000
+        if hasattr(self.env, 'spec') and hasattr(self.env.spec, 'max_episode_steps'):
+            self._max_episode_steps = self.env.spec.max_episode_steps
+        elif hasattr(self.env, '_max_episode_steps'):
+            self._max_episode_steps = self.env._max_episode_steps
+        else:
+            self._max_episode_steps = 1000
 
     def reset(self):
         """Reset environment."""
@@ -50,6 +71,10 @@ class OGBenchWrapper:
         class TimeStep:
             def __init__(self, observation):
                 self.observation = observation
+                self.reward = 0.0
+
+            def last(self):
+                return False
 
         return TimeStep(obs)
 
@@ -62,7 +87,75 @@ class OGBenchWrapper:
         class TimeStep:
             def __init__(self, observation, reward, done):
                 self.observation = observation
-                self.reward = reward
+                self.reward = float(reward)
+                self._done = done
+
+            def last(self):
+                return self._done
+
+        return TimeStep(obs, reward, done)
+
+    def action_spec(self):
+        """Get action specification."""
+
+        class ActionSpec:
+            def __init__(self, space):
+                self.minimum = space.low
+                self.maximum = space.high
+                self.shape = space.shape
+
+        return ActionSpec(self.env.action_space)
+
+    def observation_spec(self):
+        """Get observation specification."""
+        obs_space = self.env.observation_space
+
+        if hasattr(obs_space, 'shape'):
+            return {'observations': type('obj', (), {'shape': obs_space.shape})}
+        else:
+            return {k: type('obj', (), {'shape': v.shape})
+                    for k, v in obs_space.spaces.items()}
+
+
+class MetaworldWrapper:
+    """Wrapper to make Metaworld environments compatible with dm_control interface."""
+
+    def __init__(self, env, seed=0):
+        self.env = env
+        self.seed = seed
+        self._step_count = 0
+        if hasattr(self.env, 'spec') and hasattr(self.env.spec, 'max_episode_steps'):
+            self._max_episode_steps = self.env.spec.max_episode_steps
+        elif hasattr(self.env, '_max_episode_steps'):
+            self._max_episode_steps = self.env._max_episode_steps
+        else:
+            self._max_episode_steps = 500
+
+    def reset(self):
+        """Reset environment."""
+        obs, info = self.env.reset(seed=self.seed)
+        self._step_count = 0
+
+        class TimeStep:
+            def __init__(self, observation):
+                self.observation = observation
+                self.reward = 0.0
+
+            def last(self):
+                return False
+
+        return TimeStep(obs)
+
+    def step(self, action):
+        """Take environment step."""
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self._step_count += 1
+        done = terminated or truncated
+
+        class TimeStep:
+            def __init__(self, observation, reward, done):
+                self.observation = observation
+                self.reward = float(reward)
                 self._done = done
 
             def last(self):

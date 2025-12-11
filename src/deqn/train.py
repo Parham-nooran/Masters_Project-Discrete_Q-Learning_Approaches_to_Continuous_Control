@@ -158,7 +158,7 @@ class DecQNTrainer(Logger):
 
     def _create_environment(self):
         """Create training environment."""
-        return get_env(self.config.task, self.logger)
+        return get_env(self.config.task, self.logger, self.config.seed)
 
     def _get_environment_specifications(self):
         """Get observation and action specifications from environment."""

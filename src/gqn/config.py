@@ -83,7 +83,7 @@ def parse_args():
 def _add_environment_arguments(parser):
     """Add environment-related arguments."""
     parser.add_argument("--env-type", type=str, default="dmcontrol",
-                        choices=["dmcontrol", "ogbench"],
+                        choices=["dmcontrol", "metaworld", "ogbench"],
                         help="Environment type (dmcontrol or ogbench)")
     parser.add_argument("--task", type=str, default="walker_walk",
                         help="Environment task")
