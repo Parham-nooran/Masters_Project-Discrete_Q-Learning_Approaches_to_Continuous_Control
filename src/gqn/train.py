@@ -27,7 +27,7 @@ def _convert_action_to_numpy(action):
 
 
 def _create_episode_metrics_dict(
-    episode_reward, steps, episode_time, averages, agent, success=None
+    episode_reward, steps, episode_time, averages, agent, success=0.0
 ):
     """Create dictionary of episode metrics."""
     return {
@@ -228,7 +228,7 @@ class GQNTrainer(Logger):
         """Execute all steps in an episode."""
         episode_reward = 0.0
         steps = 0
-        success = None
+        success = 0.0
 
         obs = self._reset_environment(env, agent)
 
@@ -239,8 +239,8 @@ class GQNTrainer(Logger):
 
             episode_reward += reward
             steps += 1
-            if self.config.env_type == "metaworld" and info is not None:
-                success = info.get("success", success)
+            if self.config.env_type == "metaworld":
+                success = info.get("success", success) if info is not None else success
             if done:
                 break
         return episode_reward, steps, success
@@ -317,7 +317,7 @@ class GQNTrainer(Logger):
             f"Bins: {metrics.get('current_bins', 'N/A')} | "
             f"Time: {metrics['episode_time']:.2f}s | "
             f"Buf: {buffer_size:6d}"
-            f"| Success: {metrics['success'] if metrics['success'] else 'N/A'}"
+            f"| Success: {metrics['success']}"
         )
         self.logger.info(log_msg)
 
