@@ -24,7 +24,7 @@ class BangBangTrainer(Logger):
 
     def train(self):
         init_training(self.args.seed, self.device, self.logger)
-        env = get_env(self.args.task, self.logger)
+        env = get_env(self.args.task, self.logger, self.args.seed)
         obs_shape, action_spec_dict = get_env_specs(env, self.args.use_pixels)
         agent = BangBangAgent(self.args, obs_shape, action_spec_dict)
         start_episode = self.checkpoint_manager.load_checkpoint_if_available(
