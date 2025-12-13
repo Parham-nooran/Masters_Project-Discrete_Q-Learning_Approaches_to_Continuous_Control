@@ -477,7 +477,7 @@ def main():
         print(f"\n  Generating seed-averaged plot...")
         plotter.plot_seed_averaged_comparison(algorithms_data, task)
 
-        if metrics.env_type == "metaworld":
+        if hasattr(metrics, "env_type") and metrics.get("env_type") == "metaworld":
             print(f"\n  Generating success rate plots...")
             plotter.plot_success_rate(save=True)
 
