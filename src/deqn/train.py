@@ -51,7 +51,7 @@ def _add_checkpoint_arguments(parser):
 def _add_environment_arguments(parser):
     """Add environment-related arguments."""
     parser.add_argument(
-        "--task", type=str, default="reacher_easy", help="Environment task"
+        "--task", type=str, default="quadruped_walk", help="Environment task"
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument(
