@@ -20,6 +20,7 @@ class MetricsTracker:
         self.episode_bin_widths = []
         self.episode_current_bins = []
         self.episode_growth_history = []
+        self.episode_successes = []
 
         self.bin_selection_per_episode = []
         self.action_range_per_episode = []
@@ -45,6 +46,7 @@ class MetricsTracker:
             selected_bins=None,
             action_ranges=None,
             q_values_by_level=None,
+            success=None,
             **kwargs,
     ):
         self.episodes.append(episode)
@@ -63,6 +65,9 @@ class MetricsTracker:
         self.episode_growth_history.append(
             growth_history if growth_history is not None else "[]"
         )
+        self.episode_successes.append(
+            success if success is not None else 0.0
+        )
 
         if selected_bins is not None:
             self.bin_selection_per_episode.append({
@@ -80,7 +85,7 @@ class MetricsTracker:
             for level, q_val in q_values_by_level.items():
                 self.q_values_per_level[level].append(q_val)
 
-    def save_metrics(self, agent, task_name, seed):
+    def save_metrics(self, agent, task_name, seed, env_type=None):
         metrics_data = {
             "episodes": self.episodes,
             "episode_rewards": self.episode_rewards,
@@ -98,6 +103,7 @@ class MetricsTracker:
             "bin_selection_per_episode": self.bin_selection_per_episode,
             "action_range_per_episode": self.action_range_per_episode,
             "q_values_per_level": self.q_values_per_level,
+            "env_type": env_type,
         }
 
         os.makedirs(self.save_dir, exist_ok=True)
@@ -147,6 +153,7 @@ class MetricsTracker:
                 self.episode_growth_history = metrics_data.get(
                     "episode_growth_history", []
                 )
+                self.episode_successes = metrics_data.get("episode_successes", [])
                 self.bin_selection_per_episode = metrics_data.get(
                     "bin_selection_per_episode", []
                 )
@@ -156,6 +163,7 @@ class MetricsTracker:
                 self.q_values_per_level = metrics_data.get(
                     "q_values_per_level", {i: [] for i in range(10)}
                 )
+                self.env_type = metrics_data.get("env_type", None)
 
                 self.logger.info(f"Loaded metrics for {len(self.episodes)} episodes")
                 return True
@@ -163,6 +171,14 @@ class MetricsTracker:
                 self.logger.warn(f"Failed to load metrics: {e}")
                 return False
         return False
+
+    def get_success_rate(self, window=100):
+        """Calculate success rate over recent episodes."""
+        if not self.episode_successes:
+            return 0.0
+
+        recent_successes = self.episode_successes[-window:]
+        return sum(recent_successes) / len(recent_successes) if recent_successes else 0.0
 
     def get_growth_events(self):
         """Extract growth events from history."""

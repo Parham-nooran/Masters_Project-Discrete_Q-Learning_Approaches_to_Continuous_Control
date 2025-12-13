@@ -277,6 +277,49 @@ class PlottingUtils:
         if save:
             _save_figure(save_dir, "reward_distribution.png")
 
+    def plot_success_rate(self, window=100, save=False, save_dir=None):
+        """Plot success rate over episodes for Metaworld environments."""
+        if not self.metrics.episode_successes:
+            self.logger.info("No success data available to plot")
+            return
+
+        save_dir = save_dir or self.save_dir
+
+        successes = np.array([s if s is not None else 0.0 for s in self.metrics.episode_successes])
+        episodes = np.array(self.metrics.episodes)
+
+        success_rates = []
+        smoothed_episodes = []
+
+        for i in range(len(successes)):
+            start_idx = max(0, i - window + 1)
+            window_successes = successes[start_idx:i + 1]
+            success_rate = (np.sum(window_successes) / len(window_successes)) * 100
+            success_rates.append(success_rate)
+            smoothed_episodes.append(episodes[i])
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(smoothed_episodes, success_rates, linewidth=2, color='green')
+        plt.xlabel('Environment Steps', fontsize=12)
+        plt.ylabel('Success Rate (%)', fontsize=12)
+        plt.title(f'Success Rate (Moving Average, Window={window})', fontsize=14)
+        plt.grid(True, alpha=0.3)
+        plt.ylim(0, 100)
+
+        if len(success_rates) > 0:
+            final_rate = success_rates[-1]
+            plt.axhline(y=final_rate, color='green', linestyle='--', alpha=0.5,
+                        label=f'Final: {final_rate:.1f}%')
+            plt.legend()
+
+        plt.tight_layout()
+
+        if save:
+            _save_figure(save_dir, 'success_rate.png')
+            self.logger.info(f"Success rate plot saved")
+
+        plt.close()
+
     def print_summary_stats(self):
         """Print comprehensive training summary statistics."""
         if not self.metrics.episode_rewards:
@@ -291,6 +334,7 @@ class PlottingUtils:
         self._print_loss_stats()
         self._print_td_error_stats()
         self._print_epsilon_stats()
+        self._print_success_stats()
         self._print_recent_stats(rewards, steps)
 
     def _print_basic_stats(self, rewards, lengths):
@@ -368,3 +412,19 @@ class PlottingUtils:
             self.logger.info(
                 f"Recent 100 episodes avg length: {recent_lengths.mean():.1f}"
             )
+
+    def _print_success_stats(self):
+        """Print success rate statistics for Metaworld environments."""
+        if not self.metrics.episode_successes:
+            return
+
+        successes = np.array([s if s is not None else 0.0 for s in self.metrics.episode_successes])
+
+        if len(successes) > 0:
+            overall_success_rate = (np.sum(successes) / len(successes)) * 100
+            self.logger.info(f"\nOverall success rate: {overall_success_rate:.2f}%")
+
+            if len(successes) >= 100:
+                recent_successes = successes[-100:]
+                recent_success_rate = (np.sum(recent_successes) / len(recent_successes)) * 100
+                self.logger.info(f"Recent 100 episodes success rate: {recent_success_rate:.2f}%")

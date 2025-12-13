@@ -21,7 +21,7 @@ def _convert_action_to_numpy(action):
     return action
 
 
-def _create_episode_metrics_dict(episode_reward, steps, episode_time, averages, agent):
+def _create_episode_metrics_dict(episode_reward, steps, episode_time, averages, agent, success=None):
     """Create dictionary of episode metrics."""
     return {
         "reward": episode_reward,
@@ -35,6 +35,7 @@ def _create_episode_metrics_dict(episode_reward, steps, episode_time, averages, 
         "episode_time": episode_time,
         "current_bins": agent.action_space_manager.current_bins,
         "growth_stage": agent.action_space_manager.current_growth_stage,
+        "success": success,
     }
 
 
@@ -201,7 +202,7 @@ class GQNTrainer(Logger):
     def _run_episode(self, env, agent, metrics_accumulator):
         """Run a single training episode."""
         episode_start_time = time.time()
-        episode_reward, steps = self._execute_episode_steps(env, agent, metrics_accumulator)
+        episode_reward, steps, success = self._execute_episode_steps(env, agent, metrics_accumulator)
         episode_time = time.time() - episode_start_time
         averages = metrics_accumulator.get_averages()
 
@@ -213,19 +214,22 @@ class GQNTrainer(Logger):
         """Execute all steps in an episode."""
         episode_reward = 0.0
         steps = 0
+        success = None
 
         obs = self._reset_environment(env, agent)
 
         while steps < self.config.max_steps_per_episode:
             action = agent.select_action(obs)
-            obs, reward, done = self._take_environment_step(env, agent, action)
+            obs, reward, done, info = self._take_environment_step(env, agent, action)
             self._update_networks_if_ready(agent, metrics_accumulator)
 
             episode_reward += reward
             steps += 1
+            if self.config.env_type == "metaworld" and info is not None:
+                success = info.get('success', success)
             if done:
                 break
-        return episode_reward, steps
+        return episode_reward, steps, success
 
     def _reset_environment(self, env, agent):
         """Reset environment and initialize agent observation."""
@@ -259,9 +263,9 @@ class GQNTrainer(Logger):
         )
         reward = time_step.reward
         done = time_step.last()
-
+        info = getattr(time_step, 'info', None)
         agent.observe(action, reward, next_obs, done)
-        return next_obs, reward, done
+        return next_obs, reward, done, info
 
     def _update_networks_if_ready(self, agent, metrics_accumulator):
         """Update networks if replay buffer has enough samples."""
@@ -284,7 +288,7 @@ class GQNTrainer(Logger):
         """Log basic episode metrics."""
         buffer_size = len(self.agent.replay_buffer) if hasattr(self, 'agent') else 0
 
-        self.logger.info(
+        log_msg = (
             f"Ep {episode:4d} | "
             f"Steps {metrics['steps']:4d} | "
             f"R: {metrics['reward']:7.2f} | "
@@ -296,7 +300,9 @@ class GQNTrainer(Logger):
             f"Bins: {metrics.get('current_bins', 'N/A')} | "
             f"Time: {metrics['episode_time']:.2f}s | "
             f"Buf: {buffer_size:6d}"
+            f"| Success: {metrics['success'] if metrics['success'] else 'N/A'}"
         )
+        self.logger.info(log_msg)
 
     def _log_detailed_metrics(self, episode, start_time):
         """Log detailed training progress."""
@@ -360,7 +366,8 @@ class GQNTrainer(Logger):
         metrics_tracker.save_metrics(
             self.agent_name,
             self.config.task,
-            self.config.seed
+            self.config.seed,
+            self.config.env_type
         )
         self.logger.info(f"Metrics saved at episode {episode}")
 
@@ -375,7 +382,8 @@ class GQNTrainer(Logger):
         metrics_tracker.save_metrics(
             self.agent_name,
             self.config.task,
-            self.config.seed
+            self.config.seed,
+            self.config.env_type
         )
 
     def _save_final_checkpoint(self, agent):

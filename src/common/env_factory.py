@@ -1,15 +1,15 @@
 """Factory for creating environments from different sources."""
+import metaworld
 import ogbench
 from dm_control import suite
-import gymnasium as gym
-import metaworld
+
 
 def create_ogbench_env(task_name, seed=0):
     """Create OGBench environment.
 
     Args:
         task_name: Name of OGBench task (e.g., 'antmaze-large-navigate-v0')
-        seed: Random seed
+        seed: Random seeded metaworld
 
     Returns:
         OGBench environment
@@ -44,7 +44,12 @@ def create_metaworld_env(task_name, seed=0):
     Returns:
         Metaworld environment wrapped for compatibility
     """
-    env = gym.make(f'Meta-World/MT1', env_name=task_name, seed=seed)
+    ml1 = metaworld.ML1(task_name, seed=seed)
+    env_cls = ml1.train_classes[task_name]
+    env = env_cls()
+    env.seed(seed)
+    task = ml1.train_tasks[0]
+    env.set_task(task)
     env = MetaworldWrapper(env, seed)
     return env
 
