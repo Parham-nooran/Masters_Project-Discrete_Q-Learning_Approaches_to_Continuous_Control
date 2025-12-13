@@ -8,7 +8,6 @@ class MultiViewCNNEncoder(nn.Module):
     def __init__(self, obs_shape):
         super().__init__()
 
-
         if len(obs_shape) == 3:
             self.num_views = 1
             channels = obs_shape[0]

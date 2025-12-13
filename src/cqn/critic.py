@@ -27,9 +27,7 @@ class ActionEncoder:
         discrete_indices = []
 
         for _ in range(self.levels):
-            idx, low, high = self._encode_single_level(
-                continuous_action, low, high
-            )
+            idx, low, high = self._encode_single_level(continuous_action, low, high)
             discrete_indices.append(idx)
 
         return torch.stack(discrete_indices, dim=-2)
@@ -109,9 +107,9 @@ class RandomActionSelector:
             return None
 
         argmax_q = q_values.max(-1)[1]
-        random_actions = torch.randint(
-            0, q_values.size(-1), random_mask.shape
-        ).to(q_values.device)
+        random_actions = torch.randint(0, q_values.size(-1), random_mask.shape).to(
+            q_values.device
+        )
 
         return torch.where(random_mask, random_actions, argmax_q)
 
@@ -170,9 +168,7 @@ class DistributionalProjection:
         next_q_probs_flat = next_q_probs.view(-1, self.atoms)
         batch_size = next_q_probs_flat.shape[0]
 
-        projected_values = self._compute_projected_values(
-            reward, discount, support
-        )
+        projected_values = self._compute_projected_values(reward, discount, support)
 
         lower, upper = self._compute_projection_indices(projected_values)
 
@@ -235,11 +231,7 @@ def _initialize_bounds(rgb_obs, bounds):
 
 def _record_metrics(level, q_values, bin_index, metrics):
     """Record metrics for this level."""
-    selected_q = torch.gather(
-        q_values,
-        dim=-1,
-        index=bin_index.unsqueeze(-1)
-    )[..., 0]
+    selected_q = torch.gather(q_values, dim=-1, index=bin_index.unsqueeze(-1))[..., 0]
     metrics[f"critic_target_q_level{level}"] = selected_q.mean().item()
 
 
@@ -293,10 +285,10 @@ class HierarchicalActionSelector:
 def _stack_distributions(q_probs, q_probs_a, log_q_probs, log_q_probs_a):
     """Stack distributions from all levels."""
     return {
-        'q_probs': torch.stack(q_probs, dim=-4),
-        'q_probs_a': torch.stack(q_probs_a, dim=-3),
-        'log_q_probs': torch.stack(log_q_probs, dim=-4),
-        'log_q_probs_a': torch.stack(log_q_probs_a, dim=-3)
+        "q_probs": torch.stack(q_probs, dim=-4),
+        "q_probs_a": torch.stack(q_probs_a, dim=-3),
+        "log_q_probs": torch.stack(log_q_probs, dim=-4),
+        "log_q_probs_a": torch.stack(log_q_probs_a, dim=-3),
     }
 
 
@@ -304,17 +296,17 @@ class C2FCritic(nn.Module):
     """Coarse-to-Fine Critic with distributional Q-learning."""
 
     def __init__(
-            self,
-            action_shape: tuple,
-            repr_dim: int,
-            low_dim: int,
-            feature_dim: int,
-            hidden_dim: int,
-            levels: int,
-            bins: int,
-            atoms: int,
-            v_min: float,
-            v_max: float,
+        self,
+        action_shape: tuple,
+        repr_dim: int,
+        low_dim: int,
+        feature_dim: int,
+        hidden_dim: int,
+        levels: int,
+        bins: int,
+        atoms: int,
+        v_min: float,
+        v_max: float,
     ):
         super().__init__()
 
@@ -336,32 +328,24 @@ class C2FCritic(nn.Module):
         self._initialize_parameters(action_shape, atoms, v_min, v_max)
         self._initialize_components(levels, bins)
 
-
-
     def _initialize_parameters(self, action_shape, atoms, v_min, v_max):
         """Initialize learnable parameters."""
         actor_dim = action_shape[0]
         self.initial_low = nn.Parameter(
-            torch.FloatTensor([-1.0] * actor_dim),
-            requires_grad=False
+            torch.FloatTensor([-1.0] * actor_dim), requires_grad=False
         )
         self.initial_high = nn.Parameter(
-            torch.FloatTensor([1.0] * actor_dim),
-            requires_grad=False
+            torch.FloatTensor([1.0] * actor_dim), requires_grad=False
         )
         self.support = nn.Parameter(
-            torch.linspace(v_min, v_max, atoms),
-            requires_grad=False
+            torch.linspace(v_min, v_max, atoms), requires_grad=False
         )
         self.delta_z = (v_max - v_min) / (atoms - 1)
 
     def _initialize_components(self, levels, bins):
         """Initialize critic components."""
         self.action_encoder = ActionEncoder(
-            self.initial_low,
-            self.initial_high,
-            levels,
-            bins
+            self.initial_low, self.initial_high, levels, bins
         )
         self.action_selector = HierarchicalActionSelector(
             self.network,
@@ -369,23 +353,19 @@ class C2FCritic(nn.Module):
             self.initial_high,
             levels,
             bins,
-            self.support
+            self.support,
         )
-        self.projector = DistributionalProjection(
-            self.v_min,
-            self.v_max,
-            self.atoms
-        )
+        self.projector = DistributionalProjection(self.v_min, self.v_max, self.atoms)
 
     def get_action(self, rgb_obs: torch.Tensor, low_dim_obs: torch.Tensor):
         """Get action through hierarchical coarse-to-fine selection."""
         return self.action_selector.select_action(rgb_obs, low_dim_obs)
 
     def forward(
-            self,
-            rgb_obs: torch.Tensor,
-            low_dim_obs: torch.Tensor,
-            continuous_action: torch.Tensor,
+        self,
+        rgb_obs: torch.Tensor,
+        low_dim_obs: torch.Tensor,
+        continuous_action: torch.Tensor,
     ):
         """Compute value distributions for given observation and action."""
         discrete_action = self.action_encoder.encode(continuous_action)
@@ -395,10 +375,10 @@ class C2FCritic(nn.Module):
         )
 
         return (
-            distributions['q_probs'],
-            distributions['q_probs_a'],
-            distributions['log_q_probs'],
-            distributions['log_q_probs_a']
+            distributions["q_probs"],
+            distributions["q_probs_a"],
+            distributions["log_q_probs"],
+            distributions["log_q_probs_a"],
         )
 
     def _compute_distributions_all_levels(self, rgb_obs, low_dim_obs, discrete_action):
@@ -416,23 +396,25 @@ class C2FCritic(nn.Module):
                 level, rgb_obs, low_dim_obs, discrete_action, low, high
             )
 
-            q_probs_per_level.append(distributions['q_probs'])
-            q_probs_a_per_level.append(distributions['q_probs_a'])
-            log_q_probs_per_level.append(distributions['log_q_probs'])
-            log_q_probs_a_per_level.append(distributions['log_q_probs_a'])
+            q_probs_per_level.append(distributions["q_probs"])
+            q_probs_a_per_level.append(distributions["q_probs_a"])
+            log_q_probs_per_level.append(distributions["log_q_probs"])
+            log_q_probs_a_per_level.append(distributions["log_q_probs_a"])
 
             bin_index = discrete_action[..., level, :].long()
-            low, high = self.action_selector.interval_zoomer.zoom_in(low, high, bin_index)
+            low, high = self.action_selector.interval_zoomer.zoom_in(
+                low, high, bin_index
+            )
 
         return _stack_distributions(
             q_probs_per_level,
             q_probs_a_per_level,
             log_q_probs_per_level,
-            log_q_probs_a_per_level
+            log_q_probs_a_per_level,
         )
 
     def _compute_distributions_single_level(
-            self, level, rgb_obs, low_dim_obs, discrete_action, low, high
+        self, level, rgb_obs, low_dim_obs, discrete_action, low, high
     ):
         """Compute distributions for a single level."""
         midpoint = (low + high) / 2
@@ -446,10 +428,10 @@ class C2FCritic(nn.Module):
         log_q_probs_a = self._gather_action_probs(log_q_probs, bin_index)
 
         return {
-            'q_probs': q_probs,
-            'q_probs_a': q_probs_a,
-            'log_q_probs': log_q_probs,
-            'log_q_probs_a': log_q_probs_a
+            "q_probs": q_probs,
+            "q_probs_a": q_probs_a,
+            "log_q_probs": log_q_probs,
+            "log_q_probs_a": log_q_probs_a,
         }
 
     def _gather_action_probs(self, probs, bin_index):
@@ -464,21 +446,19 @@ class C2FCritic(nn.Module):
         return gathered[..., 0, :]
 
     def compute_target_q_dist(
-            self,
-            next_rgb_obs: torch.Tensor,
-            next_low_dim_obs: torch.Tensor,
-            next_continuous_action: torch.Tensor,
-            reward: torch.Tensor,
-            discount: torch.Tensor,
+        self,
+        next_rgb_obs: torch.Tensor,
+        next_low_dim_obs: torch.Tensor,
+        next_continuous_action: torch.Tensor,
+        reward: torch.Tensor,
+        discount: torch.Tensor,
     ):
         """Compute target Q-value distribution for distributional RL."""
         next_q_probs_a = self.forward(
             next_rgb_obs, next_low_dim_obs, next_continuous_action
         )[1]
 
-        return self.projector.project(
-            next_q_probs_a, reward, discount, self.support
-        )
+        return self.projector.project(next_q_probs_a, reward, discount, self.support)
 
     def encode_decode_action(self, continuous_action: torch.Tensor):
         """Encode continuous action to discrete and decode back."""

@@ -5,17 +5,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 import src.cqn.utils as utils
 
+
 class C2FCriticNetwork(nn.Module):
     def __init__(
-            self,
-            repr_dim: int,
-            low_dim: int,
-            action_shape: Tuple,
-            feature_dim: int,
-            hidden_dim: int,
-            levels: int,
-            bins: int,
-            atoms: int,
+        self,
+        repr_dim: int,
+        low_dim: int,
+        action_shape: Tuple,
+        feature_dim: int,
+        hidden_dim: int,
+        levels: int,
+        bins: int,
+        atoms: int,
     ):
         super().__init__()
         self._levels = levels
@@ -76,7 +77,7 @@ class C2FCriticNetwork(nn.Module):
         self.value_head.bias.data.fill_(0.0)
 
     def forward(
-            self, level: int, rgb_obs: torch.Tensor, low_dim_obs, prev_action: torch.Tensor
+        self, level: int, rgb_obs: torch.Tensor, low_dim_obs, prev_action: torch.Tensor
     ):
         """
         Inputs:

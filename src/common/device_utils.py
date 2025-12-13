@@ -10,6 +10,7 @@ def optimizer_step(optimizer, is_tpu: bool):
     """Perform optimizer step with TPU support."""
     if is_tpu:
         import torch_xla.core.xla_model as xm
+
         xm.optimizer_step(optimizer)
     else:
         optimizer.step()
@@ -19,6 +20,7 @@ def mark_step(is_tpu: bool):
     """Mark step for TPU synchronization."""
     if is_tpu:
         import torch_xla.core.xla_model as xm
+
         xm.mark_step()
 
 

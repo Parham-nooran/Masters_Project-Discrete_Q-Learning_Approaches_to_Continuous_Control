@@ -33,10 +33,7 @@ def _get_action_dims(action_spec):
 
 def _create_residual_block(config):
     """Create residual block layer."""
-    return LayerNormAndResidualMLP(
-        config.layer_size_network[0],
-        num_blocks=1
-    )
+    return LayerNormAndResidualMLP(config.layer_size_network[0], num_blocks=1)
 
 
 class CriticDQN(nn.Module):
@@ -64,7 +61,7 @@ class CriticDQN(nn.Module):
 
     def _compute_coupled_output_dim(self):
         """Compute output dimension for coupled mode (exponential in action dims)."""
-        return self.num_bins ** self.action_dims
+        return self.num_bins**self.action_dims
 
     def _compute_output_dim(self):
         """

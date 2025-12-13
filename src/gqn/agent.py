@@ -8,7 +8,7 @@ from src.gqn.action_space_manager import ActionSpaceManager
 from src.gqn.scheduler import GrowthScheduler
 import sys
 
-sys.path.append('src')
+sys.path.append("src")
 from src.common.replay_buffer import PrioritizedReplayBuffer
 from src.common.encoder import VisionEncoder
 
@@ -22,7 +22,9 @@ class GQNAgent:
 
         self.obs_dim = self._determine_observation_dimension(config, obs_shape)
         self.encoder = self._create_encoder_if_needed(config, obs_shape)
-        self.action_space_manager = self._create_action_space_manager(config, action_spec)
+        self.action_space_manager = self._create_action_space_manager(
+            config, action_spec
+        )
         self.q_network, self.target_network = self._create_networks(config)
         self.optimizer = self._create_optimizer(config)
         self.encoder_optimizer = self._create_encoder_optimizer_if_needed(config)
@@ -37,7 +39,7 @@ class GQNAgent:
         """Determine observation dimension based on whether pixels are used."""
         if len(obs_shape) == 1:
             return obs_shape[0]
-        if hasattr(config, 'layer_size_bottleneck'):
+        if hasattr(config, "layer_size_bottleneck"):
             return config.layer_size_bottleneck
         return 50
 
@@ -67,7 +69,7 @@ class GQNAgent:
             self.action_space_manager.action_dim,
             config.final_bins,
             config.layer_size,
-            config.num_layers
+            config.num_layers,
         ).to(self.device)
 
         target_network = DualDecoupledQNetwork(
@@ -75,7 +77,7 @@ class GQNAgent:
             self.action_space_manager.action_dim,
             config.final_bins,
             config.layer_size,
-            config.num_layers
+            config.num_layers,
         ).to(self.device)
 
         target_network.load_state_dict(q_network.state_dict())
@@ -92,7 +94,7 @@ class GQNAgent:
             alpha=config.per_alpha,
             beta=config.per_beta,
             n_step=config.n_step,
-            discount=config.discount
+            discount=config.discount,
         )
         buffer.to_device(self.device)
         return buffer
@@ -102,7 +104,7 @@ class GQNAgent:
         return GrowthScheduler(
             config.growing_schedule,
             config.num_episodes,
-            len(self.action_space_manager.growth_sequence)
+            len(self.action_space_manager.growth_sequence),
         )
 
     def observe_first(self, obs):
@@ -118,7 +120,9 @@ class GQNAgent:
             q_combined = self._compute_combined_q_values(obs_encoded)
             active_q = self.action_space_manager.get_active_q_values(q_combined)
             discrete_action = self._epsilon_greedy_select(active_q, epsilon)
-            continuous_action = self.action_space_manager.discrete_to_continuous(discrete_action)
+            continuous_action = self.action_space_manager.discrete_to_continuous(
+                discrete_action
+            )
             return continuous_action[0]
 
     def _encode_observation(self, obs):
@@ -137,7 +141,9 @@ class GQNAgent:
         batch_size, action_dim, num_bins = q_values.shape
 
         random_mask = torch.rand(batch_size, action_dim, device=self.device) < epsilon
-        random_actions = torch.randint(0, num_bins, (batch_size, action_dim), device=self.device)
+        random_actions = torch.randint(
+            0, num_bins, (batch_size, action_dim), device=self.device
+        )
         greedy_actions = q_values.argmax(dim=2)
 
         return torch.where(random_mask, random_actions, greedy_actions)
@@ -153,7 +159,7 @@ class GQNAgent:
     def _apply_action_penalty(self, reward, action):
         """Apply action penalty to reward."""
         action_np = action.cpu().numpy() if isinstance(action, torch.Tensor) else action
-        action_norm_sq = np.sum(action_np ** 2)
+        action_norm_sq = np.sum(action_np**2)
         penalty = self.config.action_penalty_coeff * action_norm_sq / len(action_np)
         penalty = min(penalty, abs(reward) * 0.1)
         return reward - penalty
@@ -168,7 +174,9 @@ class GQNAgent:
             return None
 
         obs_encoded, next_obs_encoded = self._encode_batch_observations(batch)
-        metrics, total_loss = self._compute_loss_from_batch(batch, obs_encoded, next_obs_encoded)
+        metrics, total_loss = self._compute_loss_from_batch(
+            batch, obs_encoded, next_obs_encoded
+        )
         self._perform_gradient_update(total_loss)
         self._update_target_network_if_needed()
 
@@ -195,8 +203,16 @@ class GQNAgent:
     def _compute_loss_from_batch(self, batch, obs_encoded, next_obs_encoded):
         """Compute loss from batch data."""
         obs, actions, rewards, next_obs, dones, discounts, weights, indices = batch
-        return self._compute_loss(obs_encoded, actions, rewards, next_obs_encoded,
-                                  dones, discounts, weights, indices)
+        return self._compute_loss(
+            obs_encoded,
+            actions,
+            rewards,
+            next_obs_encoded,
+            dones,
+            discounts,
+            weights,
+            indices,
+        )
 
     def _perform_gradient_update(self, total_loss):
         """Perform gradient descent step."""
@@ -215,7 +231,9 @@ class GQNAgent:
         """Clip gradients for all networks."""
         nn.utils.clip_grad_norm_(self.q_network.parameters(), self.config.gradient_clip)
         if self.encoder:
-            nn.utils.clip_grad_norm_(self.encoder.parameters(), self.config.gradient_clip)
+            nn.utils.clip_grad_norm_(
+                self.encoder.parameters(), self.config.gradient_clip
+            )
 
     def _step_all_optimizers(self):
         """Step all optimizers."""
@@ -229,7 +247,9 @@ class GQNAgent:
         if self.update_counter % self.config.target_update_period == 0:
             self.target_network.load_state_dict(self.q_network.state_dict())
 
-    def _compute_loss(self, obs, actions, rewards, next_obs, dones, discounts, weights, indices):
+    def _compute_loss(
+        self, obs, actions, rewards, next_obs, dones, discounts, weights, indices
+    ):
         """Compute TD loss for dual Q-networks."""
         q1, q2 = self.q_network(obs)
         discrete_actions = self._continuous_to_discrete_actions(actions)
@@ -244,7 +264,9 @@ class GQNAgent:
         total_loss = self._compute_weighted_loss(td_error1, td_error2, weights)
         self._update_replay_priorities(indices, td_error1, td_error2)
 
-        metrics = self._create_metrics_dict(total_loss, q1_values, q2_values, td_error1, td_error2)
+        metrics = self._create_metrics_dict(
+            total_loss, q1_values, q2_values, td_error1, td_error2
+        )
         return metrics, total_loss
 
     def _compute_td_targets(self, next_obs, rewards, dones, discounts):
@@ -252,7 +274,9 @@ class GQNAgent:
         with torch.no_grad():
             next_q1, next_q2 = self.target_network(next_obs)
             next_q_combined = torch.max(next_q1, next_q2)
-            active_next_q = self.action_space_manager.get_active_q_values(next_q_combined)
+            active_next_q = self.action_space_manager.get_active_q_values(
+                next_q_combined
+            )
             next_values = active_next_q.max(dim=2)[0].mean(dim=1)
             targets = rewards + discounts * next_values * (~dones)
         return targets
@@ -270,19 +294,21 @@ class GQNAgent:
         priorities = (torch.abs(td_error1) + torch.abs(td_error2)) / 2.0
         self.replay_buffer.update_priorities(indices, priorities.detach().cpu().numpy())
 
-    def _create_metrics_dict(self, total_loss, q1_values, q2_values, td_error1, td_error2):
+    def _create_metrics_dict(
+        self, total_loss, q1_values, q2_values, td_error1, td_error2
+    ):
         """Create dictionary of training metrics."""
         loss1 = self._huber_loss(td_error1)
         loss2 = self._huber_loss(td_error2)
 
         return {
-            'loss': float(total_loss.item()),
-            'q1_mean': float(q1_values.mean().item()),
-            'q2_mean': float(q2_values.mean().item()),
-            'mean_abs_td_error': float(torch.abs(td_error1).mean().item()),
-            'mean_squared_td_error': float((td_error1 ** 2).mean().item()),
-            'mse_loss1': float(loss1.mean().item()),
-            'mse_loss2': float(loss2.mean().item())
+            "loss": float(total_loss.item()),
+            "q1_mean": float(q1_values.mean().item()),
+            "q2_mean": float(q2_values.mean().item()),
+            "mean_abs_td_error": float(torch.abs(td_error1).mean().item()),
+            "mean_squared_td_error": float((td_error1**2).mean().item()),
+            "mse_loss1": float(loss1.mean().item()),
+            "mse_loss2": float(loss2.mean().item()),
         }
 
     def _continuous_to_discrete_actions(self, actions):
@@ -290,10 +316,11 @@ class GQNAgent:
         batch_size = actions.shape[0]
         action_dim = self.action_space_manager.action_dim
 
-        discrete_actions = torch.zeros(batch_size, action_dim, dtype=torch.long, device=self.device)
+        discrete_actions = torch.zeros(
+            batch_size, action_dim, dtype=torch.long, device=self.device
+        )
         active_indices = torch.tensor(
-            self.action_space_manager._get_active_bin_indices(),
-            device=self.device
+            self.action_space_manager._get_active_bin_indices(), device=self.device
         )
 
         for dim in range(action_dim):
@@ -310,8 +337,16 @@ class GQNAgent:
 
         active_q = self.action_space_manager.get_active_q_values(q_values)
 
-        batch_indices = torch.arange(batch_size, device=self.device).unsqueeze(1).expand(-1, action_dim)
-        dim_indices = torch.arange(action_dim, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        batch_indices = (
+            torch.arange(batch_size, device=self.device)
+            .unsqueeze(1)
+            .expand(-1, action_dim)
+        )
+        dim_indices = (
+            torch.arange(action_dim, device=self.device)
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
 
         selected_q = active_q[batch_indices, dim_indices, actions]
         return selected_q.sum(dim=1) / action_dim
@@ -319,9 +354,11 @@ class GQNAgent:
     def _huber_loss(self, td_error):
         """Compute Huber loss."""
         abs_error = torch.abs(td_error)
-        quadratic = torch.minimum(abs_error, torch.tensor(self.config.huber_delta, device=self.device))
+        quadratic = torch.minimum(
+            abs_error, torch.tensor(self.config.huber_delta, device=self.device)
+        )
         linear = abs_error - quadratic
-        return 0.5 * quadratic ** 2 + self.config.huber_delta * linear
+        return 0.5 * quadratic**2 + self.config.huber_delta * linear
 
     def check_and_grow(self, episode, episode_return):
         """Check if action space should grow based on scheduler."""
@@ -338,34 +375,36 @@ class GQNAgent:
     def update_epsilon(self, decay_rate=None, min_epsilon=None):
         """Update exploration rate with decay."""
         decay_rate = decay_rate if decay_rate is not None else self.config.epsilon_decay
-        min_epsilon = min_epsilon if min_epsilon is not None else self.config.min_epsilon
+        min_epsilon = (
+            min_epsilon if min_epsilon is not None else self.config.min_epsilon
+        )
         self.epsilon = max(min_epsilon, self.epsilon * decay_rate)
 
     def get_checkpoint_state(self):
         """Get state dictionary for checkpointing."""
         state = {
-            'q_network': self.q_network.state_dict(),
-            'target_network': self.target_network.state_dict(),
-            'optimizer': self.optimizer.state_dict(),
-            'update_counter': self.update_counter,
-            'epsilon': self.epsilon,
-            'action_space_state': self.action_space_manager.get_growth_info()
+            "q_network": self.q_network.state_dict(),
+            "target_network": self.target_network.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "update_counter": self.update_counter,
+            "epsilon": self.epsilon,
+            "action_space_state": self.action_space_manager.get_growth_info(),
         }
 
         if self.encoder:
-            state['encoder'] = self.encoder.state_dict()
-            state['encoder_optimizer'] = self.encoder_optimizer.state_dict()
+            state["encoder"] = self.encoder.state_dict()
+            state["encoder_optimizer"] = self.encoder_optimizer.state_dict()
 
         return state
 
     def load_checkpoint_state(self, checkpoint):
         """Load state from checkpoint dictionary."""
-        self.q_network.load_state_dict(checkpoint['q_network'])
-        self.target_network.load_state_dict(checkpoint['target_network'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        self.update_counter = checkpoint['update_counter']
-        self.epsilon = checkpoint['epsilon']
+        self.q_network.load_state_dict(checkpoint["q_network"])
+        self.target_network.load_state_dict(checkpoint["target_network"])
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.update_counter = checkpoint["update_counter"]
+        self.epsilon = checkpoint["epsilon"]
 
-        if 'encoder' in checkpoint and self.encoder:
-            self.encoder.load_state_dict(checkpoint['encoder'])
-            self.encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer'])
+        if "encoder" in checkpoint and self.encoder:
+            self.encoder.load_state_dict(checkpoint["encoder"])
+            self.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer"])

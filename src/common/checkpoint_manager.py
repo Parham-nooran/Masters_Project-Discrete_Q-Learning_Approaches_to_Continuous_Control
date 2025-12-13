@@ -43,18 +43,19 @@ class CheckpointManager:
         """
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         checkpoint_path = os.path.join(
-            self.checkpoint_dir,
-            f"{task_name}_{seed}_{episode}.pth"
+            self.checkpoint_dir, f"{task_name}_{seed}_{episode}.pth"
         )
 
         # Get checkpoint state from the trainer
-        if hasattr(agent, 'get_checkpoint_state'):
+        if hasattr(agent, "get_checkpoint_state"):
             checkpoint_state = agent.get_checkpoint_state()
         else:
             # Fallback for simple agent objects
             checkpoint_state = {
-                'agent_state_dict': agent.state_dict() if hasattr(agent, 'state_dict') else None,
-                'episode': episode,
+                "agent_state_dict": (
+                    agent.state_dict() if hasattr(agent, "state_dict") else None
+                ),
+                "episode": episode,
             }
 
         torch.save(checkpoint_state, checkpoint_path)
@@ -75,12 +76,12 @@ class CheckpointManager:
         try:
             checkpoint = torch.load(checkpoint_path)
 
-            if hasattr(agent, 'load_checkpoint_state'):
+            if hasattr(agent, "load_checkpoint_state"):
                 agent.load_checkpoint_state(checkpoint)
-            elif hasattr(agent, 'load_state_dict'):
-                agent.load_state_dict(checkpoint.get('agent_state_dict', checkpoint))
+            elif hasattr(agent, "load_state_dict"):
+                agent.load_state_dict(checkpoint.get("agent_state_dict", checkpoint))
 
-            episode = checkpoint.get('global_episode', checkpoint.get('episode', 0))
+            episode = checkpoint.get("global_episode", checkpoint.get("episode", 0))
 
             self.logger.info(
                 f"Loaded checkpoint from {checkpoint_path}, episode {episode}"

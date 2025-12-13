@@ -25,29 +25,31 @@ class MetricsTracker:
         self.bin_selection_per_episode = []
         self.action_range_per_episode = []
         self.q_values_per_level = {i: [] for i in range(10)}
-        self.unique_bins_explored = {i: {j: set() for j in range(10)} for i in range(10)}
+        self.unique_bins_explored = {
+            i: {j: set() for j in range(10)} for i in range(10)
+        }
 
         os.makedirs(save_dir, exist_ok=True)
 
     def log_episode(
-            self,
-            episode,
-            reward,
-            steps,
-            mse_loss=0.0,
-            loss=0.0,
-            mean_abs_td_error=0.0,
-            mean_squared_td_error=0.0,
-            q_mean=0.0,
-            epsilon=0.0,
-            episode_time=0.0,
-            current_bins=None,
-            growth_history=None,
-            selected_bins=None,
-            action_ranges=None,
-            q_values_by_level=None,
-            success=None,
-            **kwargs,
+        self,
+        episode,
+        reward,
+        steps,
+        mse_loss=0.0,
+        loss=0.0,
+        mean_abs_td_error=0.0,
+        mean_squared_td_error=0.0,
+        q_mean=0.0,
+        epsilon=0.0,
+        episode_time=0.0,
+        current_bins=None,
+        growth_history=None,
+        selected_bins=None,
+        action_ranges=None,
+        q_values_by_level=None,
+        success=None,
+        **kwargs,
     ):
         self.episodes.append(episode)
         self.episode_rewards.append(reward)
@@ -65,21 +67,17 @@ class MetricsTracker:
         self.episode_growth_history.append(
             growth_history if growth_history is not None else "[]"
         )
-        self.episode_successes.append(
-            success if success is not None else 0.0
-        )
+        self.episode_successes.append(success if success is not None else 0.0)
 
         if selected_bins is not None:
-            self.bin_selection_per_episode.append({
-                'episode': episode,
-                'bins': selected_bins
-            })
+            self.bin_selection_per_episode.append(
+                {"episode": episode, "bins": selected_bins}
+            )
 
         if action_ranges is not None:
-            self.action_range_per_episode.append({
-                'episode': episode,
-                'ranges': action_ranges
-            })
+            self.action_range_per_episode.append(
+                {"episode": episode, "ranges": action_ranges}
+            )
 
         if q_values_by_level is not None:
             for level, q_val in q_values_by_level.items():
@@ -111,10 +109,12 @@ class MetricsTracker:
         with open(metrics_path, "wb") as f:
             pickle.dump(metrics_data, f)
 
-        json_path = os.path.join(self.save_dir, f"{agent}_{task_name}_{seed}_exploration.json")
+        json_path = os.path.join(
+            self.save_dir, f"{agent}_{task_name}_{seed}_exploration.json"
+        )
         exploration_data = {
             "bin_selections": [
-                {k: v for k, v in item.items() if k != 'bins'}
+                {k: v for k, v in item.items() if k != "bins"}
                 for item in self.bin_selection_per_episode[-100:]
             ],
             "action_ranges": self.action_range_per_episode[-100:],
@@ -178,7 +178,9 @@ class MetricsTracker:
             return 0.0
 
         recent_successes = self.episode_successes[-window:]
-        return sum(recent_successes) / len(recent_successes) if recent_successes else 0.0
+        return (
+            sum(recent_successes) / len(recent_successes) if recent_successes else 0.0
+        )
 
     def get_growth_events(self):
         """Extract growth events from history."""

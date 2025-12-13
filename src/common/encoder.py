@@ -3,7 +3,6 @@ import torch.nn as nn
 from src.common.networks import LayerNormMLP
 
 
-
 class VisionEncoder(nn.Module):
     """Vision encoder based on DrQ-v2 architecture."""
 
@@ -22,7 +21,6 @@ class VisionEncoder(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
         )
-
 
         with torch.no_grad():
             dummy_input = torch.zeros(1, 3, shape, shape)

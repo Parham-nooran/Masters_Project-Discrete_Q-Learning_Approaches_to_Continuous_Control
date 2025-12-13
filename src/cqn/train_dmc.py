@@ -4,8 +4,10 @@ import time
 import warnings
 from pathlib import Path
 
-warnings.filterwarnings('ignore', category=DeprecationWarning, module='torch.utils.data')
-os.environ['MUJOCO_GL'] = 'osmesa'
+warnings.filterwarnings(
+    "ignore", category=DeprecationWarning, module="torch.utils.data"
+)
+os.environ["MUJOCO_GL"] = "osmesa"
 
 import numpy as np
 import torch
@@ -152,7 +154,7 @@ class AgentFactory:
             atoms=config.atoms,
             v_min=config.v_min,
             v_max=config.v_max,
-            stddev_schedule=config.stddev_schedule
+            stddev_schedule=config.stddev_schedule,
         )
 
 
@@ -194,7 +196,9 @@ class ReplayBufferManager:
     def __init__(self, config, working_dir, data_specs):
         self.config = config
         self.working_dir = working_dir
-        self.buffer_dir = working_dir / "buffer" / self.config.task_name.replace("_", "-")
+        self.buffer_dir = (
+            working_dir / "buffer" / self.config.task_name.replace("_", "-")
+        )
         self.storage = ReplayBufferStorage(data_specs, self.buffer_dir)
         self.loader = self._create_loader()
         self._replay_iter = None
@@ -210,7 +214,7 @@ class ReplayBufferManager:
             self.config.nstep,
             self.config.discount,
             self.config.low_dim_obs_shape,
-            self.config.task_name
+            self.config.task_name,
         )
 
     def get_iterator(self):
@@ -231,9 +235,7 @@ class VideoManager:
     """Manages video recording for training and evaluation."""
 
     def __init__(self, working_dir, save_video, save_train_video):
-        self.eval_recorder = VideoRecorder(
-            working_dir if save_video else None
-        )
+        self.eval_recorder = VideoRecorder(working_dir if save_video else None)
         self.train_recorder = TrainVideoRecorder(
             working_dir if save_train_video else None
         )
@@ -332,12 +334,10 @@ class CQNTrainer(Logger):
     def _initialize_managers(self):
         """Initialize checkpoint, metrics, and video managers."""
         self.checkpoint_manager = CheckpointManager(
-            logger=self.logger,
-            checkpoint_dir=str(self.working_dir / "checkpoints")
+            logger=self.logger, checkpoint_dir=str(self.working_dir / "checkpoints")
         )
         self.metrics_tracker = MetricsTracker(
-            logger=self.logger,
-            save_dir=str(self.working_dir / "metrics")
+            logger=self.logger, save_dir=str(self.working_dir / "metrics")
         )
 
     def _initialize_environments(self):
@@ -346,20 +346,17 @@ class CQNTrainer(Logger):
 
         data_specs = self._create_data_specs()
         self.replay_manager = ReplayBufferManager(
-            self.config,
-            self.working_dir,
-            data_specs
+            self.config, self.working_dir, data_specs
         )
 
         self.video_manager = VideoManager(
-            self.working_dir,
-            self.config.save_video,
-            self.config.save_train_video
+            self.working_dir, self.config.save_video, self.config.save_train_video
         )
 
     def _create_data_specs(self):
         """Create data specifications for replay buffer."""
         from dm_env import specs
+
         return (
             self.env_manager.get_observation_spec(),
             self.env_manager.get_action_spec(),
@@ -373,7 +370,7 @@ class CQNTrainer(Logger):
             self.env_manager.get_observation_spec(),
             self.env_manager.get_action_spec(),
             self.config,
-            self.device
+            self.device,
         )
 
     def _load_checkpoint_if_needed(self):
@@ -474,7 +471,9 @@ class CQNTrainer(Logger):
         self.logger.info("=== Training Progress ===")
         self.logger.info(f"Step: {self.global_step}")
         self.logger.info(f"Episode: {self.global_episode}")
-        self.logger.info(f"Avg reward (last {len(episode_metrics.recent_rewards)} eps): {avg_reward:.2f}")
+        self.logger.info(
+            f"Avg reward (last {len(episode_metrics.recent_rewards)} eps): {avg_reward:.2f}"
+        )
         self.logger.info(f"Avg length: {avg_length:.2f}")
         self.logger.info(f"FPS: {fps:.2f}")
         self.logger.info(f"Buffer size: {len(self.replay_manager)}")
@@ -484,7 +483,7 @@ class CQNTrainer(Logger):
             episode=self.global_episode,
             reward=avg_reward,
             steps=int(avg_length),
-            episode_time=total_time
+            episode_time=total_time,
         )
 
     def _select_action(self, time_step):
@@ -493,10 +492,7 @@ class CQNTrainer(Logger):
             self.agent.eval()
             low_dim_obs = self._create_dummy_low_dim_obs()
             action = self.agent.act(
-                time_step.observation,
-                low_dim_obs,
-                self.global_step,
-                eval_mode=False
+                time_step.observation, low_dim_obs, self.global_step, eval_mode=False
             )
             self.agent.train()
         return action
@@ -507,10 +503,7 @@ class CQNTrainer(Logger):
 
     def _update_agent(self):
         """Update agent with batch from replay buffer."""
-        return self.agent.update(
-            self.replay_manager.get_iterator(),
-            self.global_step
-        )
+        return self.agent.update(self.replay_manager.get_iterator(), self.global_step)
 
     def _log_training_metrics(self, metrics):
         """Log training metrics if available."""
@@ -545,8 +538,7 @@ class CQNTrainer(Logger):
         """Run a single evaluation episode."""
         time_step = self.env_manager.eval_env.reset()
         self.video_manager.init_eval_recording(
-            self.env_manager.eval_env,
-            enabled=(episode_index == 0)
+            self.env_manager.eval_env, enabled=(episode_index == 0)
         )
 
         episode_reward = 0.0
@@ -570,10 +562,7 @@ class CQNTrainer(Logger):
             self.agent.eval()
             low_dim_obs = self._create_dummy_low_dim_obs()
             action = self.agent.act(
-                time_step.observation,
-                low_dim_obs,
-                self.global_step,
-                eval_mode=True
+                time_step.observation, low_dim_obs, self.global_step, eval_mode=True
             )
             self.agent.train()
         return action
@@ -594,7 +583,7 @@ class CQNTrainer(Logger):
             episode=self.global_episode,
             reward=avg_reward,
             steps=int(avg_length),
-            episode_time=self.timer.total_time()
+            episode_time=self.timer.total_time(),
         )
 
     def _save_checkpoint(self):
@@ -603,9 +592,11 @@ class CQNTrainer(Logger):
             agent=self,
             episode=self.global_episode,
             task_name=self.config.task_name,
-            seed=self.config.seed
+            seed=self.config.seed,
         )
-        self.logger.info(f"Checkpoint saved at step {self.global_step}: {checkpoint_path}")
+        self.logger.info(
+            f"Checkpoint saved at step {self.global_step}: {checkpoint_path}"
+        )
 
     def _load_checkpoint(self):
         """Load checkpoint from file."""
@@ -641,30 +632,30 @@ class CQNTrainer(Logger):
 
     def _restore_agent_state(self, checkpoint):
         """Restore agent state from checkpoint."""
-        self.agent.encoder.load_state_dict(checkpoint['encoder_state_dict'])
-        self.agent.critic.load_state_dict(checkpoint['critic_state_dict'])
-        self.agent.critic_target.load_state_dict(checkpoint['critic_target_state_dict'])
-        self.agent.encoder_opt.load_state_dict(checkpoint['encoder_opt_state_dict'])
-        self.agent.critic_opt.load_state_dict(checkpoint['critic_opt_state_dict'])
+        self.agent.encoder.load_state_dict(checkpoint["encoder_state_dict"])
+        self.agent.critic.load_state_dict(checkpoint["critic_state_dict"])
+        self.agent.critic_target.load_state_dict(checkpoint["critic_target_state_dict"])
+        self.agent.encoder_opt.load_state_dict(checkpoint["encoder_opt_state_dict"])
+        self.agent.critic_opt.load_state_dict(checkpoint["critic_opt_state_dict"])
 
     def _restore_training_state(self, checkpoint):
         """Restore training state from checkpoint."""
-        self._global_step = checkpoint['global_step']
-        self._global_episode = checkpoint['global_episode']
-        self.timer = checkpoint.get('timer', Timer())
+        self._global_step = checkpoint["global_step"]
+        self._global_episode = checkpoint["global_episode"]
+        self.timer = checkpoint.get("timer", Timer())
 
     def get_checkpoint_state(self):
         """Get current state for checkpointing."""
         return {
-            'encoder_state_dict': self.agent.encoder.state_dict(),
-            'critic_state_dict': self.agent.critic.state_dict(),
-            'critic_target_state_dict': self.agent.critic_target.state_dict(),
-            'encoder_opt_state_dict': self.agent.encoder_opt.state_dict(),
-            'critic_opt_state_dict': self.agent.critic_opt.state_dict(),
-            'global_step': self._global_step,
-            'global_episode': self._global_episode,
-            'timer': self.timer,
-            'config': self.config,
+            "encoder_state_dict": self.agent.encoder.state_dict(),
+            "critic_state_dict": self.agent.critic.state_dict(),
+            "critic_target_state_dict": self.agent.critic_target.state_dict(),
+            "encoder_opt_state_dict": self.agent.encoder_opt.state_dict(),
+            "critic_opt_state_dict": self.agent.critic_opt.state_dict(),
+            "global_step": self._global_step,
+            "global_episode": self._global_episode,
+            "timer": self.timer,
+            "config": self.config,
         }
 
     def _save_snapshot(self):
@@ -678,9 +669,7 @@ class CQNTrainer(Logger):
     def _save_metrics(self):
         """Save training metrics."""
         self.metrics_tracker.save_metrics(
-            agent="CQN",
-            task_name=self.config.task_name,
-            seed=self.config.seed
+            agent="CQN", task_name=self.config.task_name, seed=self.config.seed
         )
 
     def _finalize_training(self):

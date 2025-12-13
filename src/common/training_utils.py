@@ -5,7 +5,11 @@ import numpy as np
 import torch
 from dm_control import suite
 
-from src.common.env_factory import create_dmcontrol_env, create_ogbench_env, create_metaworld_env
+from src.common.env_factory import (
+    create_dmcontrol_env,
+    create_ogbench_env,
+    create_metaworld_env,
+)
 from src.common.observation_utils import process_state_observation
 
 
@@ -36,7 +40,9 @@ def process_pixel_observation(dm_obs, device):
     return obs
 
 
-def process_observation(dm_obs, use_pixels, device, obs_buffer=None, env_type="dmcontrol") -> torch.Tensor:
+def process_observation(
+    dm_obs, use_pixels, device, obs_buffer=None, env_type="dmcontrol"
+) -> torch.Tensor:
     """Process observation based on type and environment.
 
     Args:
@@ -80,18 +86,18 @@ def get_path(base_path, filename="", middle_path="", logger=None, create=False):
 
 
 def huber_loss(
-        td_error: torch.Tensor, huber_loss_parameter: float = 1.0
+    td_error: torch.Tensor, huber_loss_parameter: float = 1.0
 ) -> torch.Tensor:
     abs_error = torch.abs(td_error)
     quadratic = torch.minimum(
         abs_error, torch.tensor(huber_loss_parameter, device=abs_error.device)
     )
     linear = abs_error - quadratic
-    return 0.5 * quadratic ** 2 + huber_loss_parameter * linear
+    return 0.5 * quadratic**2 + huber_loss_parameter * linear
 
 
 def continuous_to_discrete_action(
-        config, action_discretizer, continuous_action: torch.Tensor
+    config, action_discretizer, continuous_action: torch.Tensor
 ) -> np.ndarray:
     if isinstance(continuous_action, torch.Tensor):
         continuous_action = continuous_action.cpu().numpy()
@@ -109,6 +115,7 @@ def continuous_to_discrete_action(
         action_bins_cpu = action_discretizer.action_bins.cpu().numpy()
         distances = np.linalg.norm(action_bins_cpu - continuous_action, axis=1)
         return np.argmin(distances)
+
 
 def check_task(task, logger):
     if task not in [f"{domain}_{task}" for domain, task in suite.ALL_TASKS]:
@@ -165,7 +172,7 @@ def get_env_specs(env, use_pixels, env_type="dmcontrol"):
         action_spec_dict = {
             "low": action_space.low,
             "high": action_space.high,
-            "shape": action_space.shape
+            "shape": action_space.shape,
         }
     else:
         action_spec = env.action_spec()
@@ -180,7 +187,7 @@ def get_env_specs(env, use_pixels, env_type="dmcontrol"):
         action_spec_dict = {
             "low": action_spec.minimum,
             "high": action_spec.maximum,
-            "shape": action_spec.shape
+            "shape": action_spec.shape,
         }
 
     return obs_shape, action_spec_dict
@@ -200,7 +207,7 @@ def init_training(seed, device, logger):
 
 
 def check_and_sample_batch_from_replay_buffer(
-        replay_buffer, min_replay_size, batch_size
+    replay_buffer, min_replay_size, batch_size
 ):
     if len(replay_buffer) < min_replay_size:
         return None
@@ -231,14 +238,14 @@ def encode_observation(encoder, obs, next_obs):
 
 
 def calculate_losses(
-        td_error1,
-        td_error2,
-        use_double_q,
-        q_optimizer,
-        encoder,
-        encoder_optimizer,
-        weights,
-        huber_loss_parameter,
+    td_error1,
+    td_error2,
+    use_double_q,
+    q_optimizer,
+    encoder,
+    encoder_optimizer,
+    weights,
+    huber_loss_parameter,
 ):
     loss1 = huber_loss(td_error1, huber_loss_parameter)
     loss2 = (

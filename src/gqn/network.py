@@ -28,17 +28,13 @@ class DecoupledQNetwork(nn.Module):
 
     def _create_layer_block(self, input_size, output_size):
         """Create a single layer block with normalization and activation."""
-        return [
-            nn.Linear(input_size, output_size),
-            nn.LayerNorm(output_size),
-            nn.ELU()
-        ]
+        return [nn.Linear(input_size, output_size), nn.LayerNorm(output_size), nn.ELU()]
 
     def _build_q_heads(self, action_dim, layer_size, num_bins):
         """Build separate Q-value heads for each action dimension."""
-        return nn.ModuleList([
-            nn.Linear(layer_size, num_bins) for _ in range(action_dim)
-        ])
+        return nn.ModuleList(
+            [nn.Linear(layer_size, num_bins) for _ in range(action_dim)]
+        )
 
     def forward(self, obs):
         """Forward pass returning per-dimension Q-values."""
@@ -57,8 +53,12 @@ class DualDecoupledQNetwork(nn.Module):
     def __init__(self, obs_dim, action_dim, num_bins, layer_size=512, num_layers=2):
         super().__init__()
 
-        self.q1 = DecoupledQNetwork(obs_dim, action_dim, num_bins, layer_size, num_layers)
-        self.q2 = DecoupledQNetwork(obs_dim, action_dim, num_bins, layer_size, num_layers)
+        self.q1 = DecoupledQNetwork(
+            obs_dim, action_dim, num_bins, layer_size, num_layers
+        )
+        self.q2 = DecoupledQNetwork(
+            obs_dim, action_dim, num_bins, layer_size, num_layers
+        )
 
     def forward(self, obs):
         """Forward pass returning both Q-networks."""

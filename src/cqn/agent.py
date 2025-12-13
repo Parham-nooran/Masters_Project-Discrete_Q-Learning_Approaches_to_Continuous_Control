@@ -95,9 +95,7 @@ class DataAugmentation:
     def _augment_multiview(self, rgb_obs):
         """Apply augmentation to multi-view observations."""
         num_views = rgb_obs.shape[1]
-        augmented_views = [
-            self.aug(rgb_obs[:, v]) for v in range(num_views)
-        ]
+        augmented_views = [self.aug(rgb_obs[:, v]) for v in range(num_views)]
         return torch.stack(augmented_views, dim=1)
 
     def _augment_single_view(self, rgb_obs):
@@ -119,14 +117,14 @@ class BatchProcessor:
         rgb_obs, next_rgb_obs = self._prepare_rgb_observations(tensors)
 
         return {
-            'rgb_obs': rgb_obs,
-            'low_dim_obs': tensors[1],
-            'action': tensors[2],
-            'reward': tensors[3],
-            'discount': tensors[4],
-            'next_rgb_obs': next_rgb_obs,
-            'next_low_dim_obs': tensors[6],
-            'demos': tensors[7],
+            "rgb_obs": rgb_obs,
+            "low_dim_obs": tensors[1],
+            "action": tensors[2],
+            "reward": tensors[3],
+            "discount": tensors[4],
+            "next_rgb_obs": next_rgb_obs,
+            "next_low_dim_obs": tensors[6],
+            "demos": tensors[7],
         }
 
     def _convert_to_tensors(self, batch):
@@ -151,8 +149,9 @@ class BatchProcessor:
 class CriticUpdater:
     """Handles critic network updates."""
 
-    def __init__(self, critic, critic_target, bc_lambda, bc_margin,
-                 critic_lambda, use_logger):
+    def __init__(
+        self, critic, critic_target, bc_lambda, bc_margin, critic_lambda, use_logger
+    ):
         self.critic = critic
         self.critic_target = critic_target
         self.bc_lambda = bc_lambda
@@ -167,11 +166,13 @@ class CriticUpdater:
         target_q_probs = self._compute_target_distribution(batch_data, metrics)
         q_distributions = self._compute_current_distributions(batch_data)
 
-        critic_loss = self._compute_critic_loss(q_distributions, target_q_probs, metrics)
+        critic_loss = self._compute_critic_loss(
+            q_distributions, target_q_probs, metrics
+        )
 
         if self.bc_lambda > 0.0:
             bc_loss = self._compute_behavioral_cloning_loss(
-                q_distributions, batch_data['demos'], metrics
+                q_distributions, batch_data["demos"], metrics
             )
             critic_loss = critic_loss + bc_loss
 
@@ -181,16 +182,15 @@ class CriticUpdater:
         """Compute target Q-value distribution."""
         with torch.no_grad():
             next_action, action_metrics = self.critic.get_action(
-                batch_data['next_rgb_obs'],
-                batch_data['next_low_dim_obs']
+                batch_data["next_rgb_obs"], batch_data["next_low_dim_obs"]
             )
 
             target_q_probs = self.critic_target.compute_target_q_dist(
-                batch_data['next_rgb_obs'],
-                batch_data['next_low_dim_obs'],
+                batch_data["next_rgb_obs"],
+                batch_data["next_low_dim_obs"],
                 next_action,
-                batch_data['reward'],
-                batch_data['discount']
+                batch_data["reward"],
+                batch_data["discount"],
             )
 
             if self.use_logger:
@@ -201,23 +201,20 @@ class CriticUpdater:
     def _compute_current_distributions(self, batch_data):
         """Compute current Q-value distributions."""
         q_probs, q_probs_a, log_q_probs, log_q_probs_a = self.critic(
-            batch_data['rgb_obs'],
-            batch_data['low_dim_obs'],
-            batch_data['action']
+            batch_data["rgb_obs"], batch_data["low_dim_obs"], batch_data["action"]
         )
 
         return {
-            'q_probs': q_probs,
-            'q_probs_a': q_probs_a,
-            'log_q_probs': log_q_probs,
-            'log_q_probs_a': log_q_probs_a,
+            "q_probs": q_probs,
+            "q_probs_a": q_probs_a,
+            "log_q_probs": log_q_probs,
+            "log_q_probs_a": log_q_probs_a,
         }
 
     def _compute_critic_loss(self, q_distributions, target_q_probs, metrics):
         """Compute base critic loss."""
         q_critic_loss = -torch.sum(
-            target_q_probs * q_distributions['log_q_probs_a'],
-            dim=3
+            target_q_probs * q_distributions["log_q_probs_a"], dim=3
         ).mean()
 
         if self.use_logger:
@@ -245,8 +242,8 @@ class CriticUpdater:
 
     def _compute_fosd_loss(self, q_distributions, demos, metrics):
         """Compute first-order stochastic dominance loss."""
-        q_probs_cdf = torch.cumsum(q_distributions['q_probs'], dim=-1)
-        q_probs_a_cdf = torch.cumsum(q_distributions['q_probs_a'], dim=-1)
+        q_probs_cdf = torch.cumsum(q_distributions["q_probs"], dim=-1)
+        q_probs_a_cdf = torch.cumsum(q_distributions["q_probs_a"], dim=-1)
 
         fosd_loss = (
             (q_probs_a_cdf.unsqueeze(-2) - q_probs_cdf)
@@ -265,18 +262,17 @@ class CriticUpdater:
     def _compute_margin_loss(self, q_distributions, demos, metrics):
         """Compute margin-based loss for behavioral cloning."""
         qs = (
-                q_distributions['q_probs'] *
-                self.critic.support.expand_as(q_distributions['q_probs'])
+            q_distributions["q_probs"]
+            * self.critic.support.expand_as(q_distributions["q_probs"])
         ).sum(-1)
 
         qs_a = (
-                q_distributions['q_probs_a'] *
-                self.critic.support.expand_as(q_distributions['q_probs_a'])
+            q_distributions["q_probs_a"]
+            * self.critic.support.expand_as(q_distributions["q_probs_a"])
         ).sum(-1)
 
         margin_loss = torch.clamp(
-            self.bc_margin - (qs_a.unsqueeze(-1) - qs),
-            min=0
+            self.bc_margin - (qs_a.unsqueeze(-1) - qs), min=0
         ).mean([-1, -2, -3])
 
         margin_loss = (margin_loss * demos).sum() / demos.sum()
@@ -315,8 +311,8 @@ class NetworkUpdater:
         """Soft update target network parameters."""
         for param, target_param in zip(critic.parameters(), critic_target.parameters()):
             target_param.data.copy_(
-                self.critic_target_tau * param.data +
-                (1 - self.critic_target_tau) * target_param.data
+                self.critic_target_tau * param.data
+                + (1 - self.critic_target_tau) * target_param.data
             )
 
 
@@ -324,12 +320,37 @@ class CQNAgent:
     """Coarse-to-Fine Q-Network agent for continuous control."""
 
     def __init__(
-            self,
+        self,
+        rgb_obs_shape,
+        low_dim_obs_shape,
+        action_shape,
+        device,
+        lr,
+        feature_dim,
+        hidden_dim,
+        levels,
+        bins,
+        atoms,
+        v_min,
+        v_max,
+        bc_lambda,
+        bc_margin,
+        critic_lambda,
+        critic_target_tau,
+        weight_decay,
+        num_expl_steps,
+        update_every_steps,
+        stddev_schedule,
+        use_logger,
+    ):
+        self.device = device
+        self.update_every_steps = update_every_steps
+        self.use_logger = use_logger
+
+        self._initialize_networks(
             rgb_obs_shape,
             low_dim_obs_shape,
             action_shape,
-            device,
-            lr,
             feature_dim,
             hidden_dim,
             levels,
@@ -337,36 +358,34 @@ class CQNAgent:
             atoms,
             v_min,
             v_max,
-            bc_lambda,
-            bc_margin,
-            critic_lambda,
-            critic_target_tau,
-            weight_decay,
-            num_expl_steps,
-            update_every_steps,
-            stddev_schedule,
-            use_logger,
-    ):
-        self.device = device
-        self.update_every_steps = update_every_steps
-        self.use_logger = use_logger
-
-        self._initialize_networks(
-            rgb_obs_shape, low_dim_obs_shape, action_shape,
-            feature_dim, hidden_dim, levels, bins, atoms, v_min, v_max
         )
 
         self._initialize_optimizers(lr, weight_decay)
         self._initialize_components(
-            bc_lambda, bc_margin, critic_lambda,
-            critic_target_tau, num_expl_steps, stddev_schedule
+            bc_lambda,
+            bc_margin,
+            critic_lambda,
+            critic_target_tau,
+            num_expl_steps,
+            stddev_schedule,
         )
 
         self.train()
         self.critic_target.eval()
 
-    def _initialize_networks(self, rgb_obs_shape, low_dim_obs_shape, action_shape,
-                             feature_dim, hidden_dim, levels, bins, atoms, v_min, v_max):
+    def _initialize_networks(
+        self,
+        rgb_obs_shape,
+        low_dim_obs_shape,
+        action_shape,
+        feature_dim,
+        hidden_dim,
+        levels,
+        bins,
+        atoms,
+        v_min,
+        v_max,
+    ):
         """Initialize encoder and critic networks."""
         self.encoder = MultiViewCNNEncoder(rgb_obs_shape).to(self.device)
         self.is_multiview = len(rgb_obs_shape) == 4
@@ -402,26 +421,26 @@ class CQNAgent:
     def _initialize_optimizers(self, lr, weight_decay):
         """Initialize optimizers for encoder and critic."""
         self.encoder_opt = torch.optim.AdamW(
-            self.encoder.parameters(),
-            lr=lr,
-            weight_decay=weight_decay
+            self.encoder.parameters(), lr=lr, weight_decay=weight_decay
         )
         self.critic_opt = torch.optim.AdamW(
-            self.critic.parameters(),
-            lr=lr,
-            weight_decay=weight_decay
+            self.critic.parameters(), lr=lr, weight_decay=weight_decay
         )
 
-    def _initialize_components(self, bc_lambda, bc_margin,
-                               critic_lambda, critic_target_tau, num_expl_steps,
-                               stddev_schedule):
+    def _initialize_components(
+        self,
+        bc_lambda,
+        bc_margin,
+        critic_lambda,
+        critic_target_tau,
+        num_expl_steps,
+        stddev_schedule,
+    ):
         """Initialize agent components."""
         self.action_selector = ActionSelector(stddev_schedule, num_expl_steps)
         self.data_augmentation = DataAugmentation(self.is_multiview)
         self.batch_processor = BatchProcessor(
-            self.device,
-            self.data_augmentation,
-            self.encoder
+            self.device, self.data_augmentation, self.encoder
         )
         self.critic_updater = CriticUpdater(
             self.critic,
@@ -429,12 +448,10 @@ class CQNAgent:
             bc_lambda,
             bc_margin,
             critic_lambda,
-            self.use_logger
+            self.use_logger,
         )
         self.network_updater = NetworkUpdater(
-            self.encoder_opt,
-            self.critic_opt,
-            critic_target_tau
+            self.encoder_opt, self.critic_opt, critic_target_tau
         )
 
     def train(self, training=True):
@@ -489,5 +506,5 @@ class CQNAgent:
         """Compute additional metrics for logging."""
         metrics = {}
         if self.use_logger:
-            metrics["batch_reward"] = batch_data['reward'].mean().item()
+            metrics["batch_reward"] = batch_data["reward"].mean().item()
         return metrics

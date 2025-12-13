@@ -46,8 +46,7 @@ class Discretizer:
     def _create_decoupled_bins(self):
         """Create separate bins for each action dimension."""
         bins_per_dim = [
-            self._create_bins_for_dimension(dim)
-            for dim in range(self.action_dim)
+            self._create_bins_for_dimension(dim) for dim in range(self.action_dim)
         ]
         return torch.stack(bins_per_dim)
 
@@ -62,8 +61,7 @@ class Discretizer:
     def _create_coupled_bins(self):
         """Create joint bins for all action dimensions."""
         bins_per_dim = [
-            self._create_bins_for_dimension(i)
-            for i in range(self.action_dim)
+            self._create_bins_for_dimension(i) for i in range(self.action_dim)
         ]
         mesh = self._create_meshgrid_from_bins(bins_per_dim)
         return self._flatten_meshgrid(mesh)

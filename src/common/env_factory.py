@@ -1,4 +1,5 @@
 """Factory for creating environments from different sources."""
+
 import metaworld
 import ogbench
 from dm_control import suite
@@ -30,7 +31,9 @@ def create_dmcontrol_env(domain_name, task_name, seed=0):
     Returns:
         dm_control environment
     """
-    env = suite.load(domain_name=domain_name, task_name=task_name, task_kwargs={'random': seed})
+    env = suite.load(
+        domain_name=domain_name, task_name=task_name, task_kwargs={"random": seed}
+    )
     return env
 
 
@@ -61,9 +64,9 @@ class OGBenchWrapper:
         self.env = env
         self.seed = seed
         self._step_count = 0
-        if hasattr(self.env, 'spec') and hasattr(self.env.spec, 'max_episode_steps'):
+        if hasattr(self.env, "spec") and hasattr(self.env.spec, "max_episode_steps"):
             self._max_episode_steps = self.env.spec.max_episode_steps
-        elif hasattr(self.env, '_max_episode_steps'):
+        elif hasattr(self.env, "_max_episode_steps"):
             self._max_episode_steps = self.env._max_episode_steps
         else:
             self._max_episode_steps = 1000
@@ -115,11 +118,13 @@ class OGBenchWrapper:
         """Get observation specification."""
         obs_space = self.env.observation_space
 
-        if hasattr(obs_space, 'shape'):
-            return {'observations': type('obj', (), {'shape': obs_space.shape})}
+        if hasattr(obs_space, "shape"):
+            return {"observations": type("obj", (), {"shape": obs_space.shape})}
         else:
-            return {k: type('obj', (), {'shape': v.shape})
-                    for k, v in obs_space.spaces.items()}
+            return {
+                k: type("obj", (), {"shape": v.shape})
+                for k, v in obs_space.spaces.items()
+            }
 
 
 class MetaworldWrapper:
@@ -129,9 +134,9 @@ class MetaworldWrapper:
         self.env = env
         self.seed = seed
         self._step_count = 0
-        if hasattr(self.env, 'spec') and hasattr(self.env.spec, 'max_episode_steps'):
+        if hasattr(self.env, "spec") and hasattr(self.env.spec, "max_episode_steps"):
             self._max_episode_steps = self.env.spec.max_episode_steps
-        elif hasattr(self.env, '_max_episode_steps'):
+        elif hasattr(self.env, "_max_episode_steps"):
             self._max_episode_steps = self.env._max_episode_steps
         else:
             self._max_episode_steps = 500
@@ -183,8 +188,10 @@ class MetaworldWrapper:
         """Get observation specification."""
         obs_space = self.env.observation_space
 
-        if hasattr(obs_space, 'shape'):
-            return {'observations': type('obj', (), {'shape': obs_space.shape})}
+        if hasattr(obs_space, "shape"):
+            return {"observations": type("obj", (), {"shape": obs_space.shape})}
         else:
-            return {k: type('obj', (), {'shape': v.shape})
-                    for k, v in obs_space.spaces.items()}
+            return {
+                k: type("obj", (), {"shape": v.shape})
+                for k, v in obs_space.spaces.items()
+            }

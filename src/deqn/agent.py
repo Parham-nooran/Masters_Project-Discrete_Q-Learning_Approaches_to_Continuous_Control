@@ -35,8 +35,9 @@ def _compute_target_values(q_target_values, rewards, discounts, dones):
     return rewards + discounts * q_target_values * ~dones
 
 
-def _compute_coupled_targets(q1_online, q2_online, q1_target, q2_target,
-                             rewards, dones, discounts):
+def _compute_coupled_targets(
+    q1_online, q2_online, q1_target, q2_target, rewards, dones, discounts
+):
     """Compute coupled targets for non-decoupled mode."""
     q_avg = _compute_average_q_values(q1_online, q2_online)
     next_actions = _select_argmax_actions(q_avg)
@@ -92,11 +93,7 @@ class DecQNAgent:
 
     def _create_discretizer(self):
         """Create action discretizer."""
-        return Discretizer(
-            self.action_spec,
-            self.config.num_bins,
-            self.config.decouple
-        )
+        return Discretizer(self.action_spec, self.config.num_bins, self.config.decouple)
 
     def _calculate_state_input_size(self):
         """Calculate input size for state observations."""
@@ -119,10 +116,7 @@ class DecQNAgent:
 
     def _create_encoder_optimizer(self):
         """Create optimizer for encoder."""
-        return optim.Adam(
-            self.encoder.parameters(),
-            lr=self.config.learning_rate
-        )
+        return optim.Adam(self.encoder.parameters(), lr=self.config.learning_rate)
 
     def _setup_networks(self, encoder_output_size):
         """Initialize Q-networks."""
@@ -143,10 +137,7 @@ class DecQNAgent:
 
     def _create_q_optimizer(self):
         """Create optimizer for Q-network."""
-        return optim.Adam(
-            self.q_network.parameters(),
-            lr=self.config.learning_rate
-        )
+        return optim.Adam(self.q_network.parameters(), lr=self.config.learning_rate)
 
     def _setup_replay_buffer(self):
         """Initialize prioritized replay buffer."""
@@ -195,9 +186,7 @@ class DecQNAgent:
     def _convert_to_discrete_action(self, action):
         """Convert continuous action to discrete representation."""
         return continuous_to_discrete_action(
-            self.config,
-            self.action_discretizer,
-            action
+            self.config, self.action_discretizer, action
         )
 
     def _is_tensor_action(self, action):
@@ -222,17 +211,13 @@ class DecQNAgent:
             return
 
         discrete_action = self._get_discrete_action(action)
-        self.replay_buffer.add(
-            self.last_obs, discrete_action, reward, next_obs, done
-        )
+        self.replay_buffer.add(self.last_obs, discrete_action, reward, next_obs, done)
         self.last_obs = self._detach_observation(next_obs)
 
     def _sample_batch(self):
         """Sample batch from replay buffer."""
         return check_and_sample_batch_from_replay_buffer(
-            self.replay_buffer,
-            self.config.min_replay_size,
-            self.config.num_bins
+            self.replay_buffer, self.config.min_replay_size, self.config.num_bins
         )
 
     def _unpack_batch(self, batch):
@@ -270,8 +255,9 @@ class DecQNAgent:
         self._update_replay_priorities(indices, td_error1, td_error2)
         self._update_target_network()
 
-        return self._get_metrics(total_loss, td_error1, td_error2,
-                                 q1_selected, q2_selected)
+        return self._get_metrics(
+            total_loss, td_error1, td_error2, q1_selected, q2_selected
+        )
 
     def _get_current_q_values(self, obs_encoded):
         """Get Q-values from online network."""
@@ -284,21 +270,21 @@ class DecQNAgent:
             q1_online, q2_online = self.q_network(next_obs_encoded)
         return q1_online, q2_online, q1_target, q2_target
 
-    def _calculate_targets(self, q1_online, q2_online, q1_target, q2_target,
-                           rewards, dones, discounts):
+    def _calculate_targets(
+        self, q1_online, q2_online, q1_target, q2_target, rewards, dones, discounts
+    ):
         """Calculate TD targets based on decoupling mode."""
         if self.config.decouple:
             return self._compute_decoupled_targets(
-                q1_online, q2_online, q1_target, q2_target,
-                rewards, dones, discounts
+                q1_online, q2_online, q1_target, q2_target, rewards, dones, discounts
             )
         return _compute_coupled_targets(
-            q1_online, q2_online, q1_target, q2_target,
-            rewards, dones, discounts
+            q1_online, q2_online, q1_target, q2_target, rewards, dones, discounts
         )
 
-    def _compute_td_targets(self, obs_encoded, next_obs_encoded, actions,
-                            rewards, dones, discounts):
+    def _compute_td_targets(
+        self, obs_encoded, next_obs_encoded, actions, rewards, dones, discounts
+    ):
         """Compute TD targets using double Q-learning."""
         q1_current, q2_current = self._get_current_q_values(obs_encoded)
 
@@ -307,8 +293,7 @@ class DecQNAgent:
         )
 
         targets = self._calculate_targets(
-            q1_online, q2_online, q1_target, q2_target,
-            rewards, dones, discounts
+            q1_online, q2_online, q1_target, q2_target, rewards, dones, discounts
         )
 
         q1_selected, q2_selected = self._select_q_values(
@@ -336,8 +321,9 @@ class DecQNAgent:
         action_dim = self.action_discretizer.action_dim
         return torch.arange(action_dim, device=self.device).unsqueeze(0)
 
-    def _gather_target_values(self, q_target_reshaped, batch_idx,
-                              dim_idx, next_actions):
+    def _gather_target_values(
+        self, q_target_reshaped, batch_idx, dim_idx, next_actions
+    ):
         """Gather target Q-values using advanced indexing."""
         return q_target_reshaped[batch_idx, dim_idx, next_actions]
 
@@ -347,8 +333,9 @@ class DecQNAgent:
         q_avg = _compute_average_q_values(q1_selected, q2_selected)
         return q_avg.sum(dim=1) / action_dim
 
-    def _compute_decoupled_targets(self, q1_online, q2_online, q1_target,
-                                   q2_target, rewards, dones, discounts):
+    def _compute_decoupled_targets(
+        self, q1_online, q2_online, q1_target, q2_target, rewards, dones, discounts
+    ):
         """
         Compute decoupled targets following Equation 2 and 4 from paper.
 
@@ -385,8 +372,7 @@ class DecQNAgent:
             return self._select_decoupled_q_values(q1, q2, actions)
         return _select_coupled_q_values(q1, q2, actions)
 
-    def _gather_per_dimension_q_values(self, q_reshaped, batch_idx,
-                                       dim_idx, actions):
+    def _gather_per_dimension_q_values(self, q_reshaped, batch_idx, dim_idx, actions):
         """Gather Q-values for each action dimension."""
         return q_reshaped[batch_idx, dim_idx, actions]
 
@@ -426,7 +412,8 @@ class DecQNAgent:
         )
 
         total_loss = calculate_losses(
-            td_error1, td_error2,
+            td_error1,
+            td_error2,
             self.config.use_double_q,
             self.q_optimizer,
             self.encoder,
@@ -490,17 +477,18 @@ class DecQNAgent:
         if self._should_update_target():
             self._sync_target_network()
 
-    def _get_metrics(self, total_loss, td_error1, td_error2,
-                     q1_selected, q2_selected):
+    def _get_metrics(self, total_loss, td_error1, td_error2, q1_selected, q2_selected):
         """Collect training metrics."""
         return {
             "loss": total_loss.item(),
             "mean_abs_td_error": torch.abs(td_error1).mean().item(),
-            "mean_squared_td_error": (td_error1 ** 2).mean().item(),
+            "mean_squared_td_error": (td_error1**2).mean().item(),
             "q1_mean": q1_selected.mean().item(),
             "q2_mean": q2_selected.mean().item() if self.config.use_double_q else 0,
-            "mse_loss1": (td_error1 ** 2).mean().item(),
-            "mse_loss2": (td_error2 ** 2).mean().item() if self.config.use_double_q else 0,
+            "mse_loss1": (td_error1**2).mean().item(),
+            "mse_loss2": (
+                (td_error2**2).mean().item() if self.config.use_double_q else 0
+            ),
         }
 
     def _create_checkpoint_dict(self, episode):
@@ -519,8 +507,9 @@ class DecQNAgent:
         """Add encoder state to checkpoint if encoder exists."""
         if self.encoder:
             checkpoint["encoder_state_dict"] = self.encoder.state_dict()
-            checkpoint["encoder_optimizer_state_dict"] = \
+            checkpoint["encoder_optimizer_state_dict"] = (
                 self.encoder_optimizer.state_dict()
+            )
 
     def save_checkpoint(self, path, episode):
         """Save agent checkpoint."""
@@ -531,9 +520,7 @@ class DecQNAgent:
     def _load_network_states(self, checkpoint):
         """Load network states from checkpoint."""
         self.q_network.load_state_dict(checkpoint["q_network_state_dict"])
-        self.target_q_network.load_state_dict(
-            checkpoint["target_q_network_state_dict"]
-        )
+        self.target_q_network.load_state_dict(checkpoint["target_q_network_state_dict"])
         self.q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
 
     def _load_training_state(self, checkpoint):

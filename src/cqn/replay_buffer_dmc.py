@@ -208,7 +208,7 @@ class TransitionSampler:
             discount,
             next_rgb_obs,
             next_low_dim_obs,
-            demos
+            demos,
         )
 
     def _create_dummy_low_dim_obs(self):
@@ -299,16 +299,16 @@ class ReplayBuffer(IterableDataset):
     """Replay buffer that loads episodes from disk and samples transitions."""
 
     def __init__(
-            self,
-            replay_dir,
-            max_size,
-            num_workers,
-            nstep,
-            discount,
-            fetch_every,
-            save_snapshot,
-            low_dim_size=1,
-            task_name=None,
+        self,
+        replay_dir,
+        max_size,
+        num_workers,
+        nstep,
+        discount,
+        fetch_every,
+        save_snapshot,
+        low_dim_size=1,
+        task_name=None,
     ):
         self.replay_dir = Path(replay_dir)
         self.num_workers = max(1, num_workers)
@@ -392,15 +392,15 @@ def initialize_worker(worker_id):
 
 
 def make_replay_loader(
-        replay_dir,
-        max_size,
-        batch_size,
-        num_workers,
-        save_snapshot,
-        nstep,
-        discount,
-        low_dim_size=1,
-        task_name=None,
+    replay_dir,
+    max_size,
+    batch_size,
+    num_workers,
+    save_snapshot,
+    nstep,
+    discount,
+    low_dim_size=1,
+    task_name=None,
 ):
     """Create a replay buffer data loader."""
     max_size_per_worker = max_size // max(1, num_workers)

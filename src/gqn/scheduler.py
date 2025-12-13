@@ -80,7 +80,9 @@ class GrowthScheduler:
     def _compute_threshold(self):
         """Compute threshold for adaptive growth (Paper Equation 4)."""
         sign = np.sign(self.moving_avg_mean) if self.moving_avg_mean != 0 else 1
-        threshold = (1.0 - 0.05 * sign) * self.moving_avg_mean + 0.90 * self.moving_avg_std
+        threshold = (
+            1.0 - 0.05 * sign
+        ) * self.moving_avg_mean + 0.90 * self.moving_avg_std
         return threshold
 
     def get_status(self):
@@ -91,10 +93,7 @@ class GrowthScheduler:
 
     def _get_linear_status(self):
         """Get status for linear scheduler."""
-        return {
-            "type": "linear",
-            "growth_episodes": self.growth_episodes
-        }
+        return {"type": "linear", "growth_episodes": self.growth_episodes}
 
     def _get_adaptive_status(self):
         """Get status for adaptive scheduler."""
@@ -102,7 +101,9 @@ class GrowthScheduler:
             "type": "adaptive",
             "moving_avg_mean": self.moving_avg_mean,
             "moving_avg_std": self.moving_avg_std,
-            "threshold": self._compute_threshold() if len(self.return_history) >= 10 else None,
+            "threshold": (
+                self._compute_threshold() if len(self.return_history) >= 10 else None
+            ),
             "history_size": len(self.return_history),
-            "last_growth_episode": self.last_growth_episode
+            "last_growth_episode": self.last_growth_episode,
         }

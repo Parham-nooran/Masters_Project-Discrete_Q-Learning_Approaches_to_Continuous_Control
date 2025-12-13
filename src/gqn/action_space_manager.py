@@ -6,8 +6,12 @@ class ActionSpaceManager:
 
     def __init__(self, action_spec, initial_bins, final_bins, device):
         self.device = device
-        self.action_min = torch.tensor(action_spec["low"], dtype=torch.float32, device=device)
-        self.action_max = torch.tensor(action_spec["high"], dtype=torch.float32, device=device)
+        self.action_min = torch.tensor(
+            action_spec["low"], dtype=torch.float32, device=device
+        )
+        self.action_max = torch.tensor(
+            action_spec["high"], dtype=torch.float32, device=device
+        )
         self.action_dim = len(self.action_min)
 
         self.initial_bins = initial_bins
@@ -51,12 +55,14 @@ class ActionSpaceManager:
             self.action_min[dim],
             self.action_max[dim],
             self.final_bins,
-            device=self.device
+            device=self.device,
         )
 
     def _create_active_mask(self):
         """Create mask for currently active bins."""
-        mask = torch.zeros(self.action_dim, self.final_bins, dtype=torch.bool, device=self.device)
+        mask = torch.zeros(
+            self.action_dim, self.final_bins, dtype=torch.bool, device=self.device
+        )
         active_indices = self._get_active_bin_indices()
 
         for dim in range(self.action_dim):
@@ -98,9 +104,7 @@ class ActionSpaceManager:
     def _cache_active_indices(self):
         """Cache active indices as tensor for efficient lookups."""
         self._active_indices_tensor = torch.tensor(
-            self._get_active_bin_indices(),
-            dtype=torch.long,
-            device=self.device
+            self._get_active_bin_indices(), dtype=torch.long, device=self.device
         )
 
     def discrete_to_continuous(self, discrete_actions):
@@ -110,7 +114,9 @@ class ActionSpaceManager:
         discrete_actions = self._clamp_to_valid_range(discrete_actions)
 
         actual_indices = self._map_to_actual_bin_indices(discrete_actions)
-        continuous_actions = self._gather_continuous_values(actual_indices, discrete_actions.shape[0])
+        continuous_actions = self._gather_continuous_values(
+            actual_indices, discrete_actions.shape[0]
+        )
 
         return continuous_actions
 
@@ -137,7 +143,7 @@ class ActionSpaceManager:
 
     def _ensure_active_indices_cached(self):
         """Ensure active indices tensor is cached."""
-        if not hasattr(self, '_active_indices_tensor'):
+        if not hasattr(self, "_active_indices_tensor"):
             self._cache_active_indices()
 
     def _gather_continuous_values(self, actual_indices, batch_size):
@@ -145,7 +151,7 @@ class ActionSpaceManager:
         continuous_actions = torch.gather(
             self.action_bins.unsqueeze(0).expand(batch_size, -1, -1),
             2,
-            actual_indices.unsqueeze(2)
+            actual_indices.unsqueeze(2),
         ).squeeze(2)
         return continuous_actions
 
@@ -161,8 +167,10 @@ class ActionSpaceManager:
 
     def _expand_active_indices_for_batch(self, batch_size):
         """Expand active indices for batch processing."""
-        return self._active_indices_tensor.unsqueeze(0).unsqueeze(0).expand(
-            batch_size, self.action_dim, -1
+        return (
+            self._active_indices_tensor.unsqueeze(0)
+            .unsqueeze(0)
+            .expand(batch_size, self.action_dim, -1)
         )
 
     def can_grow(self):
@@ -175,5 +183,5 @@ class ActionSpaceManager:
             "current_bins": self.current_bins,
             "stage": self.current_growth_stage,
             "total_stages": len(self.growth_sequence),
-            "sequence": self.growth_sequence
+            "sequence": self.growth_sequence,
         }

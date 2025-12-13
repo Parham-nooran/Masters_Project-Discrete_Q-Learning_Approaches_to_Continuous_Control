@@ -36,7 +36,9 @@ def process_state_observation(dm_obs):
     return np.concatenate(state_parts, dtype=np.float32)
 
 
-def process_observation(dm_obs, use_pixels, device, obs_buffer=None, env_type="dmcontrol") -> torch.Tensor:
+def process_observation(
+    dm_obs, use_pixels, device, obs_buffer=None, env_type="dmcontrol"
+) -> torch.Tensor:
     """Process observation based on type and environment.
 
     Args:

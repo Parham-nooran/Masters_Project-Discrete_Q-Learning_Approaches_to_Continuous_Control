@@ -98,7 +98,10 @@ def _add_hyperparameter_arguments(parser):
         "--min-replay-size", type=int, default=1000, help="Minimum replay buffer size"
     )
     parser.add_argument(
-        "--max-replay-size", type=int, default=1000000, help="Maximum replay buffer size"
+        "--max-replay-size",
+        type=int,
+        default=1000000,
+        help="Maximum replay buffer size",
     )
 
 
@@ -204,7 +207,9 @@ class DecQNTrainer(Logger):
         self.logger.info("Decoupled Q-Networks Agent Setup:")
         self.logger.info(f"  Task: {self.config.task}")
         self.logger.info(f"  Decouple: {self.agent.config.decouple}")
-        self.logger.info(f"  Action dimensions: {self.agent.action_discretizer.action_dim}")
+        self.logger.info(
+            f"  Action dimensions: {self.agent.action_discretizer.action_dim}"
+        )
 
     def _run_training_loop(self, start_episode, metrics_tracker):
         """Execute the main training loop."""
@@ -252,8 +257,9 @@ class DecQNTrainer(Logger):
         """Store transition in agent's replay buffer."""
         self.agent.observe(action, reward, next_obs, done)
 
-    def _collect_episode_metrics(self, episode_reward, steps, episode_time,
-                                 metrics_accumulator):
+    def _collect_episode_metrics(
+        self, episode_reward, steps, episode_time, metrics_accumulator
+    ):
         """Collect metrics for completed episode."""
         averages = metrics_accumulator.get_averages()
         return {
